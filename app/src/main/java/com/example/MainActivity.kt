@@ -79,6 +79,13 @@ enum class NavDestination(val label: String) {
 }
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        @JvmStatic
+        fun isLsposedModuleActiveReal(): Boolean {
+            return false // Hooked by StorageIsolationHook when LSPosed is active
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()

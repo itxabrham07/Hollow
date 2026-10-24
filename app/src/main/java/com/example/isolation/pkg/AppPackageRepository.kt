@@ -95,6 +95,7 @@ class AppPackageRepository(private val context: Context) {
     private fun getRealisticSampleApps(configMap: Map<String, AppIsolationConfig>): List<InstalledAppInfo> {
         val defaultIcon = ContextCompat.getDrawable(context, android.R.drawable.sym_def_app_icon)
         val catalog = listOf(
+            Triple("com.snapchat.android", "Snapchat (Snaps & Camera Roll)", 35),
             Triple("com.tencent.mm", "WeChat (Social & Cloud)", 35),
             Triple("com.zhiliaoapp.musically", "TikTok (Video & Cache)", 35),
             Triple("org.telegram.messenger", "Telegram (Messenger)", 35),

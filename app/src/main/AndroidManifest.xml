@@ -45,6 +45,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <provider
+            android:name="com.example.isolation.provider.IsoVaultConfigProvider"
+            android:authorities="com.aistudio.isovault.xrvf.provider"
+            android:exported="true" />
     </application>
 
 </manifest>

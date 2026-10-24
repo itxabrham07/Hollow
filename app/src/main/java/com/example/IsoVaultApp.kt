@@ -74,6 +74,18 @@ class IsoVaultApp : Application() {
         if (existingConfigs.isEmpty()) {
             val initial = listOf(
                 AppIsolationConfig(
+                    packageName = "com.snapchat.android",
+                    appName = "Snapchat",
+                    isIsolated = true,
+                    isolationMode = IsolationMode.ENCRYPTED_VAULT,
+                    encryptMediaOnly = false,
+                    blockRootPollution = true,
+                    whitelistedFolders = "Download",
+                    totalFilesRedirected = 42,
+                    totalBytesEncrypted = 1024 * 1024 * 22L,
+                    lastAccessedTimestamp = System.currentTimeMillis() - 1000 * 60 * 5
+                ),
+                AppIsolationConfig(
                     packageName = "com.zhiliaoapp.musically",
                     appName = "TikTok",
                     isIsolated = true,

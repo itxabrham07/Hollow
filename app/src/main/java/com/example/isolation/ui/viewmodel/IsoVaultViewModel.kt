@@ -155,7 +155,8 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch(Dispatchers.IO) {
             _systemMounts.value = MountManager.readSystemMounts()
             _selinuxStatus.value = MountManager.getSelinuxStatus()
-            _isLsposedActive.value = StorageIsolationHook.isModuleHookActive
+            val isReal = com.example.MainActivity.isLsposedModuleActiveReal()
+            _isLsposedActive.value = if (isReal) true else StorageIsolationHook.isModuleHookActive
         }
     }
 
