@@ -1,34 +1,30 @@
 package com.example.isolation.hook
 
-import android.os.Build
 import android.util.Log
 import com.example.isolation.model.AuditAction
 import com.example.isolation.model.IsolationMode
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.IXposedHookZygoteInit
 import de.robv.android.xposed.XC_MethodHook
+import de.robv.android.xposed.XposedBridge
+import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 import java.io.File
-import java.lang.reflect.Method
 
 /**
- * IsoVault Official LSPosed & Zygisk Hook Implementation
- * Implements IXposedHookLoadPackage and IXposedHookZygoteInit.
- * Provides actual transparent storage isolation, path redirection, and privacy sandboxing.
+ * IsoVault Official LSPosed Module Hook Implementation
+ * Excluded from APK (compileOnly) to prevent classloader collisions.
  */
 class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
 
     companion object {
         const val TAG = "IsoVaultHook"
-        const val HOOK_VERSION = "2.5.2-android15"
+        const val HOOK_VERSION = "2.5.3-android15"
         const val MODULE_PKG = "com.aistudio.isovault.xrvf"
 
         // In-memory runtime tracking for in-app tests
         @Volatile
-        var isModuleHookActive: Boolean = true
-
-        @Volatile
-        var frameworkName: String = "LSPosed / Zygisk Framework"
+        var isModuleHookActive: Boolean = false
 
         // Listener for in-app live ticker
         var onAccessIntercepted: ((packageName: String, path: String, action: AuditAction, details: String) -> Unit)? = null
@@ -45,12 +41,8 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
         )
 
         init {
-            // Pre-seed known apps including Snapchat so it works immediately
+            // Default target rule for Snapchat so it hooks immediately out of the box
             updateRule("com.snapchat.android", IsolationMode.ENCRYPTED_VAULT, true, setOf("Download"))
-            updateRule("com.zhiliaoapp.musically", IsolationMode.ENCRYPTED_VAULT, true, setOf("Download"))
-            updateRule("com.tencent.mm", IsolationMode.ENCRYPTED_VAULT, true, setOf("Download", "Pictures"))
-            updateRule("org.telegram.messenger", IsolationMode.SANDBOX_REDIRECT, true, setOf("Telegram", "Download"))
-            updateRule("com.whatsapp", IsolationMode.ENCRYPTED_VAULT, true, setOf("WhatsApp Images"))
         }
 
         fun updateRule(
@@ -77,7 +69,6 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
         fun isPackageIsolated(packageName: String): Boolean {
             val rule = localRules[packageName]
             if (rule != null) return rule.isIsolated
-            // Fallback check config file on disk
             return checkRuleFile(packageName)
         }
 
@@ -95,8 +86,7 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             return try {
                 val file = File("/data/local/tmp/isovault_$pkg.rule")
                 if (file.exists() && file.canRead()) {
-                    val text = file.readText().trim()
-                    text.startsWith("true")
+                    file.readText().trim().startsWith("true")
                 } else false
             } catch (_: Exception) {
                 false
@@ -114,16 +104,14 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
 
             val normalized = requestedPath.replace("\\", "/")
 
-            // Root pollution check
             if (rule.blockRootPollution && isRootPollution(normalized)) {
                 onAccessIntercepted?.invoke(packageName, requestedPath, AuditAction.BLOCKED, "Blocked root pollution folder")
                 return PathResolutionResult(requestedPath, "/dev/null", AuditAction.BLOCKED, "Root pollution blocked")
             }
 
-            // Whitelist check
             for (wf in rule.whitelistedFolders) {
                 if (normalized.contains("/$wf", ignoreCase = true)) {
-                    onAccessIntercepted?.invoke(packageName, requestedPath, AuditAction.PERMITTED, "Whitelisted folder pass-through")
+                    onAccessIntercepted?.invoke(packageName, requestedPath, AuditAction.PERMITTED, "Whitelisted folder")
                     return PathResolutionResult(requestedPath, requestedPath, AuditAction.PERMITTED, "Whitelisted folder")
                 }
             }
@@ -183,79 +171,73 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
     override fun initZygote(startupParam: IXposedHookZygoteInit.StartupParam?) {
         isModuleHookActive = true
         Log.i(TAG, "[IsoVault] Zygote initialized successfully on Android 15 runtime.")
-        xposedLog("[IsoVault] Zygote initialized. Storage Isolation Engine active.")
+        XposedBridge.log("[IsoVault] Zygote initialized. Storage Isolation Module active.")
     }
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
-        isModuleHookActive = true
+        val pkg = lpparam.packageName ?: return
 
-        // 1. Hook IsoVault's own Manager App so the UI knows LSPosed is really running
-        if (lpparam.packageName == MODULE_PKG) {
-            hookModuleSelfActive(lpparam)
+        // 1. Hook IsoVault itself so UI knows LSPosed is active
+        if (pkg == MODULE_PKG) {
+            try {
+                XposedHelpers.findAndHookMethod(
+                    "com.example.MainActivity",
+                    lpparam.classLoader,
+                    "isLsposedModuleActiveReal",
+                    object : XC_MethodHook() {
+                        override fun beforeHookedMethod(param: MethodHookParam) {
+                            param.result = true
+                        }
+                    }
+                )
+                XposedBridge.log("[IsoVault] Module self-hook ACTIVE")
+            } catch (t: Throwable) {
+                Log.w(TAG, "Self-hook error: ${t.message}")
+            }
             return
         }
 
-        // 2. Check if target app is selected for isolation (e.g. Snapchat, TikTok, WhatsApp)
-        val pkg = lpparam.packageName ?: return
-        val isTarget = isPackageIsolated(pkg) || pkg == "com.snapchat.android"
+        // 2. Check if this package should be isolated (Snapchat is enabled by default)
+        val shouldIsolate = isPackageIsolated(pkg) || pkg == "com.snapchat.android"
+        if (!shouldIsolate) return
 
-        if (!isTarget) return
-
-        xposedLog("[IsoVault] Attaching storage isolation & encrypted filesystem hooks to: $pkg")
-        Log.i(TAG, "[IsoVault] Attaching hooks to $pkg")
+        XposedBridge.log("[IsoVault] Attaching storage isolation to: $pkg")
+        Log.i(TAG, "[IsoVault] Attaching storage isolation to: $pkg")
 
         try {
             attachStorageHooks(lpparam)
         } catch (t: Throwable) {
-            Log.e(TAG, "[IsoVault] Failed to attach hooks to $pkg: ${t.message}", t)
-            xposedLog("[IsoVault] Error attaching hooks to $pkg: ${t.message}")
-        }
-    }
-
-    private fun hookModuleSelfActive(lpparam: XC_LoadPackage.LoadPackageParam) {
-        try {
-            findAndHookMethod(
-                "com.example.MainActivity",
-                lpparam.classLoader,
-                "isLsposedModuleActiveReal",
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        param.result = true
-                    }
-                }
-            )
-            Log.i(TAG, "[IsoVault] Successfully hooked IsoVault self-status: ACTIVE")
-        } catch (t: Throwable) {
-            Log.w(TAG, "[IsoVault] Self active hook note: ${t.message}")
+            XposedBridge.log("[IsoVault] Error hooking $pkg: ${t.message}")
+            Log.e(TAG, "Error hooking $pkg", t)
         }
     }
 
     private fun attachStorageHooks(lpparam: XC_LoadPackage.LoadPackageParam) {
         val pkg = lpparam.packageName
 
-        // Hook 1: java.io.File(String)
+        // Hook File(String)
         try {
-            findAndHookConstructor(
+            XposedHelpers.findAndHookConstructor(
                 File::class.java,
                 String::class.java,
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         val path = param.args[0] as? String ?: return
                         if (shouldRedirect(path)) {
-                            val newPath = getRedirectedPath(pkg, path)
-                            param.args[0] = newPath
-                            xposedLog("[IsoVault] Redirected File($path) -> $newPath")
+                            val targetPath = getRedirectedPath(pkg, path)
+                            param.args[0] = targetPath
+                            XposedBridge.log("[IsoVault] Redirected File($path) -> $targetPath")
                         }
                     }
                 }
             )
         } catch (t: Throwable) {
-            Log.w(TAG, "File(String) hook: ${t.message}")
+            Log.w(TAG, "File(String) hook error: ${t.message}")
         }
 
-        // Hook 2: java.io.File(String parent, String child)
+        // Hook File(String, String)
         try {
-            findAndHookConstructor(
+            XposedHelpers.findAndHookConstructor(
                 File::class.java,
                 String::class.java,
                 String::class.java,
@@ -272,12 +254,12 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
                 }
             )
         } catch (t: Throwable) {
-            Log.w(TAG, "File(String, String) hook: ${t.message}")
+            Log.w(TAG, "File(String, String) hook error: ${t.message}")
         }
 
-        // Hook 3: android.os.Environment.getExternalStorageDirectory()
+        // Hook Environment.getExternalStorageDirectory()
         try {
-            findAndHookMethod(
+            XposedHelpers.findAndHookMethod(
                 "android.os.Environment",
                 lpparam.classLoader,
                 "getExternalStorageDirectory",
@@ -286,17 +268,17 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
                         val isolatedDir = File("/data/data/$pkg/isolated_storage")
                         isolatedDir.mkdirs()
                         param.result = isolatedDir
-                        xposedLog("[IsoVault] Redirected getExternalStorageDirectory() -> ${isolatedDir.absolutePath}")
+                        XposedBridge.log("[IsoVault] Redirected getExternalStorageDirectory() for $pkg")
                     }
                 }
             )
         } catch (t: Throwable) {
-            Log.w(TAG, "getExternalStorageDirectory hook: ${t.message}")
+            Log.w(TAG, "getExternalStorageDirectory hook error: ${t.message}")
         }
 
-        // Hook 4: android.os.Environment.getExternalStoragePublicDirectory(String type)
+        // Hook Environment.getExternalStoragePublicDirectory(String)
         try {
-            findAndHookMethod(
+            XposedHelpers.findAndHookMethod(
                 "android.os.Environment",
                 lpparam.classLoader,
                 "getExternalStoragePublicDirectory",
@@ -307,12 +289,12 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
                         val isolatedDir = File("/data/data/$pkg/isolated_storage/$type")
                         isolatedDir.mkdirs()
                         param.result = isolatedDir
-                        xposedLog("[IsoVault] Redirected getExternalStoragePublicDirectory($type) -> ${isolatedDir.absolutePath}")
+                        XposedBridge.log("[IsoVault] Redirected getExternalStoragePublicDirectory($type) for $pkg")
                     }
                 }
             )
         } catch (t: Throwable) {
-            Log.w(TAG, "getExternalStoragePublicDirectory hook: ${t.message}")
+            Log.w(TAG, "getExternalStoragePublicDirectory hook error: ${t.message}")
         }
     }
 
@@ -333,47 +315,5 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
         val isolatedDir = File("/data/data/$pkg/isolated_storage")
         try { isolatedDir.mkdirs() } catch (_: Exception) {}
         return File(isolatedDir, rel).absolutePath
-    }
-
-    // Helper to find and hook method via Xposed runtime
-    private fun findAndHookMethod(
-        className: String,
-        classLoader: ClassLoader,
-        methodName: String,
-        vararg parameterTypesAndCallback: Any
-    ) {
-        val xposedHelpersClass = Class.forName("de.robv.android.xposed.XposedHelpers", true, classLoader)
-        val hookMethod: Method = xposedHelpersClass.getMethod(
-            "findAndHookMethod",
-            String::class.java,
-            ClassLoader::class.java,
-            String::class.java,
-            Array<Any>::class.java
-        )
-        hookMethod.invoke(null, className, classLoader, methodName, parameterTypesAndCallback)
-    }
-
-    // Helper to find and hook constructor via Xposed runtime
-    private fun findAndHookConstructor(
-        clazz: Class<*>,
-        vararg parameterTypesAndCallback: Any
-    ) {
-        val xposedHelpersClass = Class.forName("de.robv.android.xposed.XposedHelpers")
-        val hookConstructor: Method = xposedHelpersClass.getMethod(
-            "findAndHookConstructor",
-            Class::class.java,
-            Array<Any>::class.java
-        )
-        hookConstructor.invoke(null, clazz, parameterTypesAndCallback)
-    }
-
-    private fun xposedLog(text: String) {
-        try {
-            val bridgeClass = Class.forName("de.robv.android.xposed.XposedBridge")
-            val logMethod = bridgeClass.getMethod("log", String::class.java)
-            logMethod.invoke(null, text)
-        } catch (_: Exception) {
-            Log.i("Xposed", text)
-        }
     }
 }

@@ -226,16 +226,16 @@ fun LsposedStatusBanner(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     StatusBadge(
-                        text = if (isActive) "ACTIVE" else "STANDALONE",
+                        text = if (isActive) "HOOK ACTIVE" else "NOT HOOKED",
                         color = if (isActive) CyberEmerald else CyberAmber
                     )
                 }
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = if (isActive)
-                        "Zygote64 hook active on Android 15. Intercepting storage I/O."
+                        "Zygote64 hook active on Android 15. Intercepting storage calls."
                     else
-                        "Tap to simulate/toggle active LSPosed hook status.",
+                        "Enable IsoVault in LSPosed Manager -> Add Snapchat to Scope -> Restart App.",
                     fontSize = 12.sp,
                     color = TextSecondary
                 )
