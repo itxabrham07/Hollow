@@ -1,0 +1,6 @@
+{
+  "name": "IsoVault",
+  "description": "LSPosed module & security suite for encrypted storage mounts, virtual filesystem isolation, and privacy redirection on Android 15+",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
