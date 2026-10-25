@@ -34,23 +34,14 @@ interface IsolationDao {
     @Query("UPDATE app_isolation_configs SET isIsolated = :isolated WHERE packageName = :pkg")
     suspend fun setIsolationStatus(pkg: String, isolated: Boolean)
 
-    @Query("UPDATE app_isolation_configs SET useSharedSpace = :useShared WHERE packageName = :pkg")
-    suspend fun setSharedSpaceStatus(pkg: String, useShared: Boolean)
-
-    @Query("UPDATE app_isolation_configs SET volumeQuotaMb = :quotaMb WHERE packageName = :pkg")
-    suspend fun setVolumeQuota(pkg: String, quotaMb: Int)
-
-    @Query("UPDATE app_isolation_configs SET wrappedVolumeKey = :wrappedKey WHERE packageName = :pkg")
-    suspend fun setWrappedVolumeKey(pkg: String, wrappedKey: String)
-
-    @Query("DELETE FROM app_isolation_configs WHERE packageName = :pkg")
-    suspend fun deleteConfigForPackage(pkg: String)
-
     @Query("UPDATE app_isolation_configs SET totalFilesRedirected = totalFilesRedirected + 1, lastAccessedTimestamp = :now WHERE packageName = :pkg")
     suspend fun incrementRedirectCount(pkg: String, now: Long)
 
     @Query("UPDATE app_isolation_configs SET totalBytesEncrypted = totalBytesEncrypted + :bytes WHERE packageName = :pkg")
     suspend fun addEncryptedBytes(pkg: String, bytes: Long)
+
+    @Query("UPDATE app_isolation_configs SET useSharedSpace = :enabled WHERE packageName = :pkg")
+    suspend fun setUseSharedSpace(pkg: String, enabled: Boolean)
 
     // Audit Logs
     @Query("SELECT * FROM access_audit_logs ORDER BY timestamp DESC LIMIT :limit")

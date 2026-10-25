@@ -15,20 +15,32 @@ import com.example.isolation.data.entity.VaultFileItem
 import com.example.isolation.model.AuditAction
 import com.example.isolation.model.IsolationMode
 
-class IsolationConverters {
+class IsoVaultConverters {
     @TypeConverter
     fun fromIsolationMode(mode: IsolationMode): String = mode.name
 
     @TypeConverter
-    fun toIsolationMode(value: String): IsolationMode =
-        IsolationMode.entries.find { it.name == value } ?: IsolationMode.ENCRYPTED_VAULT
+    fun toIsolationMode(name: String): IsolationMode = try {
+        IsolationMode.valueOf(name)
+    } catch (_: Exception) {
+        IsolationMode.ENCRYPTED_VAULT
+    }
 
     @TypeConverter
     fun fromAuditAction(action: AuditAction): String = action.name
 
     @TypeConverter
-    fun toAuditAction(value: String): AuditAction =
-        AuditAction.entries.find { it.name == value } ?: AuditAction.REDIRECTED
+    fun toAuditAction(name: String): AuditAction = try {
+        AuditAction.valueOf(name)
+    } catch (_: Exception) {
+        AuditAction.REDIRECTED
+    }
+}
+
+val MIGRATION_1_2 = object : Migration(1, 2) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN useSharedSpace INTEGER NOT NULL DEFAULT 0")
+    }
 }
 
 @Database(
@@ -40,31 +52,13 @@ class IsolationConverters {
     version = 2,
     exportSchema = false
 )
-@TypeConverters(IsolationConverters::class)
+@TypeConverters(IsoVaultConverters::class)
 abstract class IsoVaultDatabase : RoomDatabase() {
     abstract fun isolationDao(): IsolationDao
 
     companion object {
         @Volatile
         private var INSTANCE: IsoVaultDatabase? = null
-
-        val MIGRATION_1_2 = object : Migration(1, 2) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                val statements = listOf(
-                    "ALTER TABLE app_isolation_configs ADD COLUMN useSharedSpace INTEGER NOT NULL DEFAULT 0",
-                    "ALTER TABLE app_isolation_configs ADD COLUMN volumeQuotaMb INTEGER NOT NULL DEFAULT 0",
-                    "ALTER TABLE app_isolation_configs ADD COLUMN wrappedVolumeKey TEXT NOT NULL DEFAULT ''",
-                    "ALTER TABLE app_isolation_configs ADD COLUMN activeHooksMask INTEGER NOT NULL DEFAULT 31"
-                )
-                for (sql in statements) {
-                    try {
-                        db.execSQL(sql)
-                    } catch (_: Throwable) {
-                        // Column already exists
-                    }
-                }
-            }
-        }
 
         fun getDatabase(context: Context): IsoVaultDatabase {
             return INSTANCE ?: synchronized(this) {
@@ -74,7 +68,6 @@ abstract class IsoVaultDatabase : RoomDatabase() {
                     "isovault_database"
                 )
                     .addMigrations(MIGRATION_1_2)
-                    .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
                 instance

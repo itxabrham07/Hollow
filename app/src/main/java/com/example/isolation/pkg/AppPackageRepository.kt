@@ -19,7 +19,8 @@ data class InstalledAppInfo(
     val isIsolated: Boolean = false,
     val isolationMode: IsolationMode = IsolationMode.ENCRYPTED_VAULT,
     val hasStoragePermission: Boolean = true,
-    val icon: Drawable? = null
+    val icon: Drawable? = null,
+    val useSharedSpace: Boolean = false
 )
 
 class AppPackageRepository(private val context: Context) {
@@ -62,6 +63,7 @@ class AppPackageRepository(private val context: Context) {
                 val config = configMap[pkg]
                 val isIsolated = config?.isIsolated ?: false
                 val mode = config?.isolationMode ?: IsolationMode.ENCRYPTED_VAULT
+                val useShared = config?.useSharedSpace ?: false
 
                 resultMap[pkg] = InstalledAppInfo(
                     packageName = pkg,
@@ -71,7 +73,8 @@ class AppPackageRepository(private val context: Context) {
                     isIsolated = isIsolated,
                     isolationMode = mode,
                     hasStoragePermission = true,
-                    icon = icon
+                    icon = icon,
+                    useSharedSpace = useShared
                 )
             }
         } catch (_: Exception) {}
@@ -102,6 +105,7 @@ class AppPackageRepository(private val context: Context) {
                 val config = configMap[pkg]
                 val isIsolated = config?.isIsolated ?: false
                 val mode = config?.isolationMode ?: IsolationMode.ENCRYPTED_VAULT
+                val useShared = config?.useSharedSpace ?: false
 
                 resultMap[pkg] = InstalledAppInfo(
                     packageName = pkg,
@@ -111,12 +115,12 @@ class AppPackageRepository(private val context: Context) {
                     isIsolated = isIsolated,
                     isolationMode = mode,
                     hasStoragePermission = true,
-                    icon = icon
+                    icon = icon,
+                    useSharedSpace = useShared
                 )
             }
         } catch (_: Exception) {}
 
-        // Always ensure Snapchat is present in the list if configured in database
         configs.forEach { cfg ->
             if (!resultMap.containsKey(cfg.packageName)) {
                 resultMap[cfg.packageName] = InstalledAppInfo(
@@ -127,7 +131,8 @@ class AppPackageRepository(private val context: Context) {
                     isIsolated = cfg.isIsolated,
                     isolationMode = cfg.isolationMode,
                     hasStoragePermission = true,
-                    icon = ContextCompat.getDrawable(context, android.R.drawable.sym_def_app_icon)
+                    icon = ContextCompat.getDrawable(context, android.R.drawable.sym_def_app_icon),
+                    useSharedSpace = cfg.useSharedSpace
                 )
             }
         }

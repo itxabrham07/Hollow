@@ -13,13 +13,11 @@ data class AppIsolationConfig(
     val isolationMode: IsolationMode = IsolationMode.ENCRYPTED_VAULT,
     val encryptMediaOnly: Boolean = false,
     val blockRootPollution: Boolean = true,
-    val whitelistedFolders: String = "Download,Documents", // Comma-separated relative folder names
-    val totalFilesRedirected: Int = 0,
-    val totalBytesEncrypted: Long = 0L,
-    val lastAccessedTimestamp: Long = System.currentTimeMillis(),
-    // v2 Storage Volumes & Hook Status fields
-    val useSharedSpace: Boolean = false,
-    val volumeQuotaMb: Int = 0, // 0 = unlimited
-    val wrappedVolumeKey: String = "", // Base64 AES-256-GCM MasterKey-wrapped 256-bit volume DEK
-    val activeHooksMask: Int = 0x1F // Bitmask: 1=File, 2=Os/IoBridge, 4=MediaStore, 8=Picker, 16=SharedSpace
+    val whitelistedFolders: String = "", // comma-separated
+    val customMountPath: String = "",
+    val totalFilesRedirected: Long = 0,
+    val totalBytesEncrypted: Long = 0,
+    val lastAccessedTimestamp: Long = 0L,
+    val createdAt: Long = System.currentTimeMillis(),
+    val useSharedSpace: Boolean = false
 )

@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "IsoVault"
+rootProject.name = "Hollow"
 
 include(":app")

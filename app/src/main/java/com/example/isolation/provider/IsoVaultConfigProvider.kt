@@ -3,7 +3,6 @@ package com.example.isolation.provider
 import android.content.ContentProvider
 import android.content.ContentValues
 import android.content.Context
-import android.content.UriMatcher
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
@@ -11,374 +10,141 @@ import android.os.Binder
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import android.os.Process
+import android.util.Log
 import com.example.IsoVaultApp
 import com.example.isolation.crypto.AesVaultCipher
-import com.example.isolation.data.IsoVaultDatabase
+import com.example.isolation.crypto.VaultLockManager
 import com.example.isolation.data.entity.AccessAuditLog
+import com.example.isolation.data.entity.AppIsolationConfig
+import com.example.isolation.data.entity.VaultFileItem
 import com.example.isolation.model.AuditAction
+import com.example.isolation.model.IsolationMode
 import com.example.isolation.model.IsolationRuleManager
-import com.example.isolation.model.VaultLockState
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.io.FileInputStream
-import java.io.FileNotFoundException
 import java.io.FileOutputStream
-import java.nio.file.Files
 import java.util.concurrent.ConcurrentHashMap
-import javax.crypto.SecretKey
-import kotlin.concurrent.thread
+import java.util.concurrent.Executors
 
 /**
- * Hardened Cross-Process Configuration & IPC ContentProvider for IsoVault and LSPosed Hooked Apps.
+ * World-accessible ContentProvider enabling hooked target apps to query isolation rules,
+ * check file stats, and securely stream encrypted file I/O through pipes.
  *
- * Security invariants:
- * 1. Storage Location: All volume data is strictly stored in the Vault app's private internal storage (filesDir).
- *    Never exposes raw filesystem paths or relies on world-readable storage.
- * 2. Restricted openFile(): Returns streaming ParcelFileDescriptor pipes so encryption and decryption
- *    always happen inside the Vault process, never in the target app.
- * 3. Identity Verification: Verifies Binder.getCallingUid() and package ownership against an enabled rule every time.
- * 4. Volume Scoping: The caller may only open files inside ITS OWN volume (plus Shared Space if useSharedSpace is on).
- * 5. Path Sanitization: Resolves paths with canonical paths, strictly rejecting "..", symlinks, and absolute paths.
- * 6. Fail-Closed: Rejects everything for locked vaults or unknown callers.
- * 7. Rate Limiting & Auditing: Rate-limits requests per UID and logs audit records for permitted and denied calls.
+ * Enforces strict Binder.getCallingUid() authentication, per-volume isolation,
+ * canonical path traversal prevention, and zero-leakage fail-closed security.
  */
 class IsoVaultConfigProvider : ContentProvider() {
 
     companion object {
         const val AUTHORITY = "com.aistudio.isovault.xrvf.provider"
         val CONTENT_URI: Uri = Uri.parse("content://$AUTHORITY/rules")
-        val OPEN_URI: Uri = Uri.parse("content://$AUTHORITY/open")
+        val VAULT_URI: Uri = Uri.parse("content://$AUTHORITY/vault")
+        private const val TAG = "HollowProvider"
 
-        private const val CODE_ALL_RULES = 1
-        private const val CODE_PACKAGE_RULE = 2
-        private const val CODE_OPEN_FILE = 3
+        private val deniedAuditCache = ConcurrentHashMap<String, Long>()
+        private val ioExecutor = Executors.newCachedThreadPool()
+        private val providerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-        private const val MAX_CALLS_PER_WINDOW = 60
-        private const val RATE_WINDOW_MS = 10_000L
-        private const val MAX_SANITIZED_LENGTH = 260
-
-        private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH).apply {
-            addURI(AUTHORITY, "rules", CODE_ALL_RULES)
-            addURI(AUTHORITY, "rules/*", CODE_PACKAGE_RULE)
-            addURI(AUTHORITY, "open", CODE_OPEN_FILE)
-            addURI(AUTHORITY, "volume/*/*", CODE_OPEN_FILE)
+        fun notifyRuleChanged(context: Context, packageName: String) {
+            try {
+                val uri = Uri.withAppendedPath(CONTENT_URI, packageName)
+                context.contentResolver.notifyChange(uri, null)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to notify provider change: ${e.message}")
+            }
         }
     }
-
-    private data class RateBucket(var windowStartMs: Long, var count: Int)
-    private val rateLimiter = ConcurrentHashMap<Int, RateBucket>()
 
     override fun onCreate(): Boolean = true
 
     /**
-     * Checks per-UID rate limit to prevent flooding or DoS attacks.
+     * Validates caller UID, verifies package mapping, enforces vault unlock state,
+     * and returns the active AppIsolationConfig. Fails closed.
      */
-    private fun checkRateLimit(callingUid: Int): Boolean {
-        if (callingUid == Process.myUid()) return true
-        val now = System.currentTimeMillis()
-        val bucket = rateLimiter.compute(callingUid) { _, existing ->
-            if (existing == null || now - existing.windowStartMs > RATE_WINDOW_MS) {
-                RateBucket(now, 1)
-            } else {
-                existing.count += 1
-                existing
-            }
+    private fun authenticateCaller(requestedPkgHint: String? = null): Pair<String, AppIsolationConfig> {
+        val callingUid = Binder.getCallingUid()
+        val myUid = Process.myUid()
+        val ctx = context ?: throw SecurityException("Provider context null")
+
+        // Hollow Manager process itself
+        if (callingUid == myUid) {
+            val pkg = requestedPkgHint ?: ctx.packageName
+            val config = getAppConfig(pkg) ?: AppIsolationConfig(
+                packageName = pkg,
+                appName = "Hollow",
+                isIsolated = true,
+                isolationMode = IsolationMode.ENCRYPTED_VAULT,
+                useSharedSpace = true
+            )
+            return Pair(pkg, config)
         }
-        return (bucket?.count ?: 0) <= MAX_CALLS_PER_WINDOW
-    }
 
-    /**
-     * Verifies that Binder.getCallingUid() owns targetPackage (or is the Vault manager itself).
-     */
-    private fun isCallerAuthorizedForPackage(callingUid: Int, targetPackage: String): Boolean {
-        if (callingUid == Process.myUid() || callingUid == Process.SYSTEM_UID || callingUid == 0) {
-            return true
+        // Map callingUid to verified package names
+        val packages = ctx.packageManager.getPackagesForUid(callingUid)
+        if (packages.isNullOrEmpty()) {
+            recordDeniedAudit("uid:$callingUid", "unknown", "Unmapped caller UID $callingUid")
+            throw SecurityException("Caller UID $callingUid cannot be mapped to an installed package.")
         }
-        val ctx = context ?: return false
-        val packagesForUid = try {
-            ctx.packageManager.getPackagesForUid(callingUid)?.toSet() ?: emptySet()
-        } catch (_: Throwable) {
-            emptySet()
+
+        val callingPkg = if (requestedPkgHint != null && packages.contains(requestedPkgHint)) {
+            requestedPkgHint
+        } else {
+            packages[0]
         }
-        return targetPackage in packagesForUid
-    }
 
-    private fun getCallerPackages(callingUid: Int): Set<String> {
-        val ctx = context ?: return emptySet()
-        if (callingUid == Process.myUid()) return setOf(ctx.packageName)
-        return try {
-            ctx.packageManager.getPackagesForUid(callingUid)?.toSet() ?: emptySet()
-        } catch (_: Throwable) {
-            emptySet()
+        // Check if vault is locked
+        if (VaultLockManager.isLocked.value) {
+            recordDeniedAudit(callingPkg, "vault", "Vault locked by user")
+            throw SecurityException("Hollow vault is locked.")
         }
+
+        // Check isolation config
+        val config = getAppConfig(callingPkg)
+        if (config == null || !config.isIsolated) {
+            recordDeniedAudit(callingPkg, "rules", "No active isolation rule configured for $callingPkg")
+            throw SecurityException("Package $callingPkg is not authorized for vault isolation.")
+        }
+
+        return Pair(callingPkg, config)
     }
 
-    private fun sanitizeInput(raw: String?, maxLen: Int = MAX_SANITIZED_LENGTH): String {
-        if (raw.isNullOrBlank()) return ""
-        return raw
-            .replace(Regex("[\\p{Cntrl}]"), "")
-            .trim()
-            .take(maxLen)
-    }
-
-    private fun getSandboxesBaseDir(ctx: Context): File {
-        return File(ctx.filesDir, "vault_sandboxes").apply { if (!exists()) mkdirs() }
-    }
-
-    private fun getSharedSpaceDir(ctx: Context): File {
-        return File(ctx.filesDir, "vault_shared_space").apply { if (!exists()) mkdirs() }
-    }
-
-    private fun logAuditAsync(
-        pkg: String,
-        path: String,
-        resolved: String,
-        action: AuditAction,
-        details: String,
-        bytes: Long = 0L
-    ) {
-        val ctx = context ?: return
-        val db = IsoVaultDatabase.getDatabase(ctx)
-        val app = IsoVaultApp.instanceOrNull()
-        val scope = app?.applicationScope
-        scope?.launch {
+    private fun getAppConfig(pkg: String): AppIsolationConfig? {
+        val app = context?.applicationContext as? IsoVaultApp
+        return if (app != null) {
             try {
-                val cfg = db.isolationDao().getConfigForPackage(pkg)
-                val appName = cfg?.appName ?: pkg.substringAfterLast('.')
-                db.isolationDao().insertAuditLog(
+                runBlocking { app.database.isolationDao().getConfigForPackage(pkg) }
+            } catch (_: Throwable) { null }
+        } else null
+    }
+
+    private fun recordDeniedAudit(pkg: String, path: String, reason: String) {
+        val key = "$pkg|$path"
+        val now = System.currentTimeMillis()
+        val last = deniedAuditCache[key] ?: 0L
+        if (now - last < 3500L) return
+        deniedAuditCache[key] = now
+
+        val app = context?.applicationContext as? IsoVaultApp ?: return
+        providerScope.launch {
+            try {
+                val dao = app.database.isolationDao()
+                dao.insertAuditLog(
                     AccessAuditLog(
                         packageName = pkg,
-                        appName = appName,
+                        appName = pkg.substringAfterLast('.'),
                         requestedPath = path,
-                        targetResolvedPath = resolved,
-                        action = action,
-                        operation = "IPC_${action.name}",
-                        details = details
+                        targetResolvedPath = "/dev/null",
+                        action = AuditAction.BLOCKED,
+                        operation = "DENIED",
+                        details = reason
                     )
                 )
-                if (action != AuditAction.BLOCKED) {
-                    db.isolationDao().incrementRedirectCount(pkg, System.currentTimeMillis())
-                    if (bytes > 0L) {
-                        db.isolationDao().addEncryptedBytes(pkg, bytes)
-                    }
-                }
-            } catch (_: Exception) {}
-        }
-    }
-
-    /**
-     * Resolves and verifies the target file path inside the volume sandbox.
-     * Enforces canonical path checks and rejects "..", symlinks, and absolute paths.
-     */
-    private fun resolveAndVerifyVolumeFile(
-        ctx: Context,
-        pkg: String,
-        space: String,
-        rawRelativePath: String
-    ): Pair<File, SecretKey> {
-        val cleanRel = rawRelativePath.trimStart('/', '\\')
-
-        if (cleanRel.isBlank() ||
-            cleanRel.startsWith("/") ||
-            cleanRel.contains("..") ||
-            cleanRel.contains("\\") ||
-            cleanRel.contains("\u0000")
-        ) {
-            throw SecurityException("Rejected invalid relative path: path traversal or control characters detected")
-        }
-
-        val baseDir = if (space.equals("shared", ignoreCase = true)) {
-            getSharedSpaceDir(ctx)
-        } else {
-            File(getSandboxesBaseDir(ctx), pkg).apply { if (!exists()) mkdirs() }
-        }
-
-        val canonicalBase = baseDir.canonicalPath
-        val targetFile = File(baseDir, cleanRel)
-        val canonicalTarget = targetFile.canonicalPath
-
-        if (!canonicalTarget.startsWith(canonicalBase + File.separator) && canonicalTarget != canonicalBase) {
-            throw SecurityException("Access denied: path escapes volume boundaries")
-        }
-
-        // Check if any existing component in the path is a symbolic link
-        var checkFile: File? = targetFile
-        while (checkFile != null && checkFile.canonicalPath.startsWith(canonicalBase)) {
-            if (checkFile.exists() && Files.isSymbolicLink(checkFile.toPath())) {
-                throw SecurityException("Access denied: symbolic links are strictly prohibited")
-            }
-            if (checkFile.canonicalPath == canonicalBase) break
-            checkFile = checkFile.parentFile
-        }
-
-        // Resolve encryption key for this volume
-        val db = IsoVaultDatabase.getDatabase(ctx)
-        val volumeKey: SecretKey = if (space.equals("shared", ignoreCase = true)) {
-            AesVaultCipher.getMasterKey()
-        } else {
-            val cfg = runBlocking(Dispatchers.IO) { db.isolationDao().getConfigForPackage(pkg) }
-            if (cfg != null && cfg.wrappedVolumeKey.isNotBlank()) {
-                try {
-                    AesVaultCipher.unwrapVolumeKey(cfg.wrappedVolumeKey)
-                } catch (_: Throwable) {
-                    AesVaultCipher.getMasterKey()
-                }
-            } else {
-                AesVaultCipher.getMasterKey()
-            }
-        }
-
-        return Pair(targetFile, volumeKey)
-    }
-
-    /**
-     * Strictly restricted openFile() returning streaming ParcelFileDescriptor pipes.
-     *
-     * Invariants:
-     * - Authenticates caller UID against an enabled rule.
-     * - Fails closed if vault is locked or caller is unauthorized.
-     * - Performs real-time AES256_GCM_HKDF_4KB streaming encryption (for writes)
-     *   and decryption (for reads) inside the Vault process.
-     */
-    override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor? {
-        val ctx = context ?: throw SecurityException("Provider context not available")
-        val callingUid = Binder.getCallingUid()
-
-        if (!checkRateLimit(callingUid)) {
-            logAuditAsync("unknown", uri.toString(), "DENIED", AuditAction.BLOCKED, "Rate limit exceeded on openFile")
-            throw SecurityException("Rate limit exceeded")
-        }
-
-        // Fail-Closed: Check if Vault is locked
-        if (VaultLockState.isLocked(ctx)) {
-            logAuditAsync("unknown", uri.toString(), "DENIED", AuditAction.BLOCKED, "Vault is locked (fail-closed)")
-            throw SecurityException("IsoVault is currently locked")
-        }
-
-        // Parse query params or path segments
-        val pkgParam = sanitizeInput(uri.getQueryParameter("pkg"), 128)
-        val spaceParam = sanitizeInput(uri.getQueryParameter("space"), 32).ifEmpty {
-            if (uri.pathSegments.contains("shared")) "shared" else "private"
-        }
-        val relPathParam = uri.getQueryParameter("path") ?: run {
-            val segments = uri.pathSegments
-            val volIdx = segments.indexOf("volume")
-            if (volIdx >= 0 && volIdx + 2 < segments.size) {
-                segments.subList(volIdx + 2, segments.size).joinToString("/")
-            } else {
-                ""
-            }
-        }
-
-        val callerPkgs = getCallerPackages(callingUid)
-        val effectivePkg = if (pkgParam.isNotEmpty()) {
-            if (!isCallerAuthorizedForPackage(callingUid, pkgParam)) {
-                logAuditAsync(pkgParam, uri.toString(), "DENIED", AuditAction.BLOCKED, "Caller UID $callingUid unauthorized for $pkgParam")
-                throw SecurityException("Caller UID unauthorized for package: $pkgParam")
-            }
-            pkgParam
-        } else {
-            if (callerPkgs.isEmpty()) {
-                throw SecurityException("Could not identify caller package")
-            }
-            callerPkgs.first()
-        }
-
-        // Verify rule in database
-        val db = IsoVaultDatabase.getDatabase(ctx)
-        val cfg = runBlocking(Dispatchers.IO) { db.isolationDao().getConfigForPackage(effectivePkg) }
-        val isSelf = (callingUid == Process.myUid())
-
-        if (!isSelf && (cfg == null || !cfg.isIsolated)) {
-            logAuditAsync(effectivePkg, uri.toString(), "DENIED", AuditAction.BLOCKED, "Package $effectivePkg is not isolated")
-            throw SecurityException("Package is not isolated in IsoVault")
-        }
-
-        // Verify shared space permissions
-        if (spaceParam.equals("shared", ignoreCase = true) && !isSelf && (cfg == null || !cfg.useSharedSpace)) {
-            logAuditAsync(effectivePkg, uri.toString(), "DENIED", AuditAction.BLOCKED, "Attempted Shared Space access without opt-in")
-            throw SecurityException("Shared space is not enabled for this package")
-        }
-
-        val (targetFile, volumeKey) = try {
-            resolveAndVerifyVolumeFile(ctx, effectivePkg, spaceParam, relPathParam)
-        } catch (se: SecurityException) {
-            logAuditAsync(effectivePkg, relPathParam, "DENIED", AuditAction.BLOCKED, se.message ?: "Path verification failed")
-            throw se
-        }
-
-        val isWrite = mode.contains("w") || mode.contains("rw") || mode.contains("a")
-
-        return if (isWrite) {
-            // Write Mode: Create streaming encryption pipe.
-            // Caller writes plaintext -> Pipe -> Vault process encrypts with AES-256-GCM chunked stream to disk.
-            targetFile.parentFile?.mkdirs()
-            val pipe = ParcelFileDescriptor.createPipe()
-            val readSide = pipe[0]
-            val writeSide = pipe[1]
-
-            thread(name = "IsoVault-EncryptStream-$effectivePkg", isDaemon = true) {
-                try {
-                    ParcelFileDescriptor.AutoCloseInputStream(readSide).use { pipeIn ->
-                        val tempFile = File(targetFile.parentFile, "${targetFile.name}.tmp_${System.currentTimeMillis()}")
-                        try {
-                            FileOutputStream(tempFile).use { fos ->
-                                AesVaultCipher.encryptStream(pipeIn, fos, volumeKey)
-                            }
-                            if (tempFile.exists() && tempFile.length() >= AesVaultCipher.V2_HEADER_TOTAL_BYTES) {
-                                if (targetFile.exists()) targetFile.delete()
-                                tempFile.renameTo(targetFile)
-                                logAuditAsync(
-                                    pkg = effectivePkg,
-                                    path = relPathParam,
-                                    resolved = targetFile.name,
-                                    action = AuditAction.ENCRYPTED,
-                                    details = "AES-256-GCM encrypted write (${targetFile.length()} bytes stored)",
-                                    bytes = targetFile.length()
-                                )
-                            }
-                        } finally {
-                            if (tempFile.exists()) tempFile.delete()
-                        }
-                    }
-                } catch (_: Throwable) {}
-            }
-            writeSide
-        } else {
-            // Read Mode: Create streaming decryption pipe.
-            // Target file on disk -> Vault process decrypts with streaming cipher -> Pipe -> Caller receives plaintext.
-            if (!targetFile.exists()) {
-                throw FileNotFoundException("File not found in volume: $relPathParam")
-            }
-
-            val pipe = ParcelFileDescriptor.createPipe()
-            val readSide = pipe[0]
-            val writeSide = pipe[1]
-
-            thread(name = "IsoVault-DecryptStream-$effectivePkg", isDaemon = true) {
-                try {
-                    ParcelFileDescriptor.AutoCloseOutputStream(writeSide).use { pipeOut ->
-                        FileInputStream(targetFile).use { fis ->
-                            if (AesVaultCipher.isEncryptedIsoVaultFile(targetFile)) {
-                                AesVaultCipher.decryptStream(fis, pipeOut, volumeKey)
-                            } else {
-                                fis.copyTo(pipeOut)
-                            }
-                        }
-                    }
-                    logAuditAsync(
-                        pkg = effectivePkg,
-                        path = relPathParam,
-                        resolved = targetFile.name,
-                        action = AuditAction.REDIRECTED,
-                        details = "AES-256-GCM decrypted stream read"
-                    )
-                } catch (_: Throwable) {}
-            }
-            readSide
+            } catch (_: Throwable) {}
         }
     }
 
@@ -389,210 +155,308 @@ class IsoVaultConfigProvider : ContentProvider() {
         selectionArgs: Array<out String>?,
         sortOrder: String?
     ): Cursor {
-        val cursor = MatrixCursor(
-            arrayOf(
-                "packageName",
-                "isIsolated",
-                "isolationMode",
-                "blockRootPollution",
-                "whitelistedFolders",
-                "useSharedSpace",
-                "volumeQuotaMb",
-                "sandboxPath",
-                "sharedPath"
-            )
-        )
-        val ctx = context ?: return cursor
-        val callingUid = Binder.getCallingUid()
-        val isSelf = (callingUid == Process.myUid())
-        val db = IsoVaultDatabase.getDatabase(ctx)
+        val cursor = MatrixCursor(arrayOf(
+            "packageName",
+            "isIsolated",
+            "mode",
+            "whitelistedFolders",
+            "blockPollution",
+            "useSharedSpace",
+            "explicitlyDisabled"
+        ))
 
-        runBlocking(Dispatchers.IO) {
-            when (uriMatcher.match(uri)) {
-                CODE_ALL_RULES -> {
-                    val configs = db.isolationDao().getAllConfigs().first()
-                    val callerPkgs = getCallerPackages(callingUid)
-                    for (cfg in configs) {
-                        if (isSelf || (cfg.packageName in callerPkgs && cfg.isIsolated)) {
-                            cursor.addRow(
-                                arrayOf<Any>(
-                                    cfg.packageName,
-                                    if (cfg.isIsolated) 1 else 0,
-                                    cfg.isolationMode.name,
-                                    if (cfg.blockRootPollution) 1 else 0,
-                                    cfg.whitelistedFolders,
-                                    if (cfg.useSharedSpace) 1 else 0,
-                                    cfg.volumeQuotaMb,
-                                    "", // Do not hand out raw filesystem paths
-                                    ""
-                                )
-                            )
-                        }
-                    }
-                }
-                CODE_PACKAGE_RULE -> {
-                    val requestedPkg = sanitizeInput(uri.lastPathSegment, 128)
-                    if (requestedPkg.isNotEmpty() && isCallerAuthorizedForPackage(callingUid, requestedPkg)) {
-                        val cfg = db.isolationDao().getConfigForPackage(requestedPkg)
-                        if (cfg != null && (isSelf || cfg.isIsolated)) {
-                            cursor.addRow(
-                                arrayOf<Any>(
-                                    cfg.packageName,
-                                    if (cfg.isIsolated) 1 else 0,
-                                    cfg.isolationMode.name,
-                                    if (cfg.blockRootPollution) 1 else 0,
-                                    cfg.whitelistedFolders,
-                                    if (cfg.useSharedSpace) 1 else 0,
-                                    cfg.volumeQuotaMb,
-                                    "",
-                                    ""
-                                )
-                            )
-                        }
-                    }
-                }
-            }
+        val pkgHint = uri.lastPathSegment ?: selectionArgs?.firstOrNull() ?: ""
+        val (pkg, config) = try {
+            authenticateCaller(pkgHint.ifBlank { null })
+        } catch (_: SecurityException) {
+            // Return fail-closed empty rule
+            cursor.addRow(arrayOf<Any>(pkgHint, 0, IsolationMode.ENCRYPTED_VAULT.name, "", 1, 0, 1))
+            return cursor
         }
+
+        cursor.addRow(arrayOf<Any>(
+            config.packageName,
+            if (config.isIsolated) 1 else 0,
+            config.isolationMode.name,
+            config.whitelistedFolders,
+            if (config.blockRootPollution) 1 else 0,
+            if (config.useSharedSpace) 1 else 0,
+            if (!config.isIsolated) 1 else 0
+        ))
         return cursor
     }
 
-    override fun call(method: String, arg: String?, extras: Bundle?): Bundle? {
-        val ctx = context ?: return null
-        val callingUid = Binder.getCallingUid()
-        val db = IsoVaultDatabase.getDatabase(ctx)
+    override fun call(method: String, arg: String?, extras: Bundle?): Bundle {
+        val bundle = Bundle()
+        val pkgHint = arg ?: ""
 
-        return when (method) {
-            "get_rule" -> {
-                val pkg = sanitizeInput(arg, 128)
-                if (pkg.isEmpty() || !isCallerAuthorizedForPackage(callingUid, pkg)) {
-                    logAuditAsync(pkg.ifEmpty { "unknown" }, "get_rule", "DENIED", AuditAction.BLOCKED, "Unauthorized UID $callingUid")
-                    return null
-                }
-                val cfg = runBlocking(Dispatchers.IO) {
-                    db.isolationDao().getConfigForPackage(pkg)
-                }
-                if (cfg == null) return null
+        val (callingPkg, config) = try {
+            authenticateCaller(pkgHint.ifBlank { null })
+        } catch (se: SecurityException) {
+            bundle.putBoolean("error", true)
+            bundle.putString("message", se.message)
+            return bundle
+        }
 
-                Bundle().apply {
-                    putBoolean("isolated", cfg.isIsolated)
-                    putString("mode", cfg.isolationMode.name)
-                    putBoolean("blockRoot", cfg.blockRootPollution)
-                    putString("whitelist", cfg.whitelistedFolders)
-                    putBoolean("useSharedSpace", cfg.useSharedSpace)
-                    putInt("volumeQuotaMb", cfg.volumeQuotaMb)
-                    // Return virtual URI authorities instead of raw filesystem paths
-                    putString("sandboxUri", "content://$AUTHORITY/open?pkg=$pkg&space=private")
-                    putString("sharedUri", if (cfg.useSharedSpace) "content://$AUTHORITY/open?pkg=$pkg&space=shared" else "")
-                }
-            }
-
-            "file_stat" -> {
-                if (extras == null || !checkRateLimit(callingUid)) return null
-                val pkg = sanitizeInput(extras.getString("pkg"), 128)
-                if (pkg.isEmpty() || !isCallerAuthorizedForPackage(callingUid, pkg)) return null
-                val space = sanitizeInput(extras.getString("space"), 32).ifEmpty { "private" }
-                val path = extras.getString("path") ?: ""
-
-                try {
-                    val (file, _) = resolveAndVerifyVolumeFile(ctx, pkg, space, path)
-                    Bundle().apply {
-                        putBoolean("exists", file.exists())
-                        putBoolean("isDirectory", file.isDirectory)
-                        putLong("length", if (file.exists()) file.length() else 0L)
-                        putLong("lastModified", if (file.exists()) file.lastModified() else 0L)
-                    }
-                } catch (_: Throwable) {
-                    Bundle().apply {
-                        putBoolean("exists", false)
-                        putBoolean("isDirectory", false)
-                        putLong("length", 0L)
-                        putLong("lastModified", 0L)
-                    }
-                }
-            }
-
-            "list_files" -> {
-                if (extras == null || !checkRateLimit(callingUid)) return null
-                val pkg = sanitizeInput(extras.getString("pkg"), 128)
-                if (pkg.isEmpty() || !isCallerAuthorizedForPackage(callingUid, pkg)) return null
-                val space = sanitizeInput(extras.getString("space"), 32).ifEmpty { "private" }
-                val path = extras.getString("path") ?: ""
-
-                try {
-                    val (dir, _) = resolveAndVerifyVolumeFile(ctx, pkg, space, path)
-                    val filesList = ArrayList<String>()
-                    if (dir.exists() && dir.isDirectory) {
-                        dir.listFiles()?.forEach { f ->
-                            if (f.name != ".nomedia" && !f.name.startsWith(".seeded")) {
-                                filesList.add(f.name.removeSuffix(".isovault"))
-                            }
-                        }
-                    }
-                    val cfg = runBlocking(Dispatchers.IO) { db.isolationDao().getConfigForPackage(pkg) }
-                    if (space == "private" && (path.isEmpty() || path == "/") && cfg?.useSharedSpace == true) {
-                        if ("Shared" !in filesList) filesList.add("Shared")
-                    }
-                    Bundle().apply {
-                        putStringArrayList("files", filesList)
-                    }
-                } catch (_: Throwable) {
-                    Bundle().apply { putStringArrayList("files", ArrayList()) }
-                }
-            }
-
-            "file_delete" -> {
-                if (extras == null || !checkRateLimit(callingUid)) return null
-                val pkg = sanitizeInput(extras.getString("pkg"), 128)
-                if (pkg.isEmpty() || !isCallerAuthorizedForPackage(callingUid, pkg)) return null
-                val space = sanitizeInput(extras.getString("space"), 32).ifEmpty { "private" }
-                val path = extras.getString("path") ?: ""
-
-                try {
-                    val (file, _) = resolveAndVerifyVolumeFile(ctx, pkg, space, path)
-                    val deleted = if (file.exists()) file.delete() else false
-                    Bundle().apply { putBoolean("deleted", deleted) }
-                } catch (_: Throwable) {
-                    Bundle().apply { putBoolean("deleted", false) }
-                }
-            }
-
-            "file_mkdir" -> {
-                if (extras == null || !checkRateLimit(callingUid)) return null
-                val pkg = sanitizeInput(extras.getString("pkg"), 128)
-                if (pkg.isEmpty() || !isCallerAuthorizedForPackage(callingUid, pkg)) return null
-                val space = sanitizeInput(extras.getString("space"), 32).ifEmpty { "private" }
-                val path = extras.getString("path") ?: ""
-
-                try {
-                    val (file, _) = resolveAndVerifyVolumeFile(ctx, pkg, space, path)
-                    val ok = file.mkdirs() || file.exists()
-                    Bundle().apply { putBoolean("ok", ok) }
-                } catch (_: Throwable) {
-                    Bundle().apply { putBoolean("ok", false) }
-                }
+        when (method) {
+            "check_isolated" -> {
+                bundle.putBoolean("isConfigured", true)
+                bundle.putBoolean("isIsolated", config.isIsolated)
+                bundle.putString("mode", config.isolationMode.name)
+                bundle.putString("whitelistedFolders", config.whitelistedFolders)
+                bundle.putBoolean("blockPollution", config.blockRootPollution)
+                bundle.putBoolean("useSharedSpace", config.useSharedSpace)
+                return bundle
             }
 
             "record_audit" -> {
-                if (extras == null || !checkRateLimit(callingUid)) return null
-                val pkg = sanitizeInput(extras.getString("pkg"), 128)
-                if (pkg.isEmpty() || !isCallerAuthorizedForPackage(callingUid, pkg)) return null
+                if (extras != null) {
+                    val requestedPath = extras.getString("requestedPath") ?: ""
+                    val resolvedPath = extras.getString("resolvedPath") ?: ""
+                    val actionStr = extras.getString("action") ?: "REDIRECTED"
+                    val operation = extras.getString("operation") ?: "REDIRECT"
+                    val details = extras.getString("details") ?: ""
+                    val action = try { AuditAction.valueOf(actionStr) } catch (_: Exception) { AuditAction.REDIRECTED }
 
-                val path = sanitizeInput(extras.getString("path"), MAX_SANITIZED_LENGTH)
-                val resolved = sanitizeInput(extras.getString("resolved"), MAX_SANITIZED_LENGTH)
-                val actionStr = sanitizeInput(extras.getString("action"), 32).ifEmpty { "REDIRECTED" }
-                val details = sanitizeInput(extras.getString("details"), MAX_SANITIZED_LENGTH)
-                val bytes = extras.getLong("bytes", 0L).coerceIn(0L, 10L * 1024L * 1024L * 1024L)
-
-                val action = AuditAction.entries.find { it.name == actionStr } ?: AuditAction.REDIRECTED
-                logAuditAsync(pkg, path, resolved, action, details, bytes)
-                Bundle().apply { putBoolean("ok", true) }
+                    val app = context?.applicationContext as? IsoVaultApp
+                    if (app != null) {
+                        providerScope.launch {
+                            try {
+                                val dao = app.database.isolationDao()
+                                dao.incrementRedirectCount(callingPkg, System.currentTimeMillis())
+                                dao.insertAuditLog(
+                                    AccessAuditLog(
+                                        packageName = callingPkg,
+                                        appName = config.appName,
+                                        requestedPath = requestedPath,
+                                        targetResolvedPath = resolvedPath,
+                                        action = action,
+                                        operation = operation,
+                                        details = details
+                                    )
+                                )
+                            } catch (_: Throwable) {}
+                        }
+                    }
+                    bundle.putBoolean("recorded", true)
+                }
+                return bundle
             }
 
-            else -> null
+            "file_stat" -> {
+                val subpath = extras?.getString("path") ?: ""
+                val volume = extras?.getString("volume") ?: callingPkg
+                val file = resolveSecureFile(callingPkg, config, volume, subpath)
+                if (file != null && file.exists()) {
+                    bundle.putBoolean("exists", true)
+                    bundle.putBoolean("isDirectory", file.isDirectory)
+                    bundle.putBoolean("isFile", file.isFile)
+                    bundle.putLong("length", file.length())
+                    bundle.putLong("lastModified", file.lastModified())
+                } else {
+                    bundle.putBoolean("exists", false)
+                }
+                return bundle
+            }
+
+            "list_files" -> {
+                val subpath = extras?.getString("path") ?: ""
+                val volume = extras?.getString("volume") ?: callingPkg
+                val dir = resolveSecureFile(callingPkg, config, volume, subpath)
+                if (dir != null && dir.exists() && dir.isDirectory) {
+                    val list = dir.list() ?: emptyArray()
+                    val cleaned = list.map { it.removeSuffix(".hllw") }.toTypedArray()
+                    bundle.putStringArray("files", cleaned)
+                } else {
+                    bundle.putStringArray("files", emptyArray())
+                }
+                return bundle
+            }
+
+            "file_delete" -> {
+                val subpath = extras?.getString("path") ?: ""
+                val volume = extras?.getString("volume") ?: callingPkg
+                val file = resolveSecureFile(callingPkg, config, volume, subpath)
+                if (file != null && file.exists()) {
+                    val success = file.delete()
+                    bundle.putBoolean("deleted", success)
+                } else {
+                    bundle.putBoolean("deleted", false)
+                }
+                return bundle
+            }
+
+            "file_mkdir" -> {
+                val subpath = extras?.getString("path") ?: ""
+                val volume = extras?.getString("volume") ?: callingPkg
+                val dir = resolveSecureFile(callingPkg, config, volume, subpath)
+                if (dir != null) {
+                    val success = dir.mkdirs()
+                    bundle.putBoolean("created", success)
+                } else {
+                    bundle.putBoolean("created", false)
+                }
+                return bundle
+            }
+        }
+
+        return bundle
+    }
+
+    /**
+     * Resolves a canonical file strictly inside the allowed volume root in filesDir.
+     * Rejects path traversal (".."), symlinks outside root, and absolute paths.
+     */
+    private fun resolveSecureFile(
+        callingPkg: String,
+        config: AppIsolationConfig,
+        volume: String,
+        subpath: String
+    ): File? {
+        val ctx = context ?: return null
+
+        // Volume check: must be caller's own volume, or "shared" if useSharedSpace is enabled
+        if (volume != callingPkg) {
+            if (volume == "shared") {
+                if (!config.useSharedSpace) {
+                    recordDeniedAudit(callingPkg, subpath, "Shared space disabled for $callingPkg")
+                    return null
+                }
+            } else {
+                recordDeniedAudit(callingPkg, subpath, "Unauthorized volume '$volume'")
+                return null
+            }
+        }
+
+        // Canonical path validation
+        val cleanSub = subpath.replace('\\', '/').trimStart('/')
+        if (cleanSub.contains("..") || cleanSub.contains("\u0000")) {
+            recordDeniedAudit(callingPkg, subpath, "Path traversal attempt detected")
+            return null
+        }
+
+        val volumeRoot = File(ctx.filesDir, "vaults/$volume")
+        volumeRoot.mkdirs()
+        val canonicalRoot = volumeRoot.canonicalPath
+
+        val target = File(volumeRoot, cleanSub)
+        val canonicalTarget = target.canonicalPath
+        if (!canonicalTarget.startsWith(canonicalRoot)) {
+            recordDeniedAudit(callingPkg, subpath, "Canonical path traversal rejected")
+            return null
+        }
+
+        return target
+    }
+
+    override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor? {
+        val segments = uri.pathSegments
+        if (segments.isEmpty() || segments[0] != "vault") {
+            throw SecurityException("Invalid URI structure. Access denied.")
+        }
+
+        val targetVolume = segments.getOrNull(1) ?: throw SecurityException("Missing volume")
+        val subpath = segments.drop(2).joinToString("/")
+        if (subpath.isBlank()) throw SecurityException("Missing path")
+
+        val (callingPkg, config) = authenticateCaller(null)
+        val ctx = context ?: throw SecurityException("Context unavailable")
+
+        // Volume access check
+        if (targetVolume != callingPkg) {
+            if (targetVolume == "shared") {
+                if (!config.useSharedSpace) {
+                    recordDeniedAudit(callingPkg, subpath, "Shared space is disabled for $callingPkg")
+                    throw SecurityException("Shared space is not enabled for $callingPkg")
+                }
+            } else {
+                recordDeniedAudit(callingPkg, subpath, "Denied access to foreign volume '$targetVolume'")
+                throw SecurityException("Cross-volume access to $targetVolume denied.")
+            }
+        }
+
+        val volumeRoot = File(ctx.filesDir, "vaults/$targetVolume")
+        volumeRoot.mkdirs()
+        val canonicalRoot = volumeRoot.canonicalPath
+
+        val targetEncryptedFile = File(volumeRoot, "$subpath.hllw")
+        val canonicalTarget = targetEncryptedFile.canonicalPath
+        if (!canonicalTarget.startsWith(canonicalRoot) || subpath.contains("..")) {
+            recordDeniedAudit(callingPkg, subpath, "Path traversal blocked")
+            throw SecurityException("Path traversal attempt detected.")
+        }
+
+        val volumeKey = AesVaultCipher.getVolumeKey(targetVolume, ctx)
+        val isWrite = mode.contains("w") || mode.contains("a")
+
+        if (isWrite) {
+            targetEncryptedFile.parentFile?.mkdirs()
+            val pipe = ParcelFileDescriptor.createPipe()
+            val readPipe = pipe[0]
+            val writePipe = pipe[1]
+
+            ioExecutor.execute {
+                try {
+                    ParcelFileDescriptor.AutoCloseInputStream(readPipe).use { inputStream ->
+                        FileOutputStream(targetEncryptedFile).use { fos ->
+                            // Stream through AES-256 chunked cipher in Hollow process
+                            AesVaultCipher.encryptStream(inputStream, fos, -1L, volumeKey)
+                        }
+                    }
+
+                    // Record metadata in Room
+                    val app = ctx.applicationContext as? IsoVaultApp
+                    if (app != null) {
+                        providerScope.launch {
+                            try {
+                                val dao = app.database.isolationDao()
+                                dao.insertVaultFile(
+                                    VaultFileItem(
+                                        packageName = targetVolume,
+                                        relativePath = subpath,
+                                        physicalPath = targetEncryptedFile.absolutePath,
+                                        isEncrypted = true,
+                                        originalSizeBytes = targetEncryptedFile.length(),
+                                        encryptedSizeBytes = targetEncryptedFile.length(),
+                                        mimeType = "application/octet-stream",
+                                        lastModified = System.currentTimeMillis()
+                                    )
+                                )
+                                dao.addEncryptedBytes(callingPkg, targetEncryptedFile.length())
+                            } catch (_: Throwable) {}
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Write pipe encryption failed: ${e.message}")
+                }
+            }
+            return writePipe
+        } else {
+            // Read mode
+            if (!targetEncryptedFile.exists()) {
+                return null
+            }
+
+            val pipe = ParcelFileDescriptor.createPipe()
+            val readPipe = pipe[0]
+            val writePipe = pipe[1]
+
+            ioExecutor.execute {
+                try {
+                    ParcelFileDescriptor.AutoCloseOutputStream(writePipe).use { outputStream ->
+                        FileInputStream(targetEncryptedFile).use { fis ->
+                            AesVaultCipher.decryptStream(fis, outputStream, volumeKey)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Read pipe decryption failed: ${e.message}")
+                }
+            }
+            return readPipe
         }
     }
 
-    override fun getType(uri: Uri): String? = null
+    override fun getType(uri: Uri): String = "vnd.android.cursor.item/vnd.$AUTHORITY.vault"
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
     override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int = 0
     override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?): Int = 0

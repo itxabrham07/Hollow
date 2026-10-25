@@ -1,49 +1,60 @@
-# Vault-LSPosed (IsoVault)
+# Hollow
 
-Per-app and shared encrypted storage volumes and MediaStore isolation module for Android (LSPosed API 82+).
+**Hollow** is an LSPosed module and encrypted storage isolation engine for modern Android (Android 15+ / API 82). It transparently intercepts target application storage I/O and isolates files into private, hardware-backed AES-256 encrypted volumes without granting broad storage permissions.
 
-## 1. Overview & Storage Volume Model
+---
 
-Vault-LSPosed isolates how target Android apps read and write files on external storage and `MediaStore`:
+## Architecture & Security Model
 
-1. **Per-App Volume**:
-   - Every protected app receives its own private encrypted volume (`sandboxes/<packageName>`).
-   - Default Android folders (`DCIM`, `Pictures`, `Download`, `Movies`, `Music`, `Documents`) are created automatically inside each volume without asking the user for paths.
-   - Each volume is encrypted with its own independent 256-bit Data Encryption Key (DEK), wrapped by the master key in Android Keystore, so an individual volume can be wiped or rotated without exposing any other volume.
-2. **Shared Space Volume (`shared.vault`)**:
-   - An optional encrypted volume that can be linked to any protected app via the **"Use shared space"** toggle (off by default).
-   - When enabled on an app, that app sees its own private volume **plus** the Shared Space volume (mapped to `/storage/emulated/0/Shared` in `File` hooks and included in its `MediaStore` gallery queries).
-   - Apps with **"Use shared space"** turned off never see files in Shared Space.
-3. **Combined Vault File Manager & Gallery**:
-   - Filter across **All Volumes**, **Shared Space**, or any single app volume.
-   - Switch between **Files Explorer** (grid/list, search, category chips, multi-select export/move/copy/rename/delete/share, 30-day Recycle Bin, secondary folder PIN lock) and **Gallery View** (`Albums`, `Timeline`, `Favorites`).
-   - Built-in viewers decrypt photos, PDFs, text, audio, and seekable video streams on the fly without writing plaintext to public storage.
+### 1. Private Internal Storage & IPC Pipeline
+- **Zero External Storage Leaks:** All volume containers are stored strictly inside Hollow's private app directory (`context.filesDir/vaults/<volume>/`). Nothing is ever written to `/sdcard/`, external public directories, or target app sandboxes.
+- **Pure IPC Pipe Stream:** Hooked target applications never receive raw filesystem paths. All file interactions (reads, writes, stat queries, directory listings) are piped through `IsoVaultConfigProvider` via `ParcelFileDescriptor` pipes. Encryption and decryption are executed exclusively in the Hollow process.
+- **Fail-Closed Access Control:** Every IPC call validates `Binder.getCallingUid()` and verifies the caller's package against active isolation rules. Unmapped callers or locked vaults immediately fail closed.
+- **Path Traversal Protection:** Canonical path validation rejects `..`, relative escapes, and symlinks outside the target volume root.
 
-## 2. Security Architecture
+### 2. Streaming AEAD Encryption (AES-256-GCM 4KB)
+- **Hardware Keystore Master Key:** Derived and stored in Android KeyStore (`HollowVaultMasterKey`).
+- **Per-Volume Keys:** Derived from the master key using HKDF-SHA256 (`Hollow:VolumeKey:v2:<volume>`).
+- **Chunked AEAD:** Plaintext is processed in 4KB chunks, each with an authenticated nonce (Base IV + chunk index) and AAD, enabling $O(1)$ random-access seeking for video and audio playback.
+- **Passphrase Backup:** Passphrase derivation uses PBKDF2WithHmacSHA256 with 600,000 iterations and random 16-byte salt.
+- **Format Migration:** Automatically detects and migrates legacy ISOV `0x01` containers to Hollow `0x02` chunked AEAD format.
 
-- **Hardware-Backed Key Hierarchy**:
-  - On first run, a random 256-bit Master Key is generated and wrapped with an `AndroidKeyStore` AES-256-GCM key (`isovault_hardware_kek_v2`).
-  - Each volume generates its own random 256-bit DEK wrapped by the Master Key.
-  - Passphrase-protected backups derive keys using **600,000 iterations of PBKDF2-HMAC-SHA256** with a random 16-byte salt.
-- **Streaming Chunked Authenticated Encryption (`ISOV\x02`)**:
-  - Uses 4KB plaintext chunks (`AES256_GCM_HKDF_4KB` style) with HKDF-SHA256 per-file subkeys, unique 12-byte chunk nonces (`[noncePrefix(7)][chunkIndex(4)][isLastChunk(1)]`), and 128-bit GCM authentication tags.
-  - Supports $O(1)$ random-access chunk decryption (`readDecryptedRange` / `EncryptedChunkMediaDataSource`) for instant video and audio seeking without loading large files into RAM.
-  - Transparently migrates legacy `ISOV\x01` files to `ISOV\x02` on first access.
-- **Locked-Down `IsoVaultConfigProvider` & Fail-Closed Hooks**:
-  - `openFile()` is completely removed; the provider serves configuration metadata only.
-  - Every `query()` and `call()` verifies the caller via `Binder.getCallingUid()` and `PackageManager.getPackagesForUid(callingUid)`. Hooked apps can only request their own rule and only if configured.
-  - `record_audit` is caller-verified, input-sanitized, and rate-limited per UID.
-  - No `MODE_WORLD_READABLE` or `xposedsharedprefs` is used. If the Vault provider is unreachable when a hooked app starts, the hook **fails closed** into an empty isolated directory and never exposes real phone storage.
-- **Window & Backup Hardening**:
-  - `android:allowBackup="false"` with full exclusions in `backup_rules.xml` and `data_extraction_rules.xml`.
-  - `FLAG_SECURE` enabled on app windows by default; ephemeral playback/share cache is overwritten with zeroes and deleted on viewer close and auto-lock.
+### 3. Permissions & Privacy Guardrails
+- **Minimal Permissions:** Stripped of `MANAGE_EXTERNAL_STORAGE`, `READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE`, and `requestLegacyExternalStorage`. Only uses:
+  - `QUERY_ALL_PACKAGES`: To inspect installed apps and enforce per-app rules.
+  - `USE_BIOMETRIC`: For biometric vault authentication.
+  - `POST_NOTIFICATIONS`: For security alerts.
+- **Backup Exclusion:** `android:allowBackup="false"`, with explicit exclusion of all vault data in `backup_rules.xml` and `data_extraction_rules.xml`.
+- **Display Security:** `FLAG_SECURE` prevents screenshots and recent apps switcher leaks.
+- **Auto-Lock:** Locks vault on background lifecycle events and wipes decrypted in-memory caches.
 
-## 3. Setup Instructions
+---
 
-1. Install the APK on a device with **LSPosed** installed.
-2. Open **LSPosed Manager** → **Modules** → Enable **IsoVault** and select the target apps in the module scope.
-3. Reboot or force-stop the target apps, then open **IsoVault** and toggle protection on for each app in the **Apps** tab.
+## Application Structure (4 Tabs)
 
-## 4. Known Limits
+1. **Apps:**
+   - Manage isolation status and strategy per app (`Private Locker`, `Separate Folder`, `Blank Gallery`, `View Only`).
+   - Per-app hook status indicators.
+   - Whitelist specific folders and block root directory clutter.
+   - Toggle **Shared Space** access per app.
+2. **Files:**
+   - Volume switcher (All Volumes, Shared Space, Per-app volumes).
+   - Explorer View & Gallery View (Albums, Timeline, Favorites) backed by real files with zero dummy data.
+   - Multi-select actions: Move, Copy, Rename, Delete to Recycle Bin, Export.
+   - In-app viewers for photos, video player with seeking, audio player, PDF viewer, and text editor.
+   - 30-Day auto-purge Recycle Bin.
+3. **Activity:**
+   - Live audit history of file access attempts and redirections.
+   - Severity filtering and audit log clearing.
+4. **Settings:**
+   - 4-digit PIN setup and emergency recovery key generation.
+   - LSPosed hook status inspection.
+   - Kernel Mount Diagnostics (clearly labeled as experimental and inactive in userspace mode).
 
-- User-space hooks (`File`, `Os`/`IoBridge`, `MediaStore`, `Activity` picker intents) isolate standard Java/Kotlin and libc file paths used by Android apps. Direct raw syscalls crafted via inline assembly bypass user-space hooks unless root kernel mount namespace isolation (`nsenter -m`) is active.
+---
+
+## Known Limits
+
+- **Native Code Limitations:** ART/Java hooks intercept framework APIs (`java.io.File`, `MediaStore`, `ContentResolver`, `libcore.io.IoBridge`, `android.system.Os.open`). Applications making raw inline native syscalls directly into the Linux kernel without framework bridges cannot be redirected via Java hooks alone.
+- **Framework Detection:** Target apps implementing aggressive anti-tamper or integrity checks may detect the presence of the LSPosed framework or Zygote hooks.
+- **Kernel Mounts:** Direct kernel mount namespace injection (`mount --bind`) requires full root and is marked experimental/inactive in default userspace LSPosed operation.
