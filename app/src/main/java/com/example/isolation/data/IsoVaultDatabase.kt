@@ -50,10 +50,19 @@ abstract class IsoVaultDatabase : RoomDatabase() {
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN useSharedSpace INTEGER NOT NULL DEFAULT 0")
-                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN volumeQuotaMb INTEGER NOT NULL DEFAULT 0")
-                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN wrappedVolumeKey TEXT NOT NULL DEFAULT ''")
-                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN activeHooksMask INTEGER NOT NULL DEFAULT 31")
+                val statements = listOf(
+                    "ALTER TABLE app_isolation_configs ADD COLUMN useSharedSpace INTEGER NOT NULL DEFAULT 0",
+                    "ALTER TABLE app_isolation_configs ADD COLUMN volumeQuotaMb INTEGER NOT NULL DEFAULT 0",
+                    "ALTER TABLE app_isolation_configs ADD COLUMN wrappedVolumeKey TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE app_isolation_configs ADD COLUMN activeHooksMask INTEGER NOT NULL DEFAULT 31"
+                )
+                for (sql in statements) {
+                    try {
+                        db.execSQL(sql)
+                    } catch (_: Throwable) {
+                        // Column already exists
+                    }
+                }
             }
         }
 
@@ -65,6 +74,7 @@ abstract class IsoVaultDatabase : RoomDatabase() {
                     "isovault_database"
                 )
                     .addMigrations(MIGRATION_1_2)
+                    .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
                 instance

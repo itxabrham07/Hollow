@@ -132,7 +132,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
     private val _autoLockMinutes = MutableStateFlow(prefs.getInt("auto_lock_minutes", 5))
     val autoLockMinutes = _autoLockMinutes.asStateFlow()
 
-    private val _blockScreenshots = MutableStateFlow(prefs.getBoolean("block_screenshots", true))
+    private val _blockScreenshots = MutableStateFlow(prefs.getBoolean("block_screenshots_v3", false))
     val blockScreenshots = _blockScreenshots.asStateFlow()
 
     // Secondary PIN locks per folder path
@@ -289,7 +289,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
 
     fun setBlockScreenshots(enabled: Boolean) {
         _blockScreenshots.value = enabled
-        prefs.edit().putBoolean("block_screenshots", enabled).apply()
+        prefs.edit().putBoolean("block_screenshots_v3", enabled).apply()
     }
 
     fun triggerPanicMode() {

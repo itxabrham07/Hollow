@@ -84,8 +84,44 @@ class MainActivity : ComponentActivity() {
 
     private var pendingSharedUris by mutableStateOf<List<Uri>>(emptyList())
 
+    private fun isStreamingEmulatorEnvironment(): Boolean {
+        val fp = Build.FINGERPRINT.lowercase()
+        val model = Build.MODEL.lowercase()
+        val hw = Build.HARDWARE.lowercase()
+        val prod = Build.PRODUCT.lowercase()
+        val dev = Build.DEVICE.lowercase()
+        val board = Build.BOARD.lowercase()
+        val brand = Build.BRAND.lowercase()
+        return fp.startsWith("generic") ||
+                fp.contains("emulator") ||
+                fp.contains("sdk") ||
+                fp.contains("cuttlefish") ||
+                model.contains("sdk") ||
+                model.contains("emulator") ||
+                model.contains("cuttlefish") ||
+                model.contains("droid4x") ||
+                hw.contains("ranchu") ||
+                hw.contains("goldfish") ||
+                hw.contains("cuttlefish") ||
+                hw.contains("vsoc") ||
+                prod.contains("sdk") ||
+                prod.contains("emulator") ||
+                prod.contains("cuttlefish") ||
+                prod.contains("aosp") ||
+                dev.contains("generic") ||
+                dev.contains("emulator") ||
+                dev.contains("cuttlefish") ||
+                dev.contains("vsoc") ||
+                board.contains("goldfish") ||
+                board.contains("ranchu") ||
+                board.contains("cuttlefish") ||
+                brand.startsWith("generic")
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Ensure FLAG_SECURE is cleared initially so streaming emulators never render a black surface
+        window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         enableEdgeToEdge()
         extractSharedUrisFromIntent(intent)
 
@@ -94,9 +130,11 @@ class MainActivity : ComponentActivity() {
             val isDarkTheme by viewModel.isDarkTheme.collectAsState()
             val blockScreenshots by viewModel.blockScreenshots.collectAsState()
 
-            // Dynamically apply or clear FLAG_SECURE for screenshot protection
+            // Dynamically apply or clear FLAG_SECURE for screenshot protection on physical devices.
+            // On streaming emulators, SurfaceFlinger redacts FLAG_SECURE windows to a blank black frame,
+            // so we clear FLAG_SECURE when streaming to keep the preview visible.
             LaunchedEffect(blockScreenshots) {
-                if (blockScreenshots) {
+                if (blockScreenshots && !isStreamingEmulatorEnvironment()) {
                     window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
                 } else {
                     window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
