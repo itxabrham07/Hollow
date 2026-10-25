@@ -2,16 +2,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!--
-      Justification of remaining permissions:
-      1. QUERY_ALL_PACKAGES: Strictly required for an LSPosed storage-isolation manager so the user
-         can view and select installed apps on the device to assign per-app encrypted volumes.
-      2. USE_BIOMETRIC: Used for optional fingerprint unlock on the Vault lock screen.
-      Note: Broad storage permissions (MANAGE_EXTERNAL_STORAGE, READ/WRITE_EXTERNAL_STORAGE) have been
-      removed; Vault volumes use app-scoped directories and the system SAF/Photo Picker for imports.
-    -->
+    <!-- Permissions required for storage management & package isolation inspection -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" tools:ignore="ScopedStorage" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
-    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <queries>
         <intent>
@@ -25,26 +21,29 @@
 
     <application
         android:name=".IsoVaultApp"
-        android:allowBackup="false"
-        android:fullBackupOnly="false"
+        android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
+        android:requestLegacyExternalStorage="true"
         android:theme="@style/Theme.MyApplication">
 
-        <!-- LSPosed / Xposed Module Metadata (API 82+, no world-readable prefs) -->
+        <!-- LSPosed / Vector / Xposed Module Metadata -->
         <meta-data
             android:name="xposedmodule"
             android:value="true" />
         <meta-data
             android:name="xposeddescription"
-            android:value="Per-app &amp; shared encrypted storage volumes and MediaStore isolation for Android" />
+            android:value="Storage isolation, MediaStore guard, and encrypted filesystem mount engine for Android 15+" />
         <meta-data
             android:name="xposedminversion"
             android:value="82" />
+        <meta-data
+            android:name="xposedsharedprefs"
+            android:value="true" />
         <meta-data
             android:name="xposedscope"
             android:resource="@array/xposed_scope" />
@@ -58,39 +57,12 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-
-            <!-- Share to Vault from any app's Share Menu -->
-            <intent-filter android:label="Share to Vault">
-                <action android:name="android.intent.action.SEND" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="*/*" />
-            </intent-filter>
-            <intent-filter android:label="Share to Vault">
-                <action android:name="android.intent.action.SEND_MULTIPLE" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="*/*" />
-            </intent-filter>
         </activity>
 
-        <!--
-          Exported for cross-process calls from LSPosed-hooked apps ONLY;
-          caller identity & active rule are verified via Binder.getCallingUid() inside the provider,
-          and openFile() is completely disabled.
-        -->
         <provider
             android:name="com.example.isolation.provider.IsoVaultConfigProvider"
             android:authorities="com.aistudio.isovault.xrvf.provider"
             android:exported="true" />
-
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="com.aistudio.isovault.xrvf.fileprovider"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths" />
-        </provider>
     </application>
 
 </manifest>

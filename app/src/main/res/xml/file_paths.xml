@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<paths>
-    <cache-path
-        name="ephemeral_share"
-        path="ephemeral_share/" />
-    <cache-path
-        name="ephemeral_playback"
-        path="ephemeral_playback/" />
-</paths>
