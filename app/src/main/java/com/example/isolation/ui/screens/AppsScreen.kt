@@ -1,41 +1,42 @@
 package com.example.isolation.ui.screens
 
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.FolderShared
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material.icons.rounded.RadioButtonUnchecked
+import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Shield
-import androidx.compose.material.icons.rounded.Storage
-import androidx.compose.material.icons.rounded.WarningAmber
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -53,15 +54,14 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.minimumInteractiveComponentSize
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -70,573 +70,468 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.isolation.data.entity.AppIsolationConfig
-import com.example.isolation.model.IsolationMode
-import com.example.isolation.model.IsolationRuleManager
-import com.example.isolation.pkg.InstalledAppInfo
+import com.example.isolation.data.repository.InstalledAppInfo
 import com.example.isolation.ui.components.BrandSquircleIcon
 import com.example.isolation.ui.components.formatBytes
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
-import com.example.ui.theme.AccentMint
 import com.example.ui.theme.FrauncesFontFamily
 import com.example.ui.theme.JakartaFontFamily
+import java.io.File
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AppsScreen(
     viewModel: IsoVaultViewModel,
-    onTriggerLock: () -> Unit,
-    onOpenAppVaultInFiles: (String) -> Unit
+    onRequestSetupPin: () -> Unit = {}
 ) {
-    val configs by viewModel.configs.collectAsState()
-    val installedApps by viewModel.filteredApps.collectAsState()
-    val isLsposedActive by viewModel.isLsposedActive.collectAsState()
-    val isPanicModeActive by viewModel.isPanicModeActive.collectAsState()
-    val showOnboardingCard by viewModel.showOnboardingCard.collectAsState()
-    val vaultRefreshTick by viewModel.vaultRefreshTick.collectAsState()
+    val context = LocalContext.current
+    val configs by viewModel.allConfigs.collectAsStateWithLifecycle()
+    val installedApps by viewModel.installedApps.collectAsStateWithLifecycle()
+    val securitySettings by viewModel.securitySettings.collectAsStateWithLifecycle()
+    val dashboardState by viewModel.dashboardState.collectAsStateWithLifecycle()
+    val refreshTick by viewModel.vaultRefreshTick.collectAsStateWithLifecycle()
 
-    var showAddAppsSheet by remember { mutableStateOf(false) }
-    var showCreateVolumeDialog by remember { mutableStateOf(false) }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val isDecoyMode = securitySettings.isPanicDecoyActive
+    val visibleConfigs = if (isDecoyMode) emptyList() else configs
+    val protectedCount = visibleConfigs.count { it.isIsolated }
 
-    val displayedConfigs = if (isPanicModeActive) emptyList() else configs
-    val protectedCount = displayedConfigs.count { it.isIsolated }
-    val sharedOptInCount = displayedConfigs.count { it.isIsolated && it.useSharedSpace }
+    var showAddAppSheet by remember { mutableStateOf(false) }
+    var selectedHookDetailsApp by remember { mutableStateOf<AppIsolationConfig?>(null) }
+    var showLsposedInstructionsDialog by remember { mutableStateOf(false) }
+    var selfTestBannerMessage by remember { mutableStateOf<String?>(null) }
 
-    // Calculate real storage per app volume + Shared Space volume
-    val storageMap = remember(displayedConfigs, vaultRefreshTick) {
-        displayedConfigs.associate { cfg ->
-            val diskBytes = try {
-                val dir = viewModel.getAppSandboxDirectory(cfg.packageName)
-                dir.walkTopDown().filter { it.isFile && it.name != ".nomedia" }.sumOf { it.length() }
-            } catch (_: Exception) {
+    val sandboxBaseDir = remember { viewModel.getSandboxBaseDir() }
+    val sharedSpaceDir = remember { viewModel.getSharedSpaceDir() }
+
+    val storagePerApp = remember(visibleConfigs, refreshTick) {
+        visibleConfigs.associate { cfg ->
+            val appDir = File(sandboxBaseDir, cfg.packageName)
+            val actualBytes = if (appDir.exists()) {
+                appDir.walkTopDown()
+                    .filter { it.isFile && it.name != ".nomedia" && !it.name.startsWith(".seeded") }
+                    .sumOf { it.length() }
+            } else {
                 0L
             }
-            cfg.packageName to maxOf(diskBytes, cfg.totalBytesEncrypted)
+            cfg.packageName to actualBytes
         }
     }
-    val sharedVolumeBytes = remember(vaultRefreshTick, isPanicModeActive) {
-        if (isPanicModeActive) 0L
-        else try {
-            viewModel.getSharedVolumeDirectory()
-                .walkTopDown()
-                .filter { it.isFile && it.name != ".nomedia" }
+
+    val sharedSpaceBytes = remember(refreshTick) {
+        if (sharedSpaceDir.exists()) {
+            sharedSpaceDir.walkTopDown()
+                .filter { it.isFile && it.name != ".nomedia" && !it.name.startsWith(".seeded") }
                 .sumOf { it.length() }
-        } catch (_: Exception) {
+        } else {
             0L
         }
     }
-    val totalPrivateBytes = storageMap.values.sum() + sharedVolumeBytes
 
     val colorScheme = MaterialTheme.colorScheme
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(colorScheme.background)
-            .testTag("apps_screen")
-    ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 100.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            // Screen Title + Create Volume Quick Action
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+    Scaffold(
+        containerColor = colorScheme.background,
+        floatingActionButton = {
+            if (!isDecoyMode) {
+                FloatingActionButton(
+                    onClick = {
+                        viewModel.refreshInstalledApps()
+                        showAddAppSheet = true
+                    },
+                    containerColor = colorScheme.primary,
+                    contentColor = colorScheme.onPrimary,
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.testTag("add_app_fab")
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
+                    Icon(
+                        imageVector = Icons.Rounded.Add,
+                        contentDescription = "Add App to Vault",
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+            }
+        }
+    ) { innerPadding ->
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            val isWideScreen = maxWidth >= 600.dp
+            val horizontalPad = if (isWideScreen) 24.dp else 16.dp
+
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = horizontalPad),
+                contentPadding = PaddingValues(top = 14.dp, bottom = 104.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                item {
+                    Column {
                         Text(
-                            text = "Protected Apps",
-                            fontSize = 26.sp,
+                            text = "IsoVault",
+                            fontSize = if (isWideScreen) 30.sp else 26.sp,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = FrauncesFontFamily,
                             color = colorScheme.onBackground
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Per-app encrypted volumes & optional shared space",
-                            fontSize = 14.sp,
+                            text = "Per-app encrypted volumes & LSPosed storage isolation",
+                            fontSize = 13.sp,
                             fontFamily = JakartaFontFamily,
                             color = colorScheme.onSurfaceVariant
                         )
                     }
-
-                    OutlinedButton(
-                        onClick = { showCreateVolumeDialog = true },
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, colorScheme.outlineVariant),
-                        modifier = Modifier.testTag("create_volume_top_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.CreateNewFolder,
-                            contentDescription = "New Volume",
-                            tint = colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Volume",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = JakartaFontFamily,
-                            color = colorScheme.onSurface
-                        )
-                    }
                 }
-            }
 
-            // First-Run Onboarding & LSPosed Live Status Checklist
-            if (showOnboardingCard || !isLsposedActive) {
+                // LSPosed Module Status Card (Real status + Self-Test + Open LSPosed Manager)
                 item {
-                    FirstRunOnboardingCard(
-                        isLsposedActive = isLsposedActive,
-                        hasScopeSelected = protectedCount > 0,
-                        hasVolumeCreated = displayedConfigs.isNotEmpty(),
-                        onSimulateActiveClick = { viewModel.setSimulatedHookPreview(true) },
-                        onCreateFirstVolume = { showCreateVolumeDialog = true },
-                        onDismiss = { viewModel.dismissOnboarding() }
-                    )
-                }
-            }
-
-            // Top Status Card ("3 apps protected" + Shared Space summary + Big Lock Button)
-            item {
-                Card(
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = colorScheme.surfaceVariant),
-                    border = BorderStroke(1.dp, colorScheme.outlineVariant),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("top_status_card")
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(22.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(8.dp)
-                                            .clip(CircleShape)
-                                            .background(if (isLsposedActive) AccentMint else colorScheme.error)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = if (isLsposedActive) {
-                                            "LSPosed Module Active (API 82)"
-                                        } else {
-                                            "LSPosed Module Inactive — Enable in LSPosed Manager"
-                                        },
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontFamily = JakartaFontFamily,
-                                        color = if (isLsposedActive) AccentMint else colorScheme.error
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Text(
-                                    text = "$protectedCount ${if (protectedCount == 1) "app" else "apps"} protected",
-                                    fontSize = 24.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontFamily = FrauncesFontFamily,
-                                    color = colorScheme.onSurface
-                                )
-
-                                Spacer(modifier = Modifier.height(4.dp))
-
-                                Text(
-                                    text = "Total encrypted volumes: ${formatBytes(totalPrivateBytes)}",
-                                    fontSize = 13.sp,
-                                    fontFamily = JakartaFontFamily,
-                                    color = colorScheme.onSurfaceVariant
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.width(16.dp))
-
-                            // Big Lock Button
-                            Button(
-                                onClick = onTriggerLock,
-                                shape = RoundedCornerShape(16.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = colorScheme.primary,
-                                    contentColor = colorScheme.onPrimary
-                                ),
-                                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
-                                modifier = Modifier
-                                    .height(54.dp)
-                                    .minimumInteractiveComponentSize()
-                                    .testTag("lock_vault_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Lock,
-                                    contentDescription = "Lock Vault",
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Lock",
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = JakartaFontFamily
-                                )
+                    LsposedModuleStatusBanner(
+                        isActive = dashboardState.isLsposedActive,
+                        onShowInstructions = { showLsposedInstructionsDialog = true },
+                        onRunSelfTest = {
+                            viewModel.runDiagnosticsSelfTest { report ->
+                                selfTestBannerMessage = report
+                                Toast.makeText(context, report, Toast.LENGTH_LONG).show()
                             }
                         }
+                    )
+                }
 
-                        Spacer(modifier = Modifier.height(14.dp))
-                        HorizontalDivider(color = colorScheme.outlineVariant)
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        // Shared Space Volume Quick Banner
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .clickable { onOpenAppVaultInFiles(IsolationRuleManager.SHARED_VOLUME_ID) }
-                                .padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                if (selfTestBannerMessage != null) {
+                    item {
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = colorScheme.primary.copy(alpha = 0.12f)
+                            ),
+                            border = BorderStroke(1.dp, colorScheme.primary.copy(alpha = 0.35f)),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Icon(
-                                    imageVector = Icons.Rounded.FolderShared,
+                                    imageVector = Icons.Rounded.VerifiedUser,
                                     contentDescription = null,
                                     tint = colorScheme.primary,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(10.dp))
-                                Column {
-                                    Text(
-                                        text = "Shared Space Volume • ${formatBytes(sharedVolumeBytes)}",
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontFamily = JakartaFontFamily,
-                                        color = colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = "$sharedOptInCount ${if (sharedOptInCount == 1) "app linked" else "apps linked"} to Shared Space",
-                                        fontSize = 11.sp,
-                                        fontFamily = JakartaFontFamily,
-                                        color = colorScheme.onSurfaceVariant
+                                Text(
+                                    text = selfTestBannerMessage!!,
+                                    fontSize = 12.sp,
+                                    fontFamily = JakartaFontFamily,
+                                    color = colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(
+                                    onClick = { selfTestBannerMessage = null },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Close,
+                                        contentDescription = "Dismiss",
+                                        tint = colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(16.dp)
                                     )
                                 }
                             }
-
-                            Text(
-                                text = "Open Shared",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                fontFamily = JakartaFontFamily,
-                                color = colorScheme.primary
-                            )
                         }
                     }
                 }
-            }
 
-            // Protected App Cards or Smooth Empty State
-            if (displayedConfigs.isEmpty()) {
+                // Top Status Card ("X apps protected" + Shared Space status + Big Lock button)
                 item {
-                    EmptyAppsState(onAddClick = { showAddAppsSheet = true })
-                }
-            } else {
-                items(displayedConfigs, key = { it.packageName }) { config ->
-                    val appBytes = storageMap[config.packageName] ?: 0L
-                    ProtectedAppCard(
-                        config = config,
-                        privateStorageBytes = appBytes,
-                        hooksActive = isLsposedActive && config.isIsolated,
-                        onToggle = { enabled ->
-                            viewModel.toggleAppIsolation(
-                                InstalledAppInfo(
-                                    packageName = config.packageName,
-                                    appName = config.appName,
-                                    icon = null,
-                                    isSystemApp = false,
-                                    targetSdkVersion = 34,
-                                    isIsolated = enabled,
-                                    isolationMode = config.isolationMode
-                                ),
-                                enable = enabled
-                            )
+                    VaultStatusHeroCard(
+                        protectedCount = if (isDecoyMode) 0 else protectedCount,
+                        sharedSpaceBytes = if (isDecoyMode) 0L else sharedSpaceBytes,
+                        sharedOptInCount = if (isDecoyMode) 0 else visibleConfigs.count { it.isIsolated && it.useSharedSpace },
+                        isPinEnabled = securitySettings.isPinEnabled,
+                        onLockClick = {
+                            if (securitySettings.isPinEnabled) {
+                                viewModel.lockVaultNow()
+                            } else {
+                                onRequestSetupPin()
+                            }
                         },
-                        onToggleSharedSpace = { useShared ->
-                            viewModel.toggleAppSharedSpace(config.packageName, config.appName, useShared)
-                        },
-                        onClick = {
-                            onOpenAppVaultInFiles(config.packageName)
+                        onAddAppClick = {
+                            viewModel.refreshInstalledApps()
+                            showAddAppSheet = true
                         }
                     )
                 }
-            }
-        }
 
-        // Floating "+" Button to add apps with zero path/folder questions
-        FloatingActionButton(
-            onClick = { showAddAppsSheet = true },
-            shape = RoundedCornerShape(20.dp),
-            containerColor = colorScheme.primary,
-            contentColor = colorScheme.onPrimary,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(24.dp)
-                .size(60.dp)
-                .testTag("add_app_fab")
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Add,
-                contentDescription = "Add App to Vault",
-                modifier = Modifier.size(28.dp)
-            )
-        }
-
-        // Searchable Installed Apps Sheet (No folder or path questions)
-        if (showAddAppsSheet) {
-            ModalBottomSheet(
-                onDismissRequest = { showAddAppsSheet = false },
-                sheetState = sheetState,
-                containerColor = colorScheme.surface,
-                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
-            ) {
-                AddInstalledAppSheetContent(
-                    installedApps = installedApps,
-                    configuredPackages = configs.associateBy { it.packageName },
-                    onSelectApp = { appInfo ->
-                        viewModel.toggleAppIsolation(appInfo, enable = true)
-                    },
-                    onDismiss = { showAddAppsSheet = false }
-                )
-            }
-        }
-
-        // Simple Create Volume Dialog (Name, Type: Per-App or Shared, Optional Quota MB)
-        if (showCreateVolumeDialog) {
-            CreateVolumeDialog(
-                installedApps = installedApps,
-                onDismiss = { showCreateVolumeDialog = false },
-                onCreateVolume = { name, pkg, isShared, quotaMb, linkShared ->
-                    viewModel.createOrUpdateVolume(
-                        appName = name,
-                        packageName = pkg,
-                        isSharedVolume = isShared,
-                        quotaMb = quotaMb,
-                        useSharedSpace = linkShared
-                    )
-                    viewModel.dismissOnboarding()
-                    showCreateVolumeDialog = false
-                }
-            )
-        }
-    }
-}
-
-@Composable
-private fun FirstRunOnboardingCard(
-    isLsposedActive: Boolean,
-    hasScopeSelected: Boolean,
-    hasVolumeCreated: Boolean,
-    onSimulateActiveClick: () -> Unit,
-    onCreateFirstVolume: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    val colorScheme = MaterialTheme.colorScheme
-    Card(
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = colorScheme.surfaceVariant),
-        border = BorderStroke(1.dp, if (isLsposedActive) colorScheme.outlineVariant else colorScheme.primary),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("onboarding_checklist_card")
-    ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = if (isLsposedActive) Icons.Rounded.Shield else Icons.Rounded.Info,
-                        contentDescription = null,
-                        tint = colorScheme.primary,
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "How Vault-LSPosed Works",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        fontFamily = FrauncesFontFamily,
-                        color = colorScheme.onSurface
-                    )
-                }
-
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Close,
-                        contentDescription = "Dismiss Onboarding",
-                        tint = colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = "Each protected app gets its own encrypted volume (AES256_GCM_HKDF_4KB) and cannot see your real phone storage or other apps' files. Enable \"Use shared space\" on any app to let it share a common encrypted folder with other opted-in apps.",
-                fontSize = 13.sp,
-                fontFamily = JakartaFontFamily,
-                color = colorScheme.onSurfaceVariant
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // 3-step live status checklist
-            ChecklistRow(
-                checked = isLsposedActive,
-                title = "1. LSPosed module active",
-                subtitle = if (isLsposedActive) {
-                    "Hooks attached (File, Os/IoBridge, MediaStore, Picker)"
+                if (visibleConfigs.isEmpty()) {
+                    item {
+                        FriendlyAppsEmptyState(
+                            isDecoy = isDecoyMode,
+                            onAddAppClick = {
+                                viewModel.refreshInstalledApps()
+                                showAddAppSheet = true
+                            }
+                        )
+                    }
                 } else {
-                    "Open LSPosed Manager → Modules → Enable IsoVault & reboot"
-                }
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            ChecklistRow(
-                checked = hasScopeSelected,
-                title = "2. App scope selected",
-                subtitle = "Select target apps in LSPosed and toggle them on below"
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            ChecklistRow(
-                checked = hasVolumeCreated,
-                title = "3. Encrypted volume initialized",
-                subtitle = "Standard folders (DCIM, Pictures, Download, Movies, Music, Documents) ready"
-            )
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Protected App Volumes (${visibleConfigs.size})",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = JakartaFontFamily,
+                                color = colorScheme.onSurfaceVariant
+                            )
+                            TextButton(
+                                onClick = {
+                                    viewModel.refreshInstalledApps()
+                                    showAddAppSheet = true
+                                }
+                            ) {
+                                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Add App", fontSize = 13.sp, fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Button(
-                    onClick = onCreateFirstVolume,
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = colorScheme.primary,
-                        contentColor = colorScheme.onPrimary
-                    ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(46.dp)
-                        .testTag("onboarding_create_volume_button")
-                ) {
-                    Icon(Icons.Rounded.Storage, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Create Volume", fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily)
-                }
-
-                if (!isLsposedActive) {
-                    OutlinedButton(
-                        onClick = onSimulateActiveClick,
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, colorScheme.outline),
-                        modifier = Modifier.height(46.dp)
-                    ) {
-                        Text(
-                            text = "Verify Hooks",
-                            color = colorScheme.onSurface,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = JakartaFontFamily,
-                            fontSize = 13.sp
+                    items(visibleConfigs, key = { it.packageName }) { config ->
+                        val usedBytes = storagePerApp[config.packageName] ?: 0L
+                        ProtectedAppCard(
+                            config = config,
+                            storageUsedBytes = usedBytes,
+                            isLsposedModuleReady = dashboardState.isLsposedActive,
+                            onToggleIsolation = { enabled ->
+                                viewModel.toggleAppIsolation(config, enabled)
+                            },
+                            onToggleSharedSpace = { useShared ->
+                                viewModel.toggleAppSharedSpace(config, useShared)
+                            },
+                            onShowHookDetails = {
+                                selectedHookDetailsApp = config
+                            }
                         )
                     }
                 }
             }
         }
     }
+
+    if (showAddAppSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showAddAppSheet = false },
+            containerColor = colorScheme.surface,
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+        ) {
+            AddInstalledAppSheetContent(
+                installedApps = installedApps,
+                existingPackages = configs.map { it.packageName }.toSet(),
+                onRefreshApps = { viewModel.refreshInstalledApps() },
+                onSelectApp = { app, useShared ->
+                    viewModel.addInstalledAppToVault(app, useSharedSpace = useShared)
+                    showAddAppSheet = false
+                    Toast.makeText(
+                        context,
+                        "Created encrypted volume for ${app.appName}",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            )
+        }
+    }
+
+    selectedHookDetailsApp?.let { appConfig ->
+        HookStatusDetailsDialog(
+            config = appConfig,
+            isLsposedModuleReady = dashboardState.isLsposedActive,
+            onDismiss = { selectedHookDetailsApp = null }
+        )
+    }
+
+    if (showLsposedInstructionsDialog) {
+        LsposedActivationGuideDialog(
+            isActive = dashboardState.isLsposedActive,
+            onRunSelfTest = {
+                showLsposedInstructionsDialog = false
+                viewModel.runDiagnosticsSelfTest { report ->
+                    selfTestBannerMessage = report
+                    Toast.makeText(context, report, Toast.LENGTH_LONG).show()
+                }
+            },
+            onDismiss = { showLsposedInstructionsDialog = false }
+        )
+    }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ChecklistRow(
-    checked: Boolean,
-    title: String,
-    subtitle: String
+private fun LsposedModuleStatusBanner(
+    isActive: Boolean,
+    onShowInstructions: () -> Unit,
+    onRunSelfTest: () -> Unit
 ) {
+    val context = LocalContext.current
     val colorScheme = MaterialTheme.colorScheme
-    Row(
-        verticalAlignment = Alignment.Top,
-        modifier = Modifier.fillMaxWidth()
+    val statusColor = if (isActive) Color(0xFF10B981) else Color(0xFFF59E0B)
+
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = colorScheme.surfaceVariant),
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (isActive) statusColor.copy(alpha = 0.35f) else statusColor.copy(alpha = 0.5f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .clickable { onShowInstructions() }
+            .testTag("lsposed_status_banner")
     ) {
-        Icon(
-            imageVector = if (checked) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
-            contentDescription = null,
-            tint = if (checked) AccentMint else colorScheme.onSurfaceVariant,
+        Column(
             modifier = Modifier
-                .padding(top = 2.dp)
-                .size(18.dp)
-        )
-        Spacer(modifier = Modifier.width(10.dp))
-        Column {
-            Text(
-                text = title,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                fontFamily = JakartaFontFamily,
-                color = colorScheme.onSurface
-            )
-            Text(
-                text = subtitle,
-                fontSize = 12.sp,
-                fontFamily = JakartaFontFamily,
-                color = colorScheme.onSurfaceVariant
-            )
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(statusColor.copy(alpha = 0.14f))
+                ) {
+                    Icon(
+                        imageVector = if (isActive) Icons.Rounded.CheckCircle else Icons.Rounded.Info,
+                        contentDescription = null,
+                        tint = statusColor,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (isActive) "LSPosed Hook Engine Active" else "Vault Encryption Active • LSPosed Standby",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = JakartaFontFamily,
+                        color = colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = if (isActive) {
+                            "File, IoBridge, MediaStore & Picker hooks are live for isolated apps"
+                        } else {
+                            "Encrypted file manager & volumes work natively. Enable in LSPosed Manager to hook external apps."
+                        },
+                        fontSize = 12.sp,
+                        fontFamily = JakartaFontFamily,
+                        color = colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedButton(
+                    onClick = onRunSelfTest,
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, colorScheme.primary.copy(alpha = 0.5f)),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
+                    modifier = Modifier.testTag("run_selftest_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.VerifiedUser,
+                        contentDescription = null,
+                        tint = colorScheme.primary,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Run Self-Test",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = JakartaFontFamily,
+                        color = colorScheme.primary
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        val launchIntent = context.packageManager.getLaunchIntentForPackage("org.lsposed.manager")
+                        if (launchIntent != null) {
+                            context.startActivity(launchIntent)
+                        } else {
+                            onShowInstructions()
+                        }
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, colorScheme.outlineVariant),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
+                    modifier = Modifier.testTag("open_lsposed_guide_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.OpenInNew,
+                        contentDescription = null,
+                        tint = colorScheme.onSurface,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "LSPosed Setup Guide",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = JakartaFontFamily,
+                        color = colorScheme.onSurface
+                    )
+                }
+            }
         }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ProtectedAppCard(
-    config: AppIsolationConfig,
-    privateStorageBytes: Long,
-    hooksActive: Boolean,
-    onToggle: (Boolean) -> Unit,
-    onToggleSharedSpace: (Boolean) -> Unit,
-    onClick: () -> Unit
+private fun VaultStatusHeroCard(
+    protectedCount: Int,
+    sharedSpaceBytes: Long,
+    sharedOptInCount: Int,
+    isPinEnabled: Boolean,
+    onLockClick: () -> Unit,
+    onAddAppClick: () -> Unit
 ) {
     val colorScheme = MaterialTheme.colorScheme
-    val quotaText = if (config.volumeQuotaMb > 0) {
-        " / ${config.volumeQuotaMb} MB quota"
-    } else {
-        ""
-    }
 
     Card(
         shape = RoundedCornerShape(20.dp),
@@ -645,58 +540,56 @@ private fun ProtectedAppCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .clickable(onClick = onClick)
-            .testTag("app_card_${config.packageName}")
+            .testTag("apps_status_card")
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 18.dp)
+                .padding(20.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                BrandSquircleIcon(
-                    name = config.appName,
-                    size = 48.dp
-                )
-
-                Spacer(modifier = Modifier.width(16.dp))
-
                 Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = config.appName,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = JakartaFontFamily,
-                            color = colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        // Small status dot showing hooks are active
                         Box(
                             modifier = Modifier
-                                .size(8.dp)
+                                .size(10.dp)
                                 .clip(CircleShape)
                                 .background(
-                                    if (config.isIsolated && hooksActive) AccentMint
-                                    else if (config.isIsolated) colorScheme.primary
-                                    else colorScheme.outline
+                                    if (protectedCount > 0) Color(0xFF10B981) else colorScheme.onSurfaceVariant
                                 )
                         )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (protectedCount > 0) "VAULT ACTIVE" else "READY TO PROTECT",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = JakartaFontFamily,
+                            color = if (protectedCount > 0) Color(0xFF10B981) else colorScheme.onSurfaceVariant,
+                            letterSpacing = 0.8.sp
+                        )
                     }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "$protectedCount app${if (protectedCount == 1) "" else "s"} protected",
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = FrauncesFontFamily,
+                        color = colorScheme.onSurface
+                    )
 
                     Spacer(modifier = Modifier.height(4.dp))
 
                     Text(
-                        text = if (config.isIsolated) {
-                            "Private volume: ${formatBytes(privateStorageBytes)}$quotaText"
+                        text = if (isPinEnabled) {
+                            "Per-app AES-256-GCM volumes active"
                         } else {
-                            "Paused • Private volume: ${formatBytes(privateStorageBytes)}$quotaText"
+                            "Tap Lock to set your 4-digit PIN"
                         },
                         fontSize = 13.sp,
                         fontFamily = JakartaFontFamily,
@@ -706,280 +599,461 @@ private fun ProtectedAppCard(
 
                 Spacer(modifier = Modifier.width(12.dp))
 
-                Switch(
-                    checked = config.isIsolated,
-                    onCheckedChange = onToggle,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = colorScheme.primary,
-                        uncheckedThumbColor = colorScheme.onSurfaceVariant,
-                        uncheckedTrackColor = colorScheme.surface
+                Button(
+                    onClick = onLockClick,
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = colorScheme.primary,
+                        contentColor = colorScheme.onPrimary
                     ),
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .testTag("toggle_${config.packageName}")
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-            HorizontalDivider(color = colorScheme.outlineVariant)
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Hook Status Indicator Pills per app (File, Os/IoBridge, MediaStore, Picker, Shared)
-            val activeHooks = buildList {
-                add("File")
-                add("Os/IoBridge")
-                add("MediaStore")
-                add("Picker")
-                if (config.useSharedSpace) add("Shared Space")
-            }
-
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-            ) {
-                Text(
-                    text = if (config.isIsolated) "Active hooks:" else "Hooks paused:",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                    fontFamily = JakartaFontFamily,
-                    color = colorScheme.onSurfaceVariant
-                )
-                activeHooks.forEach { hookLabel ->
-                    Surface(
-                        color = if (config.isIsolated) {
-                            colorScheme.primary.copy(alpha = 0.14f)
-                        } else {
-                            colorScheme.surface
-                        },
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text(
-                            text = hookLabel,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = JakartaFontFamily,
-                            color = if (config.isIsolated) colorScheme.primary else colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                        )
-                    }
+                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
+                    modifier = Modifier.testTag("lock_vault_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Lock,
+                        contentDescription = "Lock Vault",
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Lock",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = JakartaFontFamily
+                    )
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(14.dp))
+            HorizontalDivider(color = colorScheme.outlineVariant)
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // "Use shared space" toggle per protected app (off by default)
-            Row(
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Rounded.FolderShared,
                         contentDescription = null,
-                        tint = if (config.useSharedSpace) colorScheme.primary else colorScheme.onSurfaceVariant,
+                        tint = colorScheme.primary,
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Column {
+                    Text(
+                        text = "Shared Space: ${formatBytes(sharedSpaceBytes)}",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        fontFamily = JakartaFontFamily,
+                        color = colorScheme.onSurface
+                    )
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "$sharedOptInCount app${if (sharedOptInCount == 1) "" else "s"} linked",
+                        fontSize = 12.sp,
+                        fontFamily = JakartaFontFamily,
+                        color = colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Surface(
+                        color = colorScheme.primary.copy(alpha = 0.14f),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable(onClick = onAddAppClick)
+                    ) {
                         Text(
-                            text = "Use shared space",
-                            fontSize = 13.sp,
+                            text = "+ Protect App",
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = JakartaFontFamily,
-                            color = colorScheme.onSurface
-                        )
-                        Text(
-                            text = if (config.useSharedSpace) {
-                                "Sees its own volume + Shared Space in gallery & files"
-                            } else {
-                                "Strictly isolated to its own private volume"
-                            },
-                            fontSize = 11.sp,
-                            fontFamily = JakartaFontFamily,
-                            color = colorScheme.onSurfaceVariant
+                            color = colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                         )
                     }
                 }
-
-                Switch(
-                    checked = config.useSharedSpace,
-                    onCheckedChange = onToggleSharedSpace,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = colorScheme.primary,
-                        uncheckedThumbColor = colorScheme.onSurfaceVariant,
-                        uncheckedTrackColor = colorScheme.surface
-                    ),
-                    modifier = Modifier.testTag("shared_toggle_${config.packageName}")
-                )
             }
         }
     }
 }
 
 @Composable
-private fun CreateVolumeDialog(
-    installedApps: List<InstalledAppInfo>,
-    onDismiss: () -> Unit,
-    onCreateVolume: (name: String, pkg: String, isShared: Boolean, quotaMb: Int, linkShared: Boolean) -> Unit
+private fun ProtectedAppCard(
+    config: AppIsolationConfig,
+    storageUsedBytes: Long,
+    isLsposedModuleReady: Boolean,
+    onToggleIsolation: (Boolean) -> Unit,
+    onToggleSharedSpace: (Boolean) -> Unit,
+    onShowHookDetails: () -> Unit
 ) {
     val colorScheme = MaterialTheme.colorScheme
-    var isSharedType by remember { mutableStateOf(false) }
-    var volumeName by remember { mutableStateOf("") }
-    var quotaMbInput by remember { mutableStateOf("500") }
-    var linkToShared by remember { mutableStateOf(false) }
+    val hooksActive = config.isIsolated && isLsposedModuleReady
+    val dotColor = when {
+        hooksActive -> Color(0xFF10B981)
+        config.isIsolated -> Color(0xFFF59E0B)
+        else -> colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+    }
+
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = colorScheme.surfaceVariant),
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (config.isIsolated) colorScheme.primary.copy(alpha = 0.28f) else colorScheme.outlineVariant
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("app_card_${config.packageName}")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                BrandSquircleIcon(
+                    name = config.appName,
+                    size = 48.dp,
+                    packageName = config.packageName
+                )
+
+                Spacer(modifier = Modifier.width(14.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = config.appName,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = JakartaFontFamily,
+                            color = colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        // Hook status dot (clickable for hook details)
+                        Box(
+                            modifier = Modifier
+                                .size(9.dp)
+                                .clip(CircleShape)
+                                .background(dotColor)
+                                .clickable { onShowHookDetails() }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    val quotaText = if (config.volumeQuotaMb > 0) " / ${config.volumeQuotaMb} MB" else ""
+                    Text(
+                        text = "Private volume: ${formatBytes(storageUsedBytes)}$quotaText",
+                        fontSize = 13.sp,
+                        fontFamily = JakartaFontFamily,
+                        color = colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { onShowHookDetails() }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Tune,
+                            contentDescription = "Hook details",
+                            tint = dotColor,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = when {
+                                hooksActive -> "5/5 hooks active (File, IoBridge, MediaStore, Picker, Shared)"
+                                config.isIsolated -> "Volume encrypted • Tap to view hook status"
+                                else -> "Protection paused"
+                            },
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            fontFamily = JakartaFontFamily,
+                            color = dotColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Switch(
+                    checked = config.isIsolated,
+                    onCheckedChange = onToggleIsolation,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = colorScheme.onPrimary,
+                        checkedTrackColor = colorScheme.primary,
+                        uncheckedThumbColor = colorScheme.onSurfaceVariant,
+                        uncheckedTrackColor = colorScheme.surface
+                    ),
+                    modifier = Modifier.testTag("toggle_${config.packageName}")
+                )
+            }
+
+            if (config.isIsolated) {
+                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider(color = colorScheme.outlineVariant)
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.FolderShared,
+                            contentDescription = null,
+                            tint = if (config.useSharedSpace) colorScheme.primary else colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "Use shared space",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = JakartaFontFamily,
+                                color = colorScheme.onSurface
+                            )
+                            Text(
+                                text = if (config.useSharedSpace) {
+                                    "Sees its own volume + Shared Space media"
+                                } else {
+                                    "Strictly isolated to its own private volume"
+                                },
+                                fontSize = 11.sp,
+                                fontFamily = JakartaFontFamily,
+                                color = colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Switch(
+                        checked = config.useSharedSpace,
+                        onCheckedChange = onToggleSharedSpace,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = colorScheme.onPrimary,
+                            checkedTrackColor = colorScheme.primary,
+                            uncheckedThumbColor = colorScheme.onSurfaceVariant,
+                            uncheckedTrackColor = colorScheme.surface
+                        ),
+                        modifier = Modifier.testTag("shared_space_toggle_${config.packageName}")
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HookStatusDetailsDialog(
+    config: AppIsolationConfig,
+    isLsposedModuleReady: Boolean,
+    onDismiss: () -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    val hooks = listOf(
+        Triple("File.list / exists / Redirect", "Redirects /storage/emulated/0 paths into private volume", true),
+        Triple("Libcore Os & IoBridge.open", "Low-level file descriptor open() redirection + Shared folder link", true),
+        Triple("MediaStore Query / Insert / Delete", "Filters gallery cursors to private volume" + if (config.useSharedSpace) " + Shared Space" else " only", true),
+        Triple("Photo Picker & Document Intents", "Scopes ACTION_PICK & GET_CONTENT to isolated storage", true),
+        Triple("Per-Volume AES256_GCM_HKDF_4KB", "256-bit DEK wrapped by Android Keystore Master Key", true)
+    )
 
     AlertDialog(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(20.dp),
         containerColor = colorScheme.surface,
         title = {
-            Text(
-                text = "Create Encrypted Volume",
-                fontFamily = FrauncesFontFamily,
-                fontWeight = FontWeight.SemiBold
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BrandSquircleIcon(
+                    name = config.appName,
+                    size = 36.dp,
+                    packageName = config.packageName
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = "${config.appName} Hooks",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = FrauncesFontFamily,
+                        color = colorScheme.onSurface
+                    )
+                    Text(
+                        text = config.packageName,
+                        fontSize = 11.sp,
+                        fontFamily = JakartaFontFamily,
+                        color = colorScheme.onSurfaceVariant
+                    )
+                }
+            }
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    text = "Each volume gets its own 256-bit key and default folders (DCIM, Pictures, Download, Movies, Music, Documents).",
-                    fontSize = 12.sp,
-                    fontFamily = JakartaFontFamily,
-                    color = colorScheme.onSurfaceVariant
-                )
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = !isSharedType,
-                        onClick = { isSharedType = false },
-                        label = { Text("Per-App Volume", fontFamily = JakartaFontFamily) },
-                        shape = RoundedCornerShape(12.dp),
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = colorScheme.primary.copy(alpha = 0.16f),
-                            selectedLabelColor = colorScheme.primary
-                        )
-                    )
-                    FilterChip(
-                        selected = isSharedType,
-                        onClick = { isSharedType = true },
-                        label = { Text("Shared Space", fontFamily = JakartaFontFamily) },
-                        shape = RoundedCornerShape(12.dp),
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = colorScheme.primary.copy(alpha = 0.16f),
-                            selectedLabelColor = colorScheme.primary
-                        )
-                    )
-                }
-
-                if (!isSharedType) {
-                    OutlinedTextField(
-                        value = volumeName,
-                        onValueChange = { volumeName = it },
-                        label = { Text("App or Volume Name (e.g. Signal)") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                OutlinedTextField(
-                    value = quotaMbInput,
-                    onValueChange = { if (it.all { c -> c.isDigit() } && it.length <= 6) quotaMbInput = it },
-                    label = { Text("Optional Size Quota in MB (0 = unlimited)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    shape = RoundedCornerShape(14.dp),
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(
+                    color = if (isLsposedModuleReady && config.isIsolated) {
+                        Color(0xFF10B981).copy(alpha = 0.14f)
+                    } else {
+                        Color(0xFFF59E0B).copy(alpha = 0.14f)
+                    },
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
-                )
+                ) {
+                    Text(
+                        text = if (isLsposedModuleReady && config.isIsolated) {
+                            "All 5 hook layers active and wrapped in fail-safe try/catch guards."
+                        } else if (!config.isIsolated) {
+                            "Protection toggle is currently OFF for this app."
+                        } else {
+                            "Rules are configured and encrypted volume is ready. Enable IsoVault in LSPosed Manager to enforce runtime hooks on external apps."
+                        },
+                        fontSize = 12.sp,
+                        fontFamily = JakartaFontFamily,
+                        color = colorScheme.onSurface,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
 
-                if (!isSharedType) {
+                hooks.forEach { (title, desc, enabled) ->
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.Top,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            text = "Also link to Shared Space",
-                            fontSize = 13.sp,
-                            fontFamily = JakartaFontFamily,
-                            color = colorScheme.onSurface
+                        Icon(
+                            imageVector = Icons.Rounded.CheckCircle,
+                            contentDescription = null,
+                            tint = if (enabled && config.isIsolated) colorScheme.primary else colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .padding(top = 2.dp)
+                                .size(16.dp)
                         )
-                        Switch(
-                            checked = linkToShared,
-                            onCheckedChange = { linkToShared = it }
-                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = title,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = JakartaFontFamily,
+                                color = colorScheme.onSurface
+                            )
+                            Text(
+                                text = desc,
+                                fontSize = 11.sp,
+                                fontFamily = JakartaFontFamily,
+                                color = colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }
         },
         confirmButton = {
             Button(
-                onClick = {
-                    val quota = quotaMbInput.toIntOrNull() ?: 0
-                    if (isSharedType) {
-                        onCreateVolume(
-                            "Shared Space",
-                            IsolationRuleManager.SHARED_VOLUME_ID,
-                            true,
-                            quota,
-                            true
-                        )
-                    } else {
-                        val cleanName = volumeName.trim().ifEmpty { "Private App" }
-                        val match = installedApps.find {
-                            it.appName.equals(cleanName, ignoreCase = true) ||
-                                it.packageName.equals(cleanName, ignoreCase = true)
-                        }
-                        val pkg = match?.packageName
-                            ?: "com.vault.volume.${cleanName.lowercase().replace(Regex("[^a-z0-9]"), "")}"
-                        onCreateVolume(
-                            match?.appName ?: cleanName,
-                            pkg,
-                            false,
-                            quota,
-                            linkToShared
-                        )
-                    }
-                },
+                onClick = onDismiss,
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("Create Volume")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text("Done", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
             }
         }
     )
 }
 
 @Composable
-private fun EmptyAppsState(onAddClick: () -> Unit) {
+private fun LsposedActivationGuideDialog(
+    isActive: Boolean,
+    onRunSelfTest: () -> Unit,
+    onDismiss: () -> Unit
+) {
     val colorScheme = MaterialTheme.colorScheme
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(20.dp),
+        containerColor = colorScheme.surface,
+        title = {
+            Text(
+                text = if (isActive) "LSPosed Module Active" else "Enable LSPosed Module",
+                fontFamily = FrauncesFontFamily,
+                fontWeight = FontWeight.SemiBold
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "To isolate external apps (like WhatsApp, Snapchat, or Camera) at runtime:",
+                    fontSize = 13.sp,
+                    fontFamily = JakartaFontFamily,
+                    color = colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "1. Open LSPosed Manager on your device.\n" +
+                        "2. Enable the \"IsoVault\" module.\n" +
+                        "3. Check the target apps you want to isolate in the module scope.\n" +
+                        "4. Force-stop the target app once so hooks attach on launch.",
+                    fontSize = 13.sp,
+                    fontFamily = JakartaFontFamily,
+                    color = colorScheme.onSurface
+                )
+                Text(
+                    text = "Fail-Closed Guarantee: If the Vault provider is unreachable, isolated apps see an empty private directory and never your real storage.",
+                    fontSize = 12.sp,
+                    fontFamily = JakartaFontFamily,
+                    color = colorScheme.primary
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onRunSelfTest,
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Run Live Self-Test", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
+}
+
+@Composable
+private fun FriendlyAppsEmptyState(
+    isDecoy: Boolean,
+    onAddAppClick: () -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+
     Card(
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = colorScheme.surfaceVariant),
         border = BorderStroke(1.dp, colorScheme.outlineVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 12.dp)
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 28.dp, vertical = 40.dp)
+                .padding(horizontal = 28.dp, vertical = 36.dp)
         ) {
             Box(
                 contentAlignment = Alignment.Center,
@@ -999,8 +1073,8 @@ private fun EmptyAppsState(onAddClick: () -> Unit) {
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "No apps protected yet",
-                fontSize = 19.sp,
+                text = if (isDecoy) "No protected apps" else "Protect your first installed app",
+                fontSize = 18.sp,
                 fontWeight = FontWeight.SemiBold,
                 fontFamily = FrauncesFontFamily,
                 color = colorScheme.onSurface
@@ -1009,27 +1083,31 @@ private fun EmptyAppsState(onAddClick: () -> Unit) {
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = "Tap the + button to choose apps whose photos and files should stay inside your encrypted vault.",
+                text = if (isDecoy) {
+                    "Your vault has no isolated apps configured yet."
+                } else {
+                    "Select any installed app on your phone to create its dedicated AES-256-GCM encrypted volume with automatic DCIM, Pictures, and Download folders."
+                },
                 fontSize = 14.sp,
                 fontFamily = JakartaFontFamily,
                 color = colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(20.dp))
-
-            Button(
-                onClick = onAddClick,
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = colorScheme.primary,
-                    contentColor = colorScheme.onPrimary
-                ),
-                modifier = Modifier.height(48.dp)
-            ) {
-                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Protect an App", fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily)
+            if (!isDecoy) {
+                Spacer(modifier = Modifier.height(18.dp))
+                Button(
+                    onClick = onAddAppClick,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = colorScheme.primary,
+                        contentColor = colorScheme.onPrimary
+                    )
+                ) {
+                    Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Choose Installed App", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
+                }
             }
         }
     }
@@ -1038,172 +1116,258 @@ private fun EmptyAppsState(onAddClick: () -> Unit) {
 @Composable
 private fun AddInstalledAppSheetContent(
     installedApps: List<InstalledAppInfo>,
-    configuredPackages: Map<String, AppIsolationConfig>,
-    onSelectApp: (InstalledAppInfo) -> Unit,
-    onDismiss: () -> Unit
+    existingPackages: Set<String>,
+    onRefreshApps: () -> Unit,
+    onSelectApp: (InstalledAppInfo, Boolean) -> Unit
 ) {
     val colorScheme = MaterialTheme.colorScheme
     var query by remember { mutableStateOf("") }
+    var useSharedSpaceDefault by remember { mutableStateOf(false) }
+    var includeSystemApps by remember { mutableStateOf(false) }
 
-    val catalog = remember(installedApps) {
-        val defaults = listOf(
-            InstalledAppInfo(packageName = "com.snapchat.android", appName = "Snapchat", icon = null, isSystemApp = false, targetSdkVersion = 34, isIsolated = false, isolationMode = IsolationMode.ENCRYPTED_VAULT),
-            InstalledAppInfo(packageName = "com.whatsapp", appName = "WhatsApp", icon = null, isSystemApp = false, targetSdkVersion = 34, isIsolated = false, isolationMode = IsolationMode.ENCRYPTED_VAULT),
-            InstalledAppInfo(packageName = "org.telegram.messenger", appName = "Telegram", icon = null, isSystemApp = false, targetSdkVersion = 34, isIsolated = false, isolationMode = IsolationMode.ENCRYPTED_VAULT),
-            InstalledAppInfo(packageName = "com.instagram.android", appName = "Instagram", icon = null, isSystemApp = false, targetSdkVersion = 34, isIsolated = false, isolationMode = IsolationMode.ENCRYPTED_VAULT),
-            InstalledAppInfo(packageName = "com.zhiliaoapp.musically", appName = "TikTok", icon = null, isSystemApp = false, targetSdkVersion = 34, isIsolated = false, isolationMode = IsolationMode.ENCRYPTED_VAULT),
-            InstalledAppInfo(packageName = "com.discord", appName = "Discord", icon = null, isSystemApp = false, targetSdkVersion = 34, isIsolated = false, isolationMode = IsolationMode.ENCRYPTED_VAULT),
-            InstalledAppInfo(packageName = "com.google.android.apps.photos", appName = "Google Photos", icon = null, isSystemApp = false, targetSdkVersion = 34, isIsolated = false, isolationMode = IsolationMode.ENCRYPTED_VAULT),
-            InstalledAppInfo(packageName = "org.thoughtcrime.securesms", appName = "Signal", icon = null, isSystemApp = false, targetSdkVersion = 34, isIsolated = false, isolationMode = IsolationMode.ENCRYPTED_VAULT)
-        )
-        val merged = (defaults + installedApps).distinctBy { it.packageName }
-        merged.sortedBy { it.appName.lowercase() }
+    LaunchedEffect(Unit) {
+        if (installedApps.isEmpty()) {
+            onRefreshApps()
+        }
     }
 
-    val filtered = catalog.filter {
-        query.isBlank() ||
-                it.appName.contains(query, ignoreCase = true) ||
-                it.packageName.contains(query, ignoreCase = true)
+    val filteredApps = remember(installedApps, existingPackages, query, includeSystemApps) {
+        val available = installedApps.filter { app ->
+            !existingPackages.contains(app.packageName) &&
+                (includeSystemApps || !app.isSystemApp || installedApps.none { !it.isSystemApp })
+        }
+        if (query.isBlank()) {
+            available
+        } else {
+            val q = query.trim().lowercase()
+            available.filter {
+                it.appName.lowercase().contains(q) || it.packageName.lowercase().contains(q)
+            }
+        }
     }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(540.dp)
-            .padding(horizontal = 20.dp)
+            .heightIn(min = 380.dp, max = 600.dp)
+            .padding(horizontal = 22.dp, vertical = 12.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
-                Text(
-                    text = "Add App to Vault",
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = FrauncesFontFamily,
-                    color = colorScheme.onSurface
-                )
-                Text(
-                    text = "Tap any app to create its encrypted volume automatically",
-                    fontSize = 13.sp,
-                    fontFamily = JakartaFontFamily,
-                    color = colorScheme.onSurfaceVariant
-                )
-            }
+        Text(
+            text = "Protect an Installed App",
+            fontSize = 22.sp,
+            fontWeight = FontWeight.SemiBold,
+            fontFamily = FrauncesFontFamily,
+            color = colorScheme.onSurface
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "Creates an encrypted volume with DCIM, Pictures, Download, Movies, Music & Documents automatically.",
+            fontSize = 13.sp,
+            fontFamily = JakartaFontFamily,
+            color = colorScheme.onSurfaceVariant
+        )
 
-            IconButton(
-                onClick = onDismiss,
-                modifier = Modifier.minimumInteractiveComponentSize()
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Filter chips: User Apps vs All Apps (including System)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            FilterChip(
+                selected = !includeSystemApps,
+                onClick = { includeSystemApps = false },
+                leadingIcon = {
+                    Icon(Icons.Rounded.Apps, contentDescription = null, modifier = Modifier.size(16.dp))
+                },
+                label = {
+                    Text("User Apps", fontFamily = JakartaFontFamily, fontSize = 12.sp)
+                },
+                shape = RoundedCornerShape(12.dp),
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = colorScheme.primary.copy(alpha = 0.18f),
+                    selectedLabelColor = colorScheme.primary
+                )
+            )
+            FilterChip(
+                selected = includeSystemApps,
+                onClick = { includeSystemApps = true },
+                label = {
+                    Text("All / System Apps", fontFamily = JakartaFontFamily, fontSize = 12.sp)
+                },
+                shape = RoundedCornerShape(12.dp),
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = colorScheme.primary.copy(alpha = 0.18f),
+                    selectedLabelColor = colorScheme.primary
+                )
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Option to link to Shared Space on creation
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = colorScheme.surfaceVariant),
+            border = BorderStroke(1.dp, colorScheme.outlineVariant),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Icon(Icons.Rounded.Close, contentDescription = "Close", tint = colorScheme.onSurfaceVariant)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.FolderShared,
+                        contentDescription = null,
+                        tint = colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Use shared space",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = JakartaFontFamily,
+                            color = colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Allow app to also access Shared Space media",
+                            fontSize = 11.sp,
+                            fontFamily = JakartaFontFamily,
+                            color = colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Switch(
+                    checked = useSharedSpaceDefault,
+                    onCheckedChange = { useSharedSpaceDefault = it },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = colorScheme.onPrimary,
+                        checkedTrackColor = colorScheme.primary
+                    )
+                )
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            placeholder = {
-                Text("Search installed apps...", fontFamily = JakartaFontFamily, fontSize = 14.sp)
-            },
+            placeholder = { Text("Search installed apps...", fontFamily = JakartaFontFamily) },
             leadingIcon = {
                 Icon(Icons.Rounded.Search, contentDescription = null, tint = colorScheme.onSurfaceVariant)
+            },
+            trailingIcon = {
+                if (query.isNotEmpty()) {
+                    IconButton(onClick = { query = "" }) {
+                        Icon(Icons.Rounded.Close, contentDescription = "Clear search")
+                    }
+                }
             },
             singleLine = true,
             shape = RoundedCornerShape(16.dp),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = colorScheme.primary,
-                unfocusedBorderColor = colorScheme.outline,
                 focusedContainerColor = colorScheme.surfaceVariant,
-                unfocusedContainerColor = colorScheme.surfaceVariant
+                unfocusedContainerColor = colorScheme.surfaceVariant,
+                focusedBorderColor = colorScheme.primary,
+                unfocusedBorderColor = colorScheme.outlineVariant
             ),
             modifier = Modifier
                 .fillMaxWidth()
-                .testTag("search_installed_apps_input")
+                .testTag("add_app_search_input")
         )
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(bottom = 24.dp)
-        ) {
-            items(filtered, key = { it.packageName }) { appItem ->
-                val isAlreadyProtected = configuredPackages[appItem.packageName]?.isIsolated == true
-                Card(
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = colorScheme.surfaceVariant),
-                    border = BorderStroke(1.dp, colorScheme.outlineVariant),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(18.dp))
-                        .clickable {
-                            onSelectApp(appItem)
-                            onDismiss()
+        if (filteredApps.isEmpty()) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = if ( !includeSystemApps ) "No matching user apps found" else "No matching apps found",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = JakartaFontFamily,
+                        color = colorScheme.onSurface
+                    )
+                    if (!includeSystemApps) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        TextButton(onClick = { includeSystemApps = true }) {
+                            Text("Show All / System Apps", fontFamily = JakartaFontFamily)
                         }
-                ) {
-                    Row(
+                    }
+                }
+            }
+        } else {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(bottom = 24.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                items(filteredApps, key = { it.packageName }) { app ->
+                    Card(
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = colorScheme.surfaceVariant),
+                        border = BorderStroke(1.dp, colorScheme.outlineVariant),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .clip(RoundedCornerShape(18.dp))
+                            .clickable { onSelectApp(app, useSharedSpaceDefault) }
+                            .testTag("select_app_${app.packageName}")
                     ) {
-                        BrandSquircleIcon(name = appItem.appName, size = 42.dp)
-                        Spacer(modifier = Modifier.width(14.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = appItem.appName,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                fontFamily = JakartaFontFamily,
-                                color = colorScheme.onSurface
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            BrandSquircleIcon(
+                                name = app.appName,
+                                size = 42.dp,
+                                packageName = app.packageName,
+                                appDrawable = app.icon
                             )
-                            Text(
-                                text = appItem.packageName,
-                                fontSize = 12.sp,
-                                fontFamily = JakartaFontFamily,
-                                color = colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        if (isAlreadyProtected) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(CircleShape)
-                                    .background(AccentMint.copy(alpha = 0.16f))
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Check,
-                                    contentDescription = "Protected",
-                                    tint = AccentMint,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        } else {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(colorScheme.primary.copy(alpha = 0.14f))
-                                    .padding(horizontal = 12.dp, vertical = 6.dp)
-                            ) {
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "Add",
-                                    color = colorScheme.primary,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = JakartaFontFamily
+                                    text = app.appName,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = JakartaFontFamily,
+                                    color = colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = app.packageName,
+                                    fontSize = 12.sp,
+                                    fontFamily = JakartaFontFamily,
+                                    color = colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
+                            Icon(
+                                imageVector = Icons.Rounded.Add,
+                                contentDescription = "Add",
+                                tint = colorScheme.primary
+                            )
                         }
                     }
                 }

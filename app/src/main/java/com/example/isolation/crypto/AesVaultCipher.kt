@@ -179,6 +179,21 @@ object AesVaultCipher {
     }
 
     /**
+     * Generates a new random 256-bit DEK and wraps it immediately with the Master Key.
+     */
+    fun generateWrappedVolumeKey(masterKey: SecretKey = getMasterKey()): String {
+        return wrapVolumeKey(generateVolumeKey(), masterKey)
+    }
+
+    /**
+     * Opens a streaming decrypting InputStream over an encrypted IsoVault file.
+     */
+    fun newDecryptingInputStream(file: File, volumeKey: SecretKey = getMasterKey()): InputStream {
+        val plainBytes = decryptToMemory(file, volumeKey)
+        return ByteArrayInputStream(plainBytes)
+    }
+
+    /**
      * Wraps a per-volume 256-bit DEK using the Master Key with AES-256-GCM.
      */
     fun wrapVolumeKey(volumeKey: SecretKey, masterKey: SecretKey = getMasterKey()): String {

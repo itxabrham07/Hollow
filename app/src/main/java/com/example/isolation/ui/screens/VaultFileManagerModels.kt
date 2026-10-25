@@ -199,7 +199,7 @@ object VaultFileScanner {
 
     /**
      * Moves or copies a file/folder between volumes (e.g., between a per-app volume and Shared Space),
-     * re-encrypting files with the destination volume's 256-bit DEK when volumes differ.
+     * streaming-re-encrypting files with the destination volume's 256-bit DEK when volumes differ.
      */
     fun transferEntryBetweenVolumes(
         entry: VaultEntry,
@@ -212,17 +212,39 @@ object VaultFileScanner {
             destinationFolder.mkdirs()
             val target = File(destinationFolder, entry.rawName)
             if (entry.file.canonicalPath == target.canonicalPath) return false
+            val sameKey = sourceKey.encoded.contentEquals(destKey.encoded)
+
+            fun transferFile(srcFile: File, dstFile: File) {
+                dstFile.parentFile?.mkdirs()
+                val isEnc = srcFile.name.endsWith(".isovault", ignoreCase = true) ||
+                    AesVaultCipher.isEncryptedIsoVaultFile(srcFile)
+                if (isEnc && !sameKey) {
+                    AesVaultCipher.newDecryptingInputStream(srcFile, sourceKey).use { plainIn ->
+                        dstFile.outputStream().use { cipherOut ->
+                            AesVaultCipher.encryptStream(plainIn, cipherOut, destKey)
+                        }
+                    }
+                } else {
+                    srcFile.copyTo(dstFile, overwrite = true)
+                }
+            }
 
             if (entry.isDirectory) {
-                entry.file.copyRecursively(target, overwrite = true)
+                target.mkdirs()
+                entry.file.walkTopDown().forEach { child ->
+                    val relPath = child.relativeTo(entry.file).path
+                    if (relPath.isNotEmpty()) {
+                        val dstChild = File(target, relPath)
+                        if (child.isDirectory) {
+                            dstChild.mkdirs()
+                        } else if (child.name != ".nomedia" && !child.name.startsWith(".seeded")) {
+                            transferFile(child, dstChild)
+                        }
+                    }
+                }
                 if (isMove) entry.file.deleteRecursively()
             } else {
-                if (entry.isEncrypted && !sourceKey.encoded.contentEquals(destKey.encoded)) {
-                    val plain = AesVaultCipher.decryptToMemory(entry.file, sourceKey)
-                    target.writeBytes(AesVaultCipher.encrypt(plain, destKey))
-                } else {
-                    entry.file.copyTo(target, overwrite = true)
-                }
+                transferFile(entry.file, target)
                 if (isMove) entry.file.delete()
             }
             true
@@ -285,7 +307,8 @@ object VaultFileScanner {
 }
 
 /**
- * Loads and decrypts an image thumbnail strictly in memory using the volume's 256-bit DEK.
+ * Loads and decrypts an image thumbnail strictly in memory using the volume's 256-bit DEK
+ * with two-pass bounds calculation so high-resolution photos never spike heap memory.
  */
 @Composable
 fun rememberDecryptedThumbnail(
@@ -299,8 +322,15 @@ fun rememberDecryptedThumbnail(
             val decoded = withContext(Dispatchers.IO) {
                 try {
                     val bytes = AesVaultCipher.decryptToMemory(entry.file, volumeKey)
-                    val opts = BitmapFactory.Options().apply { inSampleSize = 2 }
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)?.asImageBitmap()
+                    val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, boundsOpts)
+                    var sampleSize = 1
+                    val maxDim = maxOf(boundsOpts.outWidth, boundsOpts.outHeight)
+                    while (maxDim / sampleSize > 320) {
+                        sampleSize *= 2
+                    }
+                    val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOpts)?.asImageBitmap()
                 } catch (_: Exception) {
                     null
                 }
