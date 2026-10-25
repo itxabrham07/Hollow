@@ -1,5 +1,7 @@
 package com.example.isolation.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -77,6 +79,16 @@ fun VaultScreen(
 
     var selectedPkgFilter by remember { mutableStateOf("ALL") }
     var showCreateDialog by remember { mutableStateOf(false) }
+    var exportTarget by remember { mutableStateOf<VaultFileItem?>(null) }
+
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) viewModel.importFile(uri)
+    }
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri ->
+        val item = exportTarget
+        if (uri != null && item != null) viewModel.exportFile(item, uri)
+        exportTarget = null
+    }
 
     val packages = listOf("ALL") + vaultFiles.map { it.packageName }.distinct()
 
@@ -230,7 +242,7 @@ fun VaultScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Tap 'Add Note' below to save a private note or test how files are locked.",
+                            text = "Tap 'Add Note' to lock a note, or 'Import' to lock any file with AES-256.",
                             color = InkSecondary,
                             fontSize = 13.sp,
                             fontFamily = JakartaFontFamily
@@ -245,7 +257,12 @@ fun VaultScreen(
                     items(filteredFiles, key = { it.id }) { fileItem ->
                         VaultFileCard(
                             fileItem = fileItem,
-                            onPreview = { viewModel.decryptAndPreviewFile(fileItem) }
+                            onPreview = { viewModel.decryptAndPreviewFile(fileItem) },
+                            onExport = {
+                                exportTarget = fileItem
+                                exportLauncher.launch(fileItem.relativePath.substringAfterLast('/'))
+                            },
+                            onDelete = { viewModel.deleteVaultFile(fileItem) }
                         )
                     }
 
@@ -256,24 +273,45 @@ fun VaultScreen(
             }
         }
 
-        // FAB to add private file
-        FloatingActionButton(
-            onClick = { showCreateDialog = true },
-            containerColor = ForestPrimary,
-            contentColor = Color.White,
-            shape = RoundedCornerShape(50),
+        // Actions: import a file / write a note. Both encrypt into the locker.
+        Column(
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(20.dp)
-                .testTag("fab_create_vault_file")
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp)
+            FloatingActionButton(
+                onClick = { importLauncher.launch(arrayOf("*/*")) },
+                containerColor = WarmSand,
+                contentColor = InkPrimary,
+                shape = RoundedCornerShape(50),
+                modifier = Modifier.testTag("fab_import_vault_file")
             ) {
-                Icon(imageVector = Icons.Default.Add, contentDescription = "Add")
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Add Note", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, fontFamily = JakartaFontFamily)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp)
+                ) {
+                    Icon(imageVector = Icons.Default.Lock, contentDescription = "Import")
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Import", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, fontFamily = JakartaFontFamily)
+                }
+            }
+            FloatingActionButton(
+                onClick = { showCreateDialog = true },
+                containerColor = ForestPrimary,
+                contentColor = Color.White,
+                shape = RoundedCornerShape(50),
+                modifier = Modifier.testTag("fab_create_vault_file")
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp)
+                ) {
+                    Icon(imageVector = Icons.Default.Add, contentDescription = "Add")
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Add Note", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, fontFamily = JakartaFontFamily)
+                }
             }
         }
     }
@@ -287,15 +325,10 @@ fun VaultScreen(
     }
 
     if (showCreateDialog) {
-        CreateTestFileDialog(
+        CreateNoteDialog(
             onDismiss = { showCreateDialog = false },
-            onCreate = { pkg, path, content ->
-                viewModel.testSimulateAppIo(
-                    packageName = pkg,
-                    appName = pkg.substringAfterLast('.').replaceFirstChar { it.uppercase() },
-                    testPath = path,
-                    fileContent = content
-                )
+            onCreate = { name, content ->
+                viewModel.addNote(name, content)
                 showCreateDialog = false
             }
         )
@@ -305,7 +338,9 @@ fun VaultScreen(
 @Composable
 fun VaultFileCard(
     fileItem: VaultFileItem,
-    onPreview: () -> Unit
+    onPreview: () -> Unit,
+    onExport: () -> Unit,
+    onDelete: () -> Unit
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = WarmIvory),
@@ -373,18 +408,24 @@ fun VaultFileCard(
                 Spacer(modifier = Modifier.width(6.dp))
                 Text("Open", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily)
             }
+
+            TextButton(onClick = onExport) {
+                Text("Export", fontSize = 12.sp, color = InkSecondary, fontFamily = JakartaFontFamily)
+            }
+            TextButton(onClick = onDelete) {
+                Text("Delete", fontSize = 12.sp, color = InkSecondary, fontFamily = JakartaFontFamily)
+            }
         }
     }
 }
 
 @Composable
-fun CreateTestFileDialog(
+fun CreateNoteDialog(
     onDismiss: () -> Unit,
-    onCreate: (packageName: String, path: String, content: String) -> Unit
+    onCreate: (name: String, content: String) -> Unit
 ) {
-    var packageName by remember { mutableStateOf("com.snapchat.android") }
-    var path by remember { mutableStateOf("/storage/emulated/0/DCIM/PrivateNote.txt") }
-    var content by remember { mutableStateOf("Personal note saved inside your private locker.") }
+    var name by remember { mutableStateOf("") }
+    var content by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -401,9 +442,9 @@ fun CreateTestFileDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
-                    value = path,
-                    onValueChange = { path = it },
-                    label = { Text("File Name / Folder", fontSize = 12.sp, fontFamily = JakartaFontFamily) },
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Note name", fontSize = 12.sp, fontFamily = JakartaFontFamily) },
                     shape = RoundedCornerShape(14.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = ForestPrimary,
@@ -428,7 +469,8 @@ fun CreateTestFileDialog(
         },
         confirmButton = {
             Button(
-                onClick = { onCreate(packageName, path, content) },
+                onClick = { onCreate(name, content) },
+                enabled = content.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(containerColor = ForestPrimary, contentColor = Color.White),
                 shape = RoundedCornerShape(50)
             ) {

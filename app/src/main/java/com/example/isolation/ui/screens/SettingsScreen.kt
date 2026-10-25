@@ -44,7 +44,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.isolation.crypto.AesVaultCipher
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
 import com.example.ui.theme.ForestPrimary
 import com.example.ui.theme.FrauncesFontFamily
@@ -63,8 +62,6 @@ fun SettingsScreen(
     onOpenDiagnostics: () -> Unit = {}
 ) {
     val isLsposedActive by viewModel.isLsposedActive.collectAsState()
-    var masterKey by remember { mutableStateOf(AesVaultCipher.activeMasterPassphrase) }
-    var keySavedMessage by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier
@@ -154,7 +151,7 @@ fun SettingsScreen(
             }
         }
 
-        // Locker Secret Key Card
+        // Locker key card
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = WarmIvory),
@@ -182,14 +179,14 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = "Locker Passphrase",
+                                text = "Locker Encryption",
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 17.sp,
                                 fontFamily = FrauncesFontFamily,
                                 color = InkPrimary
                             )
                             Text(
-                                text = "Protects notes and files saved inside your Private Locker.",
+                                text = "AES-256-GCM, key held in the Android Keystore",
                                 fontSize = 12.sp,
                                 color = InkSecondary,
                                 fontFamily = JakartaFontFamily
@@ -197,50 +194,16 @@ fun SettingsScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    OutlinedTextField(
-                        value = masterKey,
-                        onValueChange = {
-                            masterKey = it
-                            keySavedMessage = false
-                        },
-                        label = { Text("Secret Passphrase", fontSize = 12.sp, fontFamily = JakartaFontFamily) },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = ForestPrimary,
-                            unfocusedBorderColor = WarmStone
-                        ),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    Button(
-                        onClick = {
-                            AesVaultCipher.activeMasterPassphrase = masterKey
-                            keySavedMessage = true
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = ForestPrimary,
-                            contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(50),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Save Passphrase", fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily)
-                    }
-
-                    if (keySavedMessage) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Passphrase updated.",
-                            color = ForestPrimary,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = JakartaFontFamily
-                        )
-                    }
+                    Text(
+                        text = "Every locker file gets its own random key, wrapped by a key that never leaves the Keystore. " +
+                            "There is no passphrase to leak, and locker files cannot be opened on another device or after " +
+                            "clearing the app's data. Export anything you need to keep.",
+                        fontSize = 13.sp,
+                        color = InkSecondary,
+                        fontFamily = JakartaFontFamily
+                    )
                 }
             }
         }

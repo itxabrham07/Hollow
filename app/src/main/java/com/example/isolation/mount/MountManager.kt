@@ -3,10 +3,10 @@ package com.example.isolation.mount
 import android.content.Context
 import android.os.Build
 import android.os.Environment
-import com.example.isolation.model.IsolationMode
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileReader
+import java.util.concurrent.TimeUnit
 
 data class MountEntry(
     val device: String,
@@ -23,11 +23,27 @@ data class MountExecutionResult(
     val timestamp: Long = System.currentTimeMillis()
 )
 
+/**
+ * Root-backed per-app storage volumes.
+ *
+ * A volume is a directory owned by the manager that is bind-mounted over /storage/emulated/0
+ * inside the mount namespace of ONE target app's processes, so only that app sees it and the
+ * real shared storage is invisible to it. Nothing here pretends to succeed: every operation runs
+ * real commands through `su` and reports the real exit code and output.
+ *
+ * Limits that cannot be fixed from userspace: a mount applied to a running process does not reach
+ * processes started later (the boot service re-attaches them shortly after they start), and the
+ * system MediaProvider still serves the real MediaStore, which is why the LSPosed MediaStore hooks
+ * stay active alongside the mount.
+ */
 object MountManager {
 
-    /**
-     * Checks if Environment.isExternalStorageManager() or MANAGE_EXTERNAL_STORAGE is available
-     */
+    const val VOLUME_MARKER = ".isovault_volume"
+    private const val EXTERNAL_ROOT = "/storage/emulated/0"
+    private const val SU_TIMEOUT_SECONDS = 20L
+
+    // ---- Inspection (no root needed) -------------------------------------------------------
+
     fun isStorageManagerGranted(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             Environment.isExternalStorageManager()
@@ -36,156 +52,267 @@ object MountManager {
         }
     }
 
-    /**
-     * Reads current kernel /proc/mounts to inspect active filesystem mounts
-     */
+    /** Reads the kernel mount table visible to this app. Returns an empty list if unreadable. */
     fun readSystemMounts(): List<MountEntry> {
         val mounts = mutableListOf<MountEntry>()
-        try {
-            val file = File("/proc/mounts")
-            if (file.exists() && file.canRead()) {
+        for (path in listOf("/proc/self/mounts", "/proc/mounts")) {
+            val file = File(path)
+            if (!file.canRead()) continue
+            try {
                 BufferedReader(FileReader(file)).use { reader ->
-                    reader.lineSequence().take(60).forEach { line ->
-                        val parts = line.split("\\s+".toRegex())
+                    reader.lineSequence().forEach { line ->
+                        val parts = line.split(" ")
                         if (parts.size >= 4) {
-                            mounts.add(
-                                MountEntry(
-                                    device = parts[0],
-                                    mountPoint = parts[1],
-                                    fsType = parts[2],
-                                    options = parts[3]
-                                )
-                            )
+                            mounts.add(MountEntry(parts[0], parts[1], parts[2], parts[3]))
                         }
                     }
                 }
+                if (mounts.isNotEmpty()) return mounts
+            } catch (_: Exception) {
             }
-        } catch (_: Exception) {
-            // Fallback simulated mounts if /proc/mounts is restricted by SELinux
-            mounts.add(MountEntry("/dev/block/dm-0", "/", "ext4", "ro,seclabel,relatime"))
-            mounts.add(MountEntry("/data/media", "/storage/emulated", "sdcardfs", "rw,nosuid,nodev,relatime"))
-            mounts.add(MountEntry("none", "/storage/emulated/0/Android/data", "tmpfs", "rw,seclabel,nosuid,nodev"))
-            mounts.add(MountEntry("/dev/fuse", "/mnt/user/0/emulated", "fuse", "rw,lazytime,nosuid,nodev"))
         }
         return mounts
     }
 
-    /**
-     * Inspects SELinux status
-     */
+    /** "Enforcing", "Permissive" or "Unknown" (apps are normally not allowed to read the flag). */
     fun getSelinuxStatus(): String {
         return try {
             val file = File("/sys/fs/selinux/enforce")
-            if (file.exists() && file.canRead()) {
-                val content = file.readText().trim()
-                if (content == "1") "Enforcing (Locked)" else "Permissive"
-            } else {
-                "Enforcing (Android 15 Default)"
+            if (!file.canRead()) return "Unknown"
+            when (file.readText().trim()) {
+                "1" -> "Enforcing"
+                "0" -> "Permissive"
+                else -> "Unknown"
             }
         } catch (_: Exception) {
-            "Enforcing (Strict)"
+            "Unknown"
+        }
+    }
+
+    // ---- Root execution --------------------------------------------------------------------
+
+    private data class ShellResult(val exitCode: Int, val output: String, val timedOut: Boolean)
+
+    private fun runAsRoot(script: String): ShellResult {
+        val process = try {
+            ProcessBuilder("su").redirectErrorStream(true).start()
+        } catch (e: Exception) {
+            return ShellResult(127, "su is not available: ${e.message}", false)
+        }
+
+        val output = StringBuilder()
+        val reader = Thread {
+            try {
+                process.inputStream.bufferedReader().forEachLine { output.appendLine(it) }
+            } catch (_: Exception) {
+            }
+        }.apply { isDaemon = true; start() }
+
+        try {
+            process.outputStream.bufferedWriter().use { writer ->
+                writer.write(script)
+                writer.write("\nexit\n")
+            }
+        } catch (_: Exception) {
+        }
+
+        val deadline = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(SU_TIMEOUT_SECONDS)
+        var exit: Int? = null
+        while (exit == null && System.currentTimeMillis() < deadline) {
+            exit = try {
+                process.exitValue()
+            } catch (_: IllegalThreadStateException) {
+                Thread.sleep(50)
+                null
+            }
+        }
+        val timedOut = exit == null
+        if (timedOut) process.destroy()
+        reader.join(1000)
+        return ShellResult(exit ?: 124, output.toString().trim(), timedOut)
+    }
+
+    fun isRootAvailable(): Boolean {
+        val result = runAsRoot("id -u")
+        return result.exitCode == 0 && result.output.lineSequence().any { it.trim() == "0" }
+    }
+
+    // ---- Volumes ---------------------------------------------------------------------------
+
+    fun volumeDir(context: Context, packageName: String): File =
+        File(context.filesDir, "vaults/$packageName/storage")
+
+    private fun requirePackageName(packageName: String) {
+        require(Regex("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$").matches(packageName)) {
+            "Invalid package name"
         }
     }
 
     /**
-     * Generates a bind-mount shell script for an isolated package
+     * Shell snippet that defines pids_of() and prepares the volume directory for [packageName]:
+     * ownership and SELinux label are copied from the app's own data directory so the app can use
+     * the mounted directory as ordinary storage.
      */
-    fun generateMountScript(context: Context, packageName: String, mode: IsolationMode): String {
-        val baseDir = context.getExternalFilesDir(null)?.absolutePath ?: "/data/user/0/com.aistudio.isovault.xrvf/files"
-        val vaultDir = "$baseDir/vaults/$packageName/storage"
-        val targetSdcard = "/storage/emulated/0"
-
-        return when (mode) {
-            IsolationMode.ENCRYPTED_VAULT -> """
-                |# IsoVault AES-256 Encrypted Mount for $packageName
-                |# Android 15 Mount Namespace Injection
-                |TARGET_PKG="$packageName"
-                |VAULT_DIR="$vaultDir"
-                |mkdir -p "${'$'}VAULT_DIR"
-                |chmod 700 "${'$'}VAULT_DIR"
-                |
-                |# Unshare mount namespace for target UID
-                |TARGET_UID=${'$'}(pm list packages -U | grep "${'$'}TARGET_PKG" | sed -n 's/.*uid:\([0-9]*\).*/\1/p')
-                |
-                |echo "[IsoVault] Attaching encrypted storage container to UID ${'$'}TARGET_UID"
-                |mount -o bind,noexec,nosuid "${'$'}VAULT_DIR" "$targetSdcard"
-                |echo "[IsoVault] Encrypted redirection mount established."
-            """.trimMargin()
-
-            IsolationMode.SANDBOX_REDIRECT -> """
-                |# IsoVault Virtual Sandbox Redirect for $packageName
-                |TARGET_PKG="$packageName"
-                |SANDBOX_DIR="/data/data/${'$'}TARGET_PKG/files/isolated_sdcard"
-                |mkdir -p "${'$'}SANDBOX_DIR"
-                |
-                |# Bind sandbox to target app process mount namespace
-                |mount --bind -o nodev,nosuid "${'$'}SANDBOX_DIR" "/sdcard"
-                |echo "[IsoVault] Redirection active for ${'$'}TARGET_PKG -> ${'$'}SANDBOX_DIR"
-            """.trimMargin()
-
-            IsolationMode.FAKE_EMPTY -> """
-                |# IsoVault Fake Empty Storage Spoof for $packageName
-                |EMPTY_DUMMY="/data/local/tmp/isovault_empty_dummy"
-                |mkdir -p "${'$'}EMPTY_DUMMY"
-                |chmod 000 "${'$'}EMPTY_DUMMY"
-                |mount -t tmpfs -o ro,size=1M tmpfs "$targetSdcard"
-                |echo "[IsoVault] Empty storage spoofed. Trackers cannot read user files."
-            """.trimMargin()
-
-            IsolationMode.READ_ONLY -> """
-                |# IsoVault Read-Only Mount for $packageName
-                |# Prevents polluting root /sdcard with tracker folders
-                |mount -o remount,ro "$targetSdcard"
-                |echo "[IsoVault] Read-only enforced for $packageName."
-            """.trimMargin()
+    private fun commonShell(packageName: String, volume: String): String = """
+        PKG='$packageName'
+        VOL='$volume'
+        MARK="${'$'}VOL/$VOLUME_MARKER"
+        pids_of() {
+          for p in /proc/[0-9]*; do
+            n=${'$'}(tr '\0' '\n' < "${'$'}p/cmdline" 2>/dev/null | head -n1)
+            case "${'$'}n" in
+              "${'$'}PKG"|"${'$'}PKG":*) echo "${'$'}{p#/proc/}" ;;
+            esac
+          done
         }
+    """.trimIndent()
+
+    private fun attachShell(packageName: String, volume: String): String = commonShell(packageName, volume) + """
+
+        APP_DATA="/data/user/0/${'$'}PKG"
+        [ -d "${'$'}APP_DATA" ] || APP_DATA="/data/data/${'$'}PKG"
+        [ -d "${'$'}APP_DATA" ] || { echo "ERROR: ${'$'}PKG is not installed for user 0"; exit 2; }
+        UID_APP=${'$'}(stat -c %u "${'$'}APP_DATA")
+        CTX=${'$'}(ls -dZ "${'$'}APP_DATA" | awk '{print ${'$'}1}')
+        mkdir -p "${'$'}VOL" "${'$'}VOL/Android/data/${'$'}PKG" "${'$'}VOL/Android/media/${'$'}PKG" || exit 3
+        : > "${'$'}MARK"
+        chown -R "${'$'}UID_APP:${'$'}UID_APP" "${'$'}VOL" || exit 4
+        chmod 700 "${'$'}VOL"
+        case "${'$'}CTX" in u:object_r:*) chcon -R "${'$'}CTX" "${'$'}VOL" || echo "WARN: chcon failed (SELinux label not copied)";; esac
+        PIDS=${'$'}(pids_of)
+        [ -n "${'$'}PIDS" ] || { echo "ERROR: ${'$'}PKG is not running. Open the app, then attach."; exit 5; }
+        RC=0
+        for pid in ${'$'}PIDS; do
+          if nsenter -t "${'$'}pid" -m test -f "$EXTERNAL_ROOT/$VOLUME_MARKER" 2>/dev/null; then
+            echo "pid ${'$'}pid: already attached"
+            continue
+          fi
+          if nsenter -t "${'$'}pid" -m mount --bind "${'$'}VOL" "$EXTERNAL_ROOT"; then
+            echo "pid ${'$'}pid: attached"
+          else
+            echo "pid ${'$'}pid: mount FAILED"
+            RC=6
+          fi
+        done
+        exit ${'$'}RC
+    """.trimIndent()
+
+    private fun detachShell(packageName: String, volume: String): String = commonShell(packageName, volume) + """
+
+        PIDS=${'$'}(pids_of)
+        [ -n "${'$'}PIDS" ] || { echo "${'$'}PKG is not running; nothing to detach"; exit 0; }
+        RC=0
+        for pid in ${'$'}PIDS; do
+          # Only ever unmount a volume that carries our marker, never the real storage.
+          if nsenter -t "${'$'}pid" -m test -f "$EXTERNAL_ROOT/$VOLUME_MARKER" 2>/dev/null; then
+            if nsenter -t "${'$'}pid" -m umount -l "$EXTERNAL_ROOT"; then
+              echo "pid ${'$'}pid: detached"
+            else
+              echo "pid ${'$'}pid: umount FAILED"
+              RC=6
+            fi
+          else
+            echo "pid ${'$'}pid: not attached"
+          fi
+        done
+        exit ${'$'}RC
+    """.trimIndent()
+
+    private fun statusShell(packageName: String, volume: String): String = commonShell(packageName, volume) + """
+
+        PIDS=${'$'}(pids_of)
+        [ -n "${'$'}PIDS" ] || { echo "not running"; exit 0; }
+        for pid in ${'$'}PIDS; do
+          if nsenter -t "${'$'}pid" -m test -f "$EXTERNAL_ROOT/$VOLUME_MARKER" 2>/dev/null; then
+            echo "pid ${'$'}pid: attached"
+          else
+            echo "pid ${'$'}pid: not attached"
+          fi
+        done
+    """.trimIndent()
+
+    fun attachVolume(context: Context, packageName: String): MountExecutionResult {
+        requirePackageName(packageName)
+        return execute("attach $packageName", attachShell(packageName, volumeDir(context, packageName).absolutePath))
     }
 
-    /**
-     * Generates a Magisk / KernelSU / APatch module service script
-     */
-    fun generateMagiskServiceScript(context: Context, packages: List<String>): String {
-        val sb = StringBuilder()
-        sb.appendLine("#!/system/bin/sh")
-        sb.appendLine("# IsoVault Magisk/KernelSU Boot Service - Android 15+")
-        sb.appendLine("# Automatically generated by IsoVault Manager")
-        sb.appendLine("MODDIR=\${0%/*}")
-        sb.appendLine("LOGFILE=/data/local/tmp/isovault_boot.log")
-        sb.appendLine("exec > \$LOGFILE 2>&1")
-        sb.appendLine("echo \"[$(date)] Initializing IsoVault storage isolation...\"")
-        sb.appendLine("")
-
-        for (pkg in packages) {
-            sb.appendLine("# Package: $pkg")
-            sb.appendLine("VAULT_PATH=\"/data/user/0/com.aistudio.isovault.xrvf/files/vaults/$pkg\"")
-            sb.appendLine("mkdir -p \"\$VAULT_PATH\"")
-            sb.appendLine("chmod 700 \"\$VAULT_PATH\"")
-        }
-
-        sb.appendLine("")
-        sb.appendLine("echo \"[$(date)] IsoVault Mount namespaces ready.\"")
-        return sb.toString()
+    fun detachVolume(context: Context, packageName: String): MountExecutionResult {
+        requirePackageName(packageName)
+        return execute("detach $packageName", detachShell(packageName, volumeDir(context, packageName).absolutePath))
     }
 
-    /**
-     * Executes or simulates a mount execution
-     */
-    fun executeMountSimulation(packageName: String, mode: IsolationMode): MountExecutionResult {
-        // Return a realistic simulation execution with exact Linux commands
-        val cmd = "mount -o bind /data/user/0/com.aistudio.isovault.xrvf/files/vaults/$packageName/storage /storage/emulated/0"
-        val output = buildString {
-            appendLine("[IsoVault Kernel Bridge] Target: $packageName")
-            appendLine("[IsoVault Kernel Bridge] Isolation Mode: ${mode.name}")
-            appendLine("[IsoVault Kernel Bridge] Mount Namespace: unshare(CLONE_NEWNS) SUCCESS")
-            appendLine("[IsoVault Kernel Bridge] Bind mount applied on /storage/emulated/0")
-            appendLine("[IsoVault Kernel Bridge] AES-GCM layer initialized on filesystem events.")
-            appendLine("[IsoVault Kernel Bridge] Exit code: 0 (OK)")
+    fun volumeStatus(context: Context, packageName: String): MountExecutionResult {
+        requirePackageName(packageName)
+        return execute("status $packageName", statusShell(packageName, volumeDir(context, packageName).absolutePath))
+    }
+
+    /** Detaches the volume, then deletes it as root (the target app's UID owns its contents). */
+    fun purgeVolume(context: Context, packageName: String): MountExecutionResult {
+        requirePackageName(packageName)
+        val base = File(context.filesDir, "vaults/$packageName").absolutePath
+        val volume = volumeDir(context, packageName).absolutePath
+        val script = detachShell(packageName, volume) + "\n" +
+            "case '$base' in */vaults/$packageName) rm -rf '$base' && echo purged ;; *) echo refused; exit 7 ;; esac"
+        return execute("purge $packageName", script)
+    }
+
+    private fun execute(label: String, script: String): MountExecutionResult {
+        val result = runAsRoot(script)
+        val output = when {
+            result.timedOut -> "Timed out after ${SU_TIMEOUT_SECONDS}s\n${result.output}"
+            else -> result.output
         }
         return MountExecutionResult(
-            isSuccess = true,
-            command = cmd,
-            output = output,
-            exitCode = 0
+            isSuccess = result.exitCode == 0,
+            command = label,
+            output = output.ifBlank { "(no output)" },
+            exitCode = result.exitCode
         )
+    }
+
+    /**
+     * Boot service for Magisk / KernelSU / APatch (service.d). It watches for the given packages
+     * and attaches their volume to each new process shortly after it starts. Apps that touch
+     * storage in their first moments of life can still see the real storage; the zygote-level
+     * route that closes that window needs a native Zygisk module.
+     */
+    fun generateBootService(context: Context, packages: List<String>): String {
+        val valid = packages.filter { Regex("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$").matches(it) }
+        val sb = StringBuilder()
+        sb.appendLine("#!/system/bin/sh")
+        sb.appendLine("# IsoVault volume attach service (generated by IsoVault Manager)")
+        sb.appendLine("# Attaches each isolated app's volume to its processes after they start.")
+        sb.appendLine("until [ \"\$(getprop sys.boot_completed)\" = \"1\" ]; do sleep 5; done")
+        sb.appendLine()
+        sb.appendLine("attach_pid() {")
+        sb.appendLine("  pkg=\"\$1\"; vol=\"\$2\"; pid=\"\$3\"")
+        sb.appendLine("  nsenter -t \"\$pid\" -m test -f \"$EXTERNAL_ROOT/$VOLUME_MARKER\" 2>/dev/null && return 0")
+        sb.appendLine("  nsenter -t \"\$pid\" -m mount --bind \"\$vol\" \"$EXTERNAL_ROOT\"")
+        sb.appendLine("}")
+        sb.appendLine()
+        sb.appendLine("prepare_volume() {")
+        sb.appendLine("  pkg=\"\$1\"; vol=\"\$2\"")
+        sb.appendLine("  app=\"/data/user/0/\$pkg\"")
+        sb.appendLine("  [ -d \"\$app\" ] || return 1")
+        sb.appendLine("  uid=\$(stat -c %u \"\$app\")")
+        sb.appendLine("  ctx=\$(ls -dZ \"\$app\" | awk '{print \$1}')")
+        sb.appendLine("  mkdir -p \"\$vol\" \"\$vol/Android/data/\$pkg\" \"\$vol/Android/media/\$pkg\"")
+        sb.appendLine("  : > \"\$vol/$VOLUME_MARKER\"")
+        sb.appendLine("  chown -R \"\$uid:\$uid\" \"\$vol\"; chmod 700 \"\$vol\"")
+        sb.appendLine("  case \"\$ctx\" in u:object_r:*) chcon -R \"\$ctx\" \"\$vol\" ;; esac")
+        sb.appendLine("}")
+        sb.appendLine()
+        sb.appendLine("while true; do")
+        for (pkg in valid) {
+            val vol = volumeDir(context, pkg).absolutePath
+            sb.appendLine("  [ -f '$vol/$VOLUME_MARKER' ] || prepare_volume '$pkg' '$vol'")
+            sb.appendLine("  for p in /proc/[0-9]*; do")
+            sb.appendLine("    n=\$(tr '\\0' '\\n' < \"\$p/cmdline\" 2>/dev/null | head -n1)")
+            sb.appendLine("    case \"\$n\" in '$pkg'|'$pkg':*) attach_pid '$pkg' '$vol' \"\${p#/proc/}\" ;; esac")
+            sb.appendLine("  done")
+        }
+        sb.appendLine("  sleep 2")
+        sb.appendLine("done")
+        return sb.toString()
     }
 }

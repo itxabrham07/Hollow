@@ -3,27 +3,21 @@ package com.example.isolation.hook
 import android.app.Activity
 import android.app.AndroidAppHelper
 import android.app.Instrumentation
-import android.content.ClipData
 import android.content.ContentProviderClient
 import android.content.ContentResolver
 import android.content.ContentValues
-import android.content.Context
 import android.content.Intent
 import android.content.res.AssetFileDescriptor
 import android.database.CursorWindow
 import android.database.MatrixCursor
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import android.util.Log
-import android.widget.Toast
 import com.example.isolation.model.AuditAction
 import com.example.isolation.model.IsolationMode
 import com.example.isolation.model.IsolationRuleManager
@@ -43,19 +37,24 @@ import java.io.FilenameFilter
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
+import com.example.isolation.mount.MountManager
 
 /**
- * IsoVault Official LSPosed & JingMatrix/Vector Storage Isolation Engine.
- * Loaded by Vector/LSPosed via assets/xposed_init.
+ * IsoVault storage isolation engine for LSPosed / Vector. Loaded via assets/xposed_init.
  *
- * Implements true virtual storage isolation:
- * - A dedicated isolated sandbox directory (/data/user/0/<pkg>/files/IsoVault_Sandbox)
- *   is mounted as the app's entire external storage (/storage/emulated/0).
- * - Apps can freely create folders, files, and save media without errors ("Failed to save" fixed!).
- * - MediaStore insertions (ContentResolver.insert) save directly into the sandbox and return virtual URIs.
- * - MediaStore queries return only the files saved within the app's isolated sandbox (0 real phone photos leaked).
- * - Media reads and thumbnail decoders stream sandbox media directly while blocking access to real phone media.
- * - System Photo/Document Pickers are intercepted and replaced with an in-app IsoVault Isolated Picker.
+ * For every app in the module scope that is not explicitly disabled, in-process hooks:
+ *  - redirect shared-storage paths (/storage/emulated/0, /sdcard) to a private sandbox directory
+ *    inside the app's own data directory, at the java.io.File, libcore and Environment layers;
+ *  - answer MediaStore queries and inserts from that sandbox only, so the app's gallery shows
+ *    nothing from the real phone and anything it saves stays in the sandbox;
+ *  - block reads of real media URIs unless the user picked them through a picker, and copy picked
+ *    files into the sandbox.
+ *
+ * What the hooks cannot do: they run inside the target process, so native code that talks to the
+ * kernel directly is not covered, and they cannot encrypt at rest (the app's UID has no access to
+ * the manager's Keystore key). When a root volume is attached by MountManager the real mount
+ * already provides the isolated storage, so the path hooks stand down and only the MediaStore
+ * hooks stay active.
  */
 class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
 
@@ -298,10 +297,8 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             }
         } catch (_: Throwable) {}
 
-        // 3. Try external .IsoVault rule file
-        IsolationRuleManager.readExternalRule(pkg)?.let { return it }
-
-        // 4. Default: isolate with ENCRYPTED_VAULT
+        // 3. Default: isolate. (There is deliberately no rule file on shared storage: a hooked app
+        //    could write to it and turn its own isolation off.)
         return IsolationRuleManager.AppRule(
             packageName = pkg,
             isIsolated = true,
@@ -345,6 +342,44 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             "mp4", "mkv", "3gp", "webm", "avi", "mov",
             "mp3", "m4a", "wav", "ogg", "aac", "flac"
         )
+    }
+
+    private class MediaProbe(val width: Int?, val height: Int?, val durationMs: Long?)
+
+    private val probeCache = ConcurrentHashMap<String, MediaProbe>()
+
+    /** Reads the real dimensions / duration of a sandbox media file. Unknown values stay null. */
+    private fun probeMedia(file: File, mime: String): MediaProbe {
+        val key = "${file.absolutePath}|${file.lastModified()}|${file.length()}"
+        probeCache[key]?.let { return it }
+        val probe = try {
+            if (mime.startsWith("video/") || mime.startsWith("audio/")) {
+                val retriever = MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(file.absolutePath)
+                    MediaProbe(
+                        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull(),
+                        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull(),
+                        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+                    )
+                } finally {
+                    retriever.release()
+                }
+            } else {
+                val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(file.absolutePath, opts)
+                MediaProbe(
+                    opts.outWidth.takeIf { it > 0 },
+                    opts.outHeight.takeIf { it > 0 },
+                    null
+                )
+            }
+        } catch (_: Throwable) {
+            MediaProbe(null, null, null)
+        }
+        if (probeCache.size > 2000) probeCache.clear()
+        probeCache[key] = probe
+        return probe
     }
 
     private fun getMimeTypeFromExtension(ext: String): String {
@@ -453,6 +488,8 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
                             val ext = file.extension.lowercase()
                             val mime = getMimeTypeFromExtension(ext)
                             val isVideo = mime.startsWith("video/")
+                            val isAudio = mime.startsWith("audio/")
+                            val probe = probeMedia(file, mime)
                             val relDir = try {
                                 file.parentFile?.relativeToOrSelf(sandboxRoot)?.path ?: "Pictures"
                             } catch (_: Throwable) { "Pictures" }
@@ -468,14 +505,14 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
                                     "date_added" -> file.lastModified() / 1000
                                     "date_modified" -> file.lastModified() / 1000
                                     "datetaken" -> file.lastModified()
-                                    "width" -> 1080
-                                    "height" -> 1920
+                                    "width" -> probe.width
+                                    "height" -> probe.height
                                     "orientation" -> 0
                                     "bucket_id" -> relDir.hashCode()
                                     "bucket_display_name" -> file.parentFile?.name ?: "Pictures"
                                     "relative_path" -> if (relDir.endsWith("/")) relDir else "$relDir/"
-                                    "duration" -> if (isVideo) 5000L else 0L
-                                    "media_type" -> if (isVideo) 3 else 1
+                                    "duration" -> probe.durationMs
+                                    "media_type" -> if (isVideo) 3 else if (isAudio) 2 else 1
                                     "is_pending" -> 0
                                     "is_trashed" -> 0
                                     "is_favorite" -> 0
@@ -772,11 +809,11 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
     }
 
     /**
-     * LAYER 3: Isolated Photo & Document Picker Storage Binder.
-     * Binds system pickers and document choosers directly to the app's isolated sandbox directory.
-     * In-app galleries (WhatsApp MediaPicker, Snapchat camera roll) run natively without interruption
-     * and query the isolated sandbox via the MediaStore and File hooks.
-     * Any media selected by the user is recorded in [userAllowedUris] so the app can read & send it.
+     * LAYER 3: System picker handling.
+     * The system pickers still open normally (they are not replaced); the hook only hints the
+     * picker's start location to the sandbox. Whatever the user explicitly picks is recorded in
+     * [userAllowedUris] so the app may read it, and a copy is stored in the sandbox.
+     * In-app galleries run natively and are served from the sandbox by the MediaStore and File hooks.
      */
     private fun attachPickerInterceptorHooks(
         lpparam: XC_LoadPackage.LoadPackageParam,
@@ -1124,7 +1161,7 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
                                 "isFile" -> param.result = sandboxFile.isFile
                                 "length" -> param.result = if (sandboxFile.exists()) sandboxFile.length() else 0L
                                 "canRead" -> param.result = sandboxFile.canRead()
-                                "canWrite" -> param.result = true
+                                "canWrite" -> param.result = canWriteOrCreate(sandboxFile)
                             }
                         }
                     } finally {
@@ -1221,6 +1258,7 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         if (isHandlingHook.get() == true) return
+                        if (isVolumeMounted()) return
                         isHandlingHook.set(true)
                         try {
                             val sandboxRoot = getOrCreateSandboxRoot(pkg)
@@ -1229,7 +1267,7 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
                                 pkg = pkg,
                                 requestedPath = "/storage/emulated/0",
                                 resolvedPath = sandboxRoot.absolutePath,
-                                action = if (initialRule.mode == IsolationMode.ENCRYPTED_VAULT) AuditAction.ENCRYPTED else AuditAction.REDIRECTED,
+                                action = AuditAction.REDIRECTED,
                                 operation = "GET_EXT_STORAGE",
                                 details = "Redirected root external storage to isolated sandbox"
                             )
@@ -1251,6 +1289,7 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         if (isHandlingHook.get() == true) return
                         val type = param.args[0] as? String ?: "Files"
+                        if (isVolumeMounted()) return
                         isHandlingHook.set(true)
                         try {
                             val rule = resolveRuleForPackage(pkg)
@@ -1262,9 +1301,9 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
                                 pkg = pkg,
                                 requestedPath = "/storage/emulated/0/$type",
                                 resolvedPath = sandboxSubDir.absolutePath,
-                                action = if (rule.mode == IsolationMode.ENCRYPTED_VAULT) AuditAction.ENCRYPTED else AuditAction.REDIRECTED,
+                                action = AuditAction.REDIRECTED,
                                 operation = "GET_PUBLIC_DIR",
-                                details = "Redirected public directory ($type) to isolated vault"
+                                details = "Redirected public directory ($type) to isolated sandbox"
                             )
                         } finally {
                             isHandlingHook.set(false)
@@ -1285,12 +1324,39 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             return false
         }
         if (norm.contains("/IsoVault_Sandbox") ||
-            norm.contains("/.IsoVault/") ||
             (pkg.isNotBlank() && norm.contains("/Android/data/$pkg"))
         ) {
             return false
         }
+        // A root volume is mounted over the storage root: the kernel already isolates this app.
+        if (isVolumeMounted()) return false
         return true
+    }
+
+    @Volatile private var volumeMounted = false
+    @Volatile private var volumeCheckedAtMs = 0L
+
+    private fun isVolumeMounted(): Boolean {
+        val now = System.currentTimeMillis()
+        if (now - volumeCheckedAtMs < 2500L) return volumeMounted
+        val wasHandling = isHandlingHook.get() == true
+        isHandlingHook.set(true) // keep our own File hooks out of this probe
+        try {
+            volumeMounted = File("/storage/emulated/0/${MountManager.VOLUME_MARKER}").exists()
+        } catch (_: Throwable) {
+            volumeMounted = false
+        } finally {
+            isHandlingHook.set(wasHandling)
+        }
+        volumeCheckedAtMs = now
+        return volumeMounted
+    }
+
+    /** A missing file is writable when the nearest existing ancestor is. */
+    private fun canWriteOrCreate(file: File): Boolean {
+        var node: File? = file
+        while (node != null && !node.exists()) node = node.parentFile
+        return node?.canWrite() ?: false
     }
 
     private fun isWhitelisted(path: String, whitelistedFolders: Set<String>): Boolean {
@@ -1318,8 +1384,6 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             "DCIM",
             "DCIM/Camera",
             "Pictures",
-            "Pictures/WhatsApp",
-            "Pictures/Snapchat",
             "Movies",
             "Download",
             "Documents",
@@ -1363,7 +1427,7 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
         try { targetFile.parentFile?.mkdirs() } catch (_: Throwable) {}
 
         val action = when (rule.mode) {
-            IsolationMode.ENCRYPTED_VAULT -> AuditAction.ENCRYPTED
+            IsolationMode.ENCRYPTED_VAULT -> AuditAction.REDIRECTED
             IsolationMode.SANDBOX_REDIRECT -> AuditAction.REDIRECTED
             IsolationMode.FAKE_EMPTY -> AuditAction.SPOOFED_EMPTY
             IsolationMode.READ_ONLY -> AuditAction.BLOCKED

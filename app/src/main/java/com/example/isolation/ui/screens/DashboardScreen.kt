@@ -89,7 +89,7 @@ fun DashboardScreen(
             Spacer(modifier = Modifier.height(4.dp))
             LsposedStatusBanner(
                 isActive = isLsposedActive,
-                onToggle = { viewModel.toggleLsposedStatus() }
+                onToggle = { viewModel.refreshDiagnostics() }
             )
         }
 
@@ -173,7 +173,7 @@ fun DashboardScreen(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Manage which apps have their own private folder or test how photo protection works.",
+                        text = "Choose which apps get their own private storage, and re-check module status.",
                         fontSize = 13.sp,
                         color = InkSecondary,
                         fontFamily = JakartaFontFamily
@@ -195,27 +195,6 @@ fun DashboardScreen(
                             Icon(imageVector = Icons.Default.Apps, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Choose Apps", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily)
-                        }
-
-                        OutlinedButton(
-                            onClick = {
-                                viewModel.testSimulateAppIo(
-                                    packageName = "com.snapchat.android",
-                                    appName = "Snapchat",
-                                    testPath = "/storage/emulated/0/DCIM/Camera/vacation_photo.jpg",
-                                    fileContent = "Sample private photo protected by IsoVault."
-                                )
-                            },
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = ForestPrimary),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, WarmStone),
-                            shape = RoundedCornerShape(50),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("btn_test_io")
-                        ) {
-                            Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Try Sample", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily)
                         }
 
                         OutlinedButton(

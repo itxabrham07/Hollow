@@ -283,13 +283,8 @@ fun AppsScreen(
                 onUpdateMode = { mode -> viewModel.updateAppIsolationMode(appInfo.packageName, mode) },
                 onTogglePollution = { block -> viewModel.updateRootPollution(appInfo.packageName, block) },
                 onUpdateWhitelist = { whitelist -> viewModel.updateWhitelistedFolders(appInfo.packageName, whitelist) },
-                onSimulateIo = { path ->
-                    viewModel.testSimulateAppIo(
-                        packageName = appInfo.packageName,
-                        appName = appInfo.appName,
-                        testPath = path
-                    )
-                },
+                onAttachVolume = { viewModel.attachVolume(appInfo.packageName) },
+                onDetachVolume = { viewModel.detachVolume(appInfo.packageName) },
                 onPurgeVault = { viewModel.purgeVaultForPackage(appInfo.packageName) }
             )
         }
@@ -403,11 +398,11 @@ fun AppIsolationDetailContent(
     onUpdateMode: (IsolationMode) -> Unit,
     onTogglePollution: (Boolean) -> Unit,
     onUpdateWhitelist: (String) -> Unit,
-    onSimulateIo: (String) -> Unit,
+    onAttachVolume: () -> Unit,
+    onDetachVolume: () -> Unit,
     onPurgeVault: () -> Unit
 ) {
     var whitelistText by remember { mutableStateOf(whitelistedFolders) }
-    var testPathText by remember { mutableStateOf("/storage/emulated/0/DCIM/Camera/vacation_photo.jpg") }
 
     Column(
         modifier = Modifier
@@ -575,7 +570,7 @@ fun AppIsolationDetailContent(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Button(
-                onClick = { onSimulateIo(testPathText) },
+                onClick = onAttachVolume,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = ForestPrimary,
                     contentColor = Color.White
@@ -585,7 +580,17 @@ fun AppIsolationDetailContent(
             ) {
                 Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Test Protection", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily)
+                Text("Attach Volume", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily)
+            }
+
+            OutlinedButton(
+                onClick = onDetachVolume,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = InkPrimary),
+                border = androidx.compose.foundation.BorderStroke(1.dp, WarmStone),
+                shape = RoundedCornerShape(50),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Detach", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily)
             }
 
             OutlinedButton(
