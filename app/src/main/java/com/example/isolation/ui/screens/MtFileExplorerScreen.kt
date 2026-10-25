@@ -1,6 +1,7 @@
 package com.example.isolation.ui.screens
 
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -22,23 +23,28 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.CompareArrows
+import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.DataObject
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
@@ -49,20 +55,34 @@ import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.VideoFile
+import androidx.compose.material.icons.filled.ViewAgenda
+import androidx.compose.material.icons.filled.ViewSidebar
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.TabRowDefaults
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -89,6 +109,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.isolation.crypto.AesVaultCipher
 import com.example.isolation.mount.MountManager
+import com.example.isolation.storage.FileManagerHelper
+import com.example.isolation.storage.HexLine
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
 import com.example.ui.theme.AccentAmber
 import com.example.ui.theme.AccentCoral
@@ -98,6 +120,7 @@ import com.example.ui.theme.AccentSky
 import com.example.ui.theme.DarkBackground
 import com.example.ui.theme.DarkBorder
 import com.example.ui.theme.DarkBorderSubtle
+import com.example.ui.theme.DarkSurface
 import com.example.ui.theme.DarkSurfaceCard
 import com.example.ui.theme.DarkSurfaceElevated
 import com.example.ui.theme.JakartaFontFamily
@@ -108,7 +131,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileOutputStream
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -141,6 +163,11 @@ data class ClipboardEntry(
     val isCutOperation: Boolean
 )
 
+enum class MtPanelId {
+    PANEL_A,
+    PANEL_B
+}
+
 @Composable
 fun MtFileExplorerScreen(
     viewModel: IsoVaultViewModel,
@@ -151,45 +178,33 @@ fun MtFileExplorerScreen(
     val explorerTargetDir by viewModel.explorerTargetDir.collectAsState()
     val isRootGranted by viewModel.isRootGranted.collectAsState()
 
-    var currentScope by remember { mutableStateOf(StorageScope.VAULT_STORAGE) }
-    var vaultPath by remember { mutableStateOf(MountManager.PERSISTENT_VAULT_ROOT) }
-    var phonePath by remember { mutableStateOf("/storage/emulated/0") }
-    var rootPath by remember { mutableStateOf("/data/data") }
+    var hasStoragePermission by remember { mutableStateOf(FileManagerHelper.hasFullStorageAccess()) }
+    var hidePermissionBanner by remember { mutableStateOf(false) }
 
-    var searchQuery by remember { mutableStateOf("") }
+    // Active panel selector: Panel A (usually Vault) and Panel B (usually Phone / SDCard)
+    var activePanel by remember { mutableStateOf(MtPanelId.PANEL_A) }
+    var isDualPaneSplit by remember { mutableStateOf(false) }
+
+    // Panel A State
+    var scopeA by remember { mutableStateOf(StorageScope.VAULT_STORAGE) }
+    var pathA by remember { mutableStateOf(MountManager.PERSISTENT_VAULT_ROOT) }
+    var fileListA by remember { mutableStateOf<List<MtFileItem>>(emptyList()) }
+    var selectedA by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var searchQueryA by remember { mutableStateOf("") }
+
+    // Panel B State
+    var scopeB by remember { mutableStateOf(StorageScope.PHONE_STORAGE) }
+    var pathB by remember { mutableStateOf("/storage/emulated/0") }
+    var fileListB by remember { mutableStateOf<List<MtFileItem>>(emptyList()) }
+    var selectedB by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var searchQueryB by remember { mutableStateOf("") }
+
     var showSearchBar by remember { mutableStateOf(false) }
     var sortOrder by remember { mutableStateOf(FileSortOrder.NAME) }
     var showSortMenu by remember { mutableStateOf(false) }
-
-    // Clipboard state for MT Manager Copy/Move between directories & panes
     var clipboardEntry by remember { mutableStateOf<ClipboardEntry?>(null) }
 
-    val currentPath = when (currentScope) {
-        StorageScope.VAULT_STORAGE -> vaultPath
-        StorageScope.PHONE_STORAGE -> phonePath
-        StorageScope.ROOT_STORAGE -> rootPath
-    }
-
-    fun updateCurrentPath(newPath: String) {
-        when (currentScope) {
-            StorageScope.VAULT_STORAGE -> vaultPath = newPath
-            StorageScope.PHONE_STORAGE -> phonePath = newPath
-            StorageScope.ROOT_STORAGE -> rootPath = newPath
-        }
-    }
-
-    // Consume deep-link directory target from Dashboard or Apps screen
-    LaunchedEffect(explorerTargetDir) {
-        explorerTargetDir?.let { target ->
-            val dir = File(target)
-            dir.mkdirs()
-            currentScope = StorageScope.VAULT_STORAGE
-            vaultPath = target
-            viewModel.setExplorerTargetDir(null)
-        }
-    }
-
-    var fileList by remember { mutableStateOf<List<MtFileItem>>(emptyList()) }
+    // Dialog States
     var showNewFolderDialog by remember { mutableStateOf(false) }
     var newFolderName by remember { mutableStateOf("") }
     var showNewFileDialog by remember { mutableStateOf(false) }
@@ -200,23 +215,80 @@ fun MtFileExplorerScreen(
     var renameTarget by remember { mutableStateOf<MtFileItem?>(null) }
     var renameNewName by remember { mutableStateOf("") }
 
-    // Text Editor Dialog State
+    // Text Editor Dialog
     var showEditorDialog by remember { mutableStateOf(false) }
     var editorTargetFile by remember { mutableStateOf<MtFileItem?>(null) }
     var editorContent by remember { mutableStateOf("") }
 
-    // Image Viewer Dialog State
-    var previewBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
-    var previewImageTitle by remember { mutableStateOf("") }
+    // Hex Inspector Dialog
+    var showHexDialog by remember { mutableStateOf(false) }
+    var hexTargetFile by remember { mutableStateOf<File?>(null) }
+    var hexLines by remember { mutableStateOf<List<HexLine>>(emptyList()) }
 
-    // Properties Dialog State
+    // ZIP Compress Dialog
+    var showZipDialog by remember { mutableStateOf(false) }
+
+    // Properties Dialog
     var propertiesTarget by remember { mutableStateOf<MtFileItem?>(null) }
     var propertiesSha256 by remember { mutableStateOf("Calculating...") }
 
-    fun refreshFiles() {
+    // Image Preview Dialog
+    var previewBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+    var previewImageTitle by remember { mutableStateOf("") }
+
+    // Import options dialog (Choose normal vs AES-256 encrypted container)
+    var pendingImportUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var showImportChoiceDialog by remember { mutableStateOf(false) }
+
+    // SAF Save-As Document Picker for export
+    var pendingExportFile by remember { mutableStateOf<File?>(null) }
+    val exportDocumentPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("*/*")
+    ) { uri ->
+        if (uri != null && pendingExportFile != null) {
+            coroutineScope.launch(Dispatchers.IO) {
+                val res = FileManagerHelper.exportToDocumentUri(context, pendingExportFile!!, uri, decryptIfEncrypted = true)
+                withContext(Dispatchers.Main) {
+                    if (res.isSuccess) {
+                        Toast.makeText(context, "Exported successfully via SAF!", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "SAF Export failed: ${res.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                    }
+                    pendingExportFile = null
+                }
+            }
+        }
+    }
+
+    val currentPath = if (activePanel == MtPanelId.PANEL_A) pathA else pathB
+    val currentScope = if (activePanel == MtPanelId.PANEL_A) scopeA else scopeB
+    val currentSelected = if (activePanel == MtPanelId.PANEL_A) selectedA else selectedB
+
+    fun updateCurrentPath(newPath: String) {
+        if (activePanel == MtPanelId.PANEL_A) {
+            pathA = newPath
+        } else {
+            pathB = newPath
+        }
+    }
+
+    fun updateCurrentScope(newScope: StorageScope) {
+        if (activePanel == MtPanelId.PANEL_A) {
+            scopeA = newScope
+        } else {
+            scopeB = newScope
+        }
+    }
+
+    fun clearCurrentSelection() {
+        if (activePanel == MtPanelId.PANEL_A) selectedA = emptySet() else selectedB = emptySet()
+    }
+
+    // Refresh directory contents
+    fun loadDirectory(path: String, scope: StorageScope, onResult: (List<MtFileItem>) -> Unit) {
         coroutineScope.launch(Dispatchers.IO) {
-            val dir = File(currentPath)
-            if (currentScope == StorageScope.VAULT_STORAGE && !dir.exists()) {
+            val dir = File(path)
+            if (scope == StorageScope.VAULT_STORAGE && !dir.exists()) {
                 dir.mkdirs()
             }
 
@@ -238,14 +310,13 @@ fun MtFileExplorerScreen(
                             isDirectory = f.isDirectory,
                             sizeBytes = if (f.isDirectory) (f.listFiles()?.size?.toLong() ?: 0L) else f.length(),
                             lastModified = f.lastModified(),
-                            isEncrypted = f.extension.equals("isovault", ignoreCase = true),
+                            isEncrypted = f.name.endsWith(".isovault", ignoreCase = true),
                             permissions = perms
                         )
                     )
                 }
             } else if (isRootGranted) {
-                // Root fallback for restricted directories (/data/data, etc.)
-                val entries = MountManager.listFilesWithRootFallback(currentPath)
+                val entries = MountManager.listFilesWithRootFallback(path)
                 for (entry in entries) {
                     items.add(
                         MtFileItem(
@@ -268,55 +339,89 @@ fun MtFileExplorerScreen(
             }
 
             withContext(Dispatchers.Main) {
-                fileList = sorted
+                onResult(sorted)
             }
         }
     }
 
-    LaunchedEffect(currentScope, currentPath, sortOrder, isRootGranted) {
-        refreshFiles()
+    fun refreshAll() {
+        hasStoragePermission = FileManagerHelper.hasFullStorageAccess()
+        loadDirectory(pathA, scopeA) { fileListA = it }
+        loadDirectory(pathB, scopeB) { fileListB = it }
     }
 
-    // System file picker to import external files directly into current directory
+    LaunchedEffect(pathA, scopeA, sortOrder, isRootGranted) {
+        loadDirectory(pathA, scopeA) { fileListA = it }
+    }
+
+    LaunchedEffect(pathB, scopeB, sortOrder, isRootGranted) {
+        loadDirectory(pathB, scopeB) { fileListB = it }
+    }
+
+    // Handle deep-link targets from Dashboard or Apps screen
+    LaunchedEffect(explorerTargetDir) {
+        explorerTargetDir?.let { target ->
+            File(target).mkdirs()
+            activePanel = MtPanelId.PANEL_A
+            scopeA = StorageScope.VAULT_STORAGE
+            pathA = target
+            viewModel.setExplorerTargetDir(null)
+        }
+    }
+
+    // System File Picker for importing external files
     val importFilePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
     ) { uris ->
         if (uris.isNotEmpty()) {
-            coroutineScope.launch(Dispatchers.IO) {
-                var imported = 0
-                val targetDir = File(currentPath)
-                targetDir.mkdirs()
-                for ((idx, uri) in uris.withIndex()) {
-                    try {
-                        val mime = context.contentResolver.getType(uri) ?: ""
-                        val ext = when {
-                            mime.contains("png") -> "png"
-                            mime.contains("jpeg") || mime.contains("jpg") -> "jpg"
-                            mime.contains("mp4") || mime.contains("video") -> "mp4"
-                            mime.contains("pdf") -> "pdf"
-                            mime.contains("json") -> "json"
-                            mime.contains("text") -> "txt"
-                            else -> "dat"
-                        }
-                        val input = context.contentResolver.openInputStream(uri)
-                        val out = File(targetDir, "IMPORT_${System.currentTimeMillis()}_$idx.$ext")
-                        val fos = FileOutputStream(out)
-                        input?.copyTo(fos)
-                        input?.close()
-                        fos.close()
-                        imported++
-                    } catch (_: Exception) {}
+            pendingImportUris = uris
+            showImportChoiceDialog = true
+        }
+    }
+
+    fun executeImport(encryptWithAes: Boolean) {
+        val uris = pendingImportUris
+        showImportChoiceDialog = false
+        pendingImportUris = emptyList()
+
+        if (uris.isEmpty()) return
+
+        coroutineScope.launch(Dispatchers.IO) {
+            val targetDir = File(currentPath)
+            targetDir.mkdirs()
+            var importedCount = 0
+            val importedNames = mutableListOf<String>()
+
+            for (uri in uris) {
+                val res = FileManagerHelper.importFromUri(context, uri, targetDir, encryptWithAes)
+                if (res.isSuccess) {
+                    val file = res.getOrThrow()
+                    importedCount++
+                    importedNames.add(file.name)
                 }
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Imported $imported file(s) into ${targetDir.name}", Toast.LENGTH_SHORT).show()
-                    refreshFiles()
+            }
+
+            withContext(Dispatchers.Main) {
+                if (importedCount > 0) {
+                    val sample = importedNames.take(2).joinToString(", ")
+                    val extra = if (importedNames.size > 2) " and ${importedNames.size - 2} more" else ""
+                    Toast.makeText(
+                        context,
+                        "Imported $importedCount file(s) into ${targetDir.name}: $sample$extra",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    refreshAll()
+                } else {
+                    Toast.makeText(context, "Import failed: could not read selected file(s)", Toast.LENGTH_SHORT).show()
                 }
             }
         }
     }
 
-    val displayedFiles = fileList.filter {
-        searchQuery.isBlank() || it.name.contains(searchQuery, ignoreCase = true)
+    val currentFiles = if (activePanel == MtPanelId.PANEL_A) fileListA else fileListB
+    val currentSearch = if (activePanel == MtPanelId.PANEL_A) searchQueryA else searchQueryB
+    val displayedFiles = currentFiles.filter {
+        currentSearch.isBlank() || it.name.contains(currentSearch, ignoreCase = true)
     }
 
     Column(
@@ -325,59 +430,124 @@ fun MtFileExplorerScreen(
             .background(DarkBackground)
             .testTag("mt_file_explorer_screen")
     ) {
-        // Top Header & Storage Scope Switcher
+        // Storage Permission Alert Banner (if full storage access isn't yet granted on Android 11+)
+        if (!hasStoragePermission && !hidePermissionBanner) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(AccentAmber.copy(alpha = 0.14f))
+                    .border(1.dp, AccentAmber.copy(alpha = 0.35f))
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Info, null, tint = AccentAmber, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Full Storage Access recommended for /sdcard MT Manager operations.",
+                        color = TextWhite,
+                        fontSize = 11.sp,
+                        fontFamily = JakartaFontFamily
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Button(
+                        onClick = {
+                            FileManagerHelper.launchManageStorageSettings(context)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentAmber),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.height(28.dp)
+                    ) {
+                        Text("Grant", fontSize = 10.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                    IconButton(onClick = { hidePermissionBanner = true }, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Close, null, tint = TextMuted, modifier = Modifier.size(14.dp))
+                    }
+                }
+            }
+        }
+
+        // Top App Header
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(DarkSurfaceCard)
-                .padding(horizontal = 18.dp, vertical = 12.dp)
+                .padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "MT File Manager",
-                            fontSize = 21.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = JakartaFontFamily,
-                            color = TextWhite
-                        )
-                        if (isRootGranted) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(AccentMint.copy(alpha = 0.16f))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = "ROOT",
-                                    color = AccentMint,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                            }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "MT Manager Suite",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = JakartaFontFamily,
+                        color = TextWhite
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    if (isRootGranted) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(AccentMint.copy(alpha = 0.16f))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "ROOT",
+                                color = AccentMint,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(AccentSky.copy(alpha = 0.16f))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "VAULT",
+                                color = AccentSky,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
                         }
                     }
-                    Text(
-                        text = "${displayedFiles.count { it.isDirectory }} folders • ${displayedFiles.count { !it.isDirectory }} files",
-                        fontSize = 11.sp,
-                        fontFamily = JakartaFontFamily,
-                        color = TextMuted
-                    )
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Split/Dual Pane View Toggle
+                    IconButton(
+                        onClick = { isDualPaneSplit = !isDualPaneSplit },
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(if (isDualPaneSplit) AccentSky.copy(alpha = 0.2f) else DarkSurfaceElevated)
+                    ) {
+                        Icon(
+                            imageVector = if (isDualPaneSplit) Icons.Default.ViewSidebar else Icons.Default.ViewAgenda,
+                            contentDescription = "Toggle Dual Pane",
+                            tint = if (isDualPaneSplit) AccentSky else TextMuted,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+
                     // Search Toggle
                     IconButton(
                         onClick = {
                             showSearchBar = !showSearchBar
-                            if (!showSearchBar) searchQuery = ""
+                            if (!showSearchBar) {
+                                searchQueryA = ""
+                                searchQueryB = ""
+                            }
                         },
                         modifier = Modifier
                             .size(34.dp)
@@ -392,7 +562,7 @@ fun MtFileExplorerScreen(
                         )
                     }
 
-                    // Sort Menu Button
+                    // Sort Menu
                     Box {
                         IconButton(
                             onClick = { showSortMenu = true },
@@ -401,12 +571,7 @@ fun MtFileExplorerScreen(
                                 .clip(CircleShape)
                                 .background(DarkSurfaceElevated)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Sort,
-                                contentDescription = "Sort",
-                                tint = TextMuted,
-                                modifier = Modifier.size(17.dp)
-                            )
+                            Icon(Icons.Default.Sort, null, tint = TextMuted, modifier = Modifier.size(17.dp))
                         }
                         DropdownMenu(
                             expanded = showSortMenu,
@@ -431,36 +596,35 @@ fun MtFileExplorerScreen(
                         }
                     }
 
-                    // Refresh Button
+                    // Refresh
                     IconButton(
-                        onClick = { refreshFiles() },
+                        onClick = { refreshAll() },
                         modifier = Modifier
                             .size(34.dp)
                             .clip(CircleShape)
                             .background(DarkSurfaceElevated)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Refresh",
-                            tint = AccentSky,
-                            modifier = Modifier.size(17.dp)
-                        )
+                        Icon(Icons.Default.Refresh, null, tint = AccentSky, modifier = Modifier.size(17.dp))
                     }
                 }
             }
 
             AnimatedVisibility(visible = showSearchBar) {
                 Column {
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        placeholder = { Text("Filter current directory...", fontSize = 13.sp, color = TextMuted) },
+                        value = if (activePanel == MtPanelId.PANEL_A) searchQueryA else searchQueryB,
+                        onValueChange = {
+                            if (activePanel == MtPanelId.PANEL_A) searchQueryA = it else searchQueryB = it
+                        },
+                        placeholder = { Text("Filter current directory...", fontSize = 12.sp, color = TextMuted) },
                         singleLine = true,
                         trailingIcon = {
-                            if (searchQuery.isNotEmpty()) {
-                                IconButton(onClick = { searchQuery = "" }) {
-                                    Icon(Icons.Default.Close, null, tint = TextMuted, modifier = Modifier.size(16.dp))
+                            if (currentSearch.isNotEmpty()) {
+                                IconButton(onClick = {
+                                    if (activePanel == MtPanelId.PANEL_A) searchQueryA = "" else searchQueryB = ""
+                                }) {
+                                    Icon(Icons.Default.Close, null, tint = TextMuted, modifier = Modifier.size(15.dp))
                                 }
                             }
                         },
@@ -470,71 +634,123 @@ fun MtFileExplorerScreen(
                             focusedTextColor = TextWhite,
                             unfocusedTextColor = TextWhite
                         ),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // 3-Way Scope Switcher (Vault / Phone / Root)
-            Row(
+            // MT Manager Dual Panel Switcher Tabs (Panel A vs Panel B)
+            TabRow(
+                selectedTabIndex = if (activePanel == MtPanelId.PANEL_A) 0 else 1,
+                containerColor = DarkSurfaceElevated,
+                contentColor = TextWhite,
+                indicator = { tabPositions ->
+                    TabRowDefaults.SecondaryIndicator(
+                        Modifier.tabIndicatorOffset(tabPositions[if (activePanel == MtPanelId.PANEL_A) 0 else 1]),
+                        color = AccentSky,
+                        height = 3.dp
+                    )
+                },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(40.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(DarkSurfaceElevated)
-                    .padding(3.dp)
+                    .clip(RoundedCornerShape(12.dp))
             ) {
-                StorageScope.entries.forEach { scope ->
-                    val selected = currentScope == scope
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(11.dp))
-                            .background(if (selected) AccentSky else Color.Transparent)
-                            .clickable {
-                                if (scope == StorageScope.ROOT_STORAGE && !isRootGranted) {
-                                    viewModel.requestRootAccess()
-                                }
-                                currentScope = scope
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
+                Tab(
+                    selected = activePanel == MtPanelId.PANEL_A,
+                    onClick = { activePanel = MtPanelId.PANEL_A },
+                    text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = when (scope) {
-                                    StorageScope.VAULT_STORAGE -> Icons.Default.Security
-                                    StorageScope.PHONE_STORAGE -> Icons.Default.PhoneAndroid
-                                    StorageScope.ROOT_STORAGE -> Icons.Default.Terminal
-                                },
+                                imageVector = Icons.Default.Security,
                                 contentDescription = null,
-                                tint = if (selected) Color.White else TextMuted,
+                                tint = if (activePanel == MtPanelId.PANEL_A) AccentSky else TextMuted,
                                 modifier = Modifier.size(14.dp)
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = scope.label,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = JakartaFontFamily,
-                                color = if (selected) Color.White else TextMuted,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                text = "Panel 1 (${File(pathA).name.ifEmpty { "Vault" }})",
+                                fontSize = 12.sp,
+                                fontWeight = if (activePanel == MtPanelId.PANEL_A) FontWeight.Bold else FontWeight.Normal,
+                                color = if (activePanel == MtPanelId.PANEL_A) AccentSky else TextMuted
                             )
                         }
                     }
+                )
+
+                Tab(
+                    selected = activePanel == MtPanelId.PANEL_B,
+                    onClick = { activePanel = MtPanelId.PANEL_B },
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.PhoneAndroid,
+                                contentDescription = null,
+                                tint = if (activePanel == MtPanelId.PANEL_B) AccentSky else TextMuted,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Panel 2 (${File(pathB).name.ifEmpty { "Phone" }})",
+                                fontSize = 12.sp,
+                                fontWeight = if (activePanel == MtPanelId.PANEL_B) FontWeight.Bold else FontWeight.Normal,
+                                color = if (activePanel == MtPanelId.PANEL_B) AccentSky else TextMuted
+                            )
+                        }
+                    }
+                )
+            }
+        }
+
+        // Quick Jump Bookmarks Bar
+        LazyRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(DarkSurfaceElevated)
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            item {
+                BookmarkChip("🛡️ Vault", MountManager.PERSISTENT_VAULT_ROOT, StorageScope.VAULT_STORAGE) { p, s ->
+                    updateCurrentPath(p); updateCurrentScope(s)
+                }
+            }
+            item {
+                BookmarkChip("📱 /sdcard", "/storage/emulated/0", StorageScope.PHONE_STORAGE) { p, s ->
+                    updateCurrentPath(p); updateCurrentScope(s)
+                }
+            }
+            item {
+                BookmarkChip("📥 Download", "/storage/emulated/0/Download", StorageScope.PHONE_STORAGE) { p, s ->
+                    updateCurrentPath(p); updateCurrentScope(s)
+                }
+            }
+            item {
+                BookmarkChip("📷 DCIM", "/storage/emulated/0/DCIM", StorageScope.PHONE_STORAGE) { p, s ->
+                    updateCurrentPath(p); updateCurrentScope(s)
+                }
+            }
+            item {
+                BookmarkChip("📂 Android/data", "/storage/emulated/0/Android/data", StorageScope.PHONE_STORAGE) { p, s ->
+                    updateCurrentPath(p); updateCurrentScope(s)
+                }
+            }
+            item {
+                BookmarkChip("⚡ /data", "/data/data", StorageScope.ROOT_STORAGE) { p, s ->
+                    if (!isRootGranted) viewModel.requestRootAccess()
+                    updateCurrentPath(p); updateCurrentScope(s)
                 }
             }
         }
 
-        // Interactive Path Breadcrumb & Quick Creation Bar
+        // Path Breadcrumb & Quick Actions Bar
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(DarkSurfaceElevated)
+                .background(DarkSurface)
                 .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -570,17 +786,29 @@ fun MtFileExplorerScreen(
                     .horizontalScroll(rememberScrollState())
             )
 
-            // New Text File
+            // Equalize / Sync with opposite panel
+            IconButton(
+                onClick = {
+                    val dest = if (activePanel == MtPanelId.PANEL_A) pathA else pathB
+                    if (activePanel == MtPanelId.PANEL_A) pathB = dest else pathA = dest
+                    Toast.makeText(context, "Matched opposite panel path", Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.size(30.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.CompareArrows,
+                    contentDescription = "Match Panels",
+                    tint = AccentLavender,
+                    modifier = Modifier.size(17.dp)
+                )
+            }
+
+            // New File
             IconButton(
                 onClick = { showNewFileDialog = true },
                 modifier = Modifier.size(30.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.NoteAdd,
-                    contentDescription = "New File",
-                    tint = AccentSky,
-                    modifier = Modifier.size(17.dp)
-                )
+                Icon(Icons.Default.NoteAdd, contentDescription = "New File", tint = AccentSky, modifier = Modifier.size(17.dp))
             }
 
             // New Folder
@@ -588,16 +816,154 @@ fun MtFileExplorerScreen(
                 onClick = { showNewFolderDialog = true },
                 modifier = Modifier.size(30.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.CreateNewFolder,
-                    contentDescription = "New Folder",
-                    tint = AccentMint,
-                    modifier = Modifier.size(17.dp)
-                )
+                Icon(Icons.Default.CreateNewFolder, contentDescription = "New Folder", tint = AccentMint, modifier = Modifier.size(17.dp))
             }
         }
 
-        // Clipboard Floating Banner (when a file/folder is copied or cut)
+        // Multi-Select Batch Actions Floating Ribbon
+        AnimatedVisibility(visible = currentSelected.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(AccentSky.copy(alpha = 0.2f))
+                    .border(1.dp, AccentSky.copy(alpha = 0.45f))
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "${currentSelected.size} selected",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    TextButton(
+                        onClick = {
+                            val allPaths = displayedFiles.map { it.path }.toSet()
+                            if (activePanel == MtPanelId.PANEL_A) selectedA = allPaths else selectedB = allPaths
+                        },
+                        modifier = Modifier.height(28.dp)
+                    ) {
+                        Text("Select All", color = AccentSky, fontSize = 11.sp)
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    // Copy to Opposite Panel
+                    IconButton(
+                        onClick = {
+                            val destDir = if (activePanel == MtPanelId.PANEL_A) pathB else pathA
+                            coroutineScope.launch(Dispatchers.IO) {
+                                var count = 0
+                                for (p in currentSelected) {
+                                    val src = File(p)
+                                    val dst = File(destDir, src.name)
+                                    try {
+                                        if (src.isDirectory) src.copyRecursively(dst, overwrite = true)
+                                        else src.copyTo(dst, overwrite = true)
+                                        count++
+                                    } catch (_: Exception) {}
+                                }
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(context, "Copied $count item(s) to opposite panel", Toast.LENGTH_SHORT).show()
+                                    clearCurrentSelection()
+                                    refreshAll()
+                                }
+                            }
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy to Other Panel", tint = Color.White, modifier = Modifier.size(16.dp))
+                    }
+
+                    // Move to Opposite Panel
+                    IconButton(
+                        onClick = {
+                            val destDir = if (activePanel == MtPanelId.PANEL_A) pathB else pathA
+                            coroutineScope.launch(Dispatchers.IO) {
+                                var count = 0
+                                for (p in currentSelected) {
+                                    val src = File(p)
+                                    val dst = File(destDir, src.name)
+                                    try {
+                                        if (src.isDirectory) {
+                                            src.copyRecursively(dst, overwrite = true)
+                                            src.deleteRecursively()
+                                        } else {
+                                            src.copyTo(dst, overwrite = true)
+                                            src.delete()
+                                        }
+                                        count++
+                                    } catch (_: Exception) {}
+                                }
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(context, "Moved $count item(s) to opposite panel", Toast.LENGTH_SHORT).show()
+                                    clearCurrentSelection()
+                                    refreshAll()
+                                }
+                            }
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(Icons.Default.ContentCut, contentDescription = "Move to Other Panel", tint = AccentAmber, modifier = Modifier.size(16.dp))
+                    }
+
+                    // Batch Compress to ZIP
+                    IconButton(
+                        onClick = { showZipDialog = true },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(Icons.Default.Archive, contentDescription = "Compress ZIP", tint = AccentMint, modifier = Modifier.size(16.dp))
+                    }
+
+                    // Batch Share
+                    IconButton(
+                        onClick = {
+                            val files = currentSelected.map { File(it) }
+                            FileManagerHelper.batchShareFiles(context, files, decryptIfEncrypted = true)
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = "Batch Share", tint = AccentSky, modifier = Modifier.size(16.dp))
+                    }
+
+                    // Batch Delete
+                    IconButton(
+                        onClick = {
+                            coroutineScope.launch(Dispatchers.IO) {
+                                var deleted = 0
+                                for (p in currentSelected) {
+                                    val f = File(p)
+                                    if (f.deleteRecursively() || MountManager.deleteViaRoot(p).isSuccess) {
+                                        deleted++
+                                    }
+                                }
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(context, "Deleted $deleted item(s)", Toast.LENGTH_SHORT).show()
+                                    clearCurrentSelection()
+                                    refreshAll()
+                                }
+                            }
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = "Batch Delete", tint = AccentCoral, modifier = Modifier.size(16.dp))
+                    }
+
+                    // Close Selection Mode
+                    IconButton(
+                        onClick = { clearCurrentSelection() },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Deselect", tint = TextMuted, modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+        }
+
+        // Clipboard Floating Banner (Single Copy/Cut)
         AnimatedVisibility(visible = clipboardEntry != null) {
             clipboardEntry?.let { clip ->
                 Row(
@@ -605,7 +971,7 @@ fun MtFileExplorerScreen(
                         .fillMaxWidth()
                         .background(AccentSky.copy(alpha = 0.16f))
                         .border(1.dp, AccentSky.copy(alpha = 0.4f))
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -619,7 +985,7 @@ fun MtFileExplorerScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "Navigate to destination folder and tap Paste Here",
+                            text = "Target folder: ${File(currentPath).name}",
                             color = AccentSky,
                             fontSize = 10.sp
                         )
@@ -633,20 +999,13 @@ fun MtFileExplorerScreen(
                                     val dst = File(currentPath, clip.sourceItem.name)
                                     val ok = try {
                                         if (src.canRead() && File(currentPath).canWrite()) {
-                                            if (src.isDirectory) {
-                                                src.copyRecursively(dst, overwrite = true)
-                                            } else {
-                                                src.copyTo(dst, overwrite = true)
-                                            }
-                                            if (clip.isCutOperation) {
-                                                src.deleteRecursively()
-                                            }
+                                            if (src.isDirectory) src.copyRecursively(dst, overwrite = true)
+                                            else src.copyTo(dst, overwrite = true)
+                                            if (clip.isCutOperation) src.deleteRecursively()
                                             true
                                         } else {
                                             val copied = MountManager.copyViaRoot(src.absolutePath, dst.absolutePath).isSuccess
-                                            if (copied && clip.isCutOperation) {
-                                                MountManager.deleteViaRoot(src.absolutePath)
-                                            }
+                                            if (copied && clip.isCutOperation) MountManager.deleteViaRoot(src.absolutePath)
                                             copied
                                         }
                                     } catch (_: Exception) {
@@ -655,32 +1014,25 @@ fun MtFileExplorerScreen(
 
                                     withContext(Dispatchers.Main) {
                                         if (ok) {
-                                            Toast.makeText(
-                                                context,
-                                                if (clip.isCutOperation) "Moved to $currentPath" else "Pasted into $currentPath",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
+                                            Toast.makeText(context, if (clip.isCutOperation) "Moved" else "Pasted", Toast.LENGTH_SHORT).show()
                                             clipboardEntry = null
-                                            refreshFiles()
+                                            refreshAll()
                                         } else {
-                                            Toast.makeText(context, "Operation failed", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Paste operation failed", Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = AccentSky),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.height(34.dp)
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.height(32.dp)
                         ) {
-                            Icon(Icons.Default.ContentPaste, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                            Icon(Icons.Default.ContentPaste, null, tint = Color.White, modifier = Modifier.size(13.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("Paste Here", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
                         }
 
-                        IconButton(
-                            onClick = { clipboardEntry = null },
-                            modifier = Modifier.size(34.dp)
-                        ) {
+                        IconButton(onClick = { clipboardEntry = null }, modifier = Modifier.size(32.dp)) {
                             Icon(Icons.Default.Close, null, tint = TextMuted, modifier = Modifier.size(16.dp))
                         }
                     }
@@ -688,13 +1040,14 @@ fun MtFileExplorerScreen(
             }
         }
 
-        // Quick Action Row: Import External File / Export Folder to Phone
+        // Primary Import & Export Action Bar (Key User Focus Area)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = 14.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            // Import File Button (Preserves exact filename and offers AES encryption!)
             Button(
                 onClick = { importFilePicker.launch("*/*") },
                 colors = ButtonDefaults.buttonColors(containerColor = AccentSky),
@@ -706,24 +1059,33 @@ fun MtFileExplorerScreen(
             ) {
                 Icon(Icons.Default.Download, null, tint = Color.White, modifier = Modifier.size(15.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Import File Here", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text("Import Files", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
             }
 
+            // Export Current Folder to Public Downloads
             Button(
                 onClick = {
                     coroutineScope.launch(Dispatchers.IO) {
                         try {
-                            val exportDir = File("/storage/emulated/0/Download/IsoVault_Exported")
-                            exportDir.mkdirs()
                             val cur = File(currentPath)
-                            val target = File(exportDir, cur.name)
+                            val targetDir = File(
+                                android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+                                "IsoVault_Exported/${cur.name}"
+                            )
+                            targetDir.mkdirs()
+
                             if (cur.canRead()) {
-                                cur.copyRecursively(target, overwrite = true)
+                                cur.copyRecursively(targetDir, overwrite = true)
                             } else {
-                                MountManager.copyViaRoot(cur.absolutePath, target.absolutePath)
+                                MountManager.copyViaRoot(cur.absolutePath, targetDir.absolutePath)
                             }
+
                             withContext(Dispatchers.Main) {
-                                Toast.makeText(context, "Exported folder to /Download/IsoVault_Exported/${cur.name}", Toast.LENGTH_LONG).show()
+                                Toast.makeText(
+                                    context,
+                                    "Exported '${cur.name}' to Download/IsoVault_Exported/${cur.name}",
+                                    Toast.LENGTH_LONG
+                                ).show()
                             }
                         } catch (e: Exception) {
                             withContext(Dispatchers.Main) {
@@ -746,24 +1108,19 @@ fun MtFileExplorerScreen(
             }
         }
 
-        // Directory Listing
+        // File Directory Listing
         if (displayedFiles.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(bottom = 50.dp),
+                    .padding(bottom = 60.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Default.Folder,
-                        contentDescription = null,
-                        tint = TextSubtle,
-                        modifier = Modifier.size(54.dp)
-                    )
+                    Icon(Icons.Default.Folder, null, tint = TextSubtle, modifier = Modifier.size(54.dp))
                     Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        text = if (searchQuery.isNotBlank()) "No matching files" else "Directory is empty",
+                        text = if (currentSearch.isNotBlank()) "No files match search" else "Folder is empty",
                         color = TextMuted,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -782,150 +1139,185 @@ fun MtFileExplorerScreen(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 16.dp),
+                    .padding(horizontal = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(displayedFiles, key = { it.path }) { item ->
-                    MtFileRow(
+                    val isSelected = currentSelected.contains(item.path)
+                    MtFileItemRow(
                         item = item,
+                        isSelected = isSelected,
+                        onToggleSelect = {
+                            val updated = currentSelected.toMutableSet()
+                            if (isSelected) updated.remove(item.path) else updated.add(item.path)
+                            if (activePanel == MtPanelId.PANEL_A) selectedA = updated else selectedB = updated
+                        },
                         onClick = {
-                            if (item.isDirectory) {
+                            if (currentSelected.isNotEmpty()) {
+                                val updated = currentSelected.toMutableSet()
+                                if (isSelected) updated.remove(item.path) else updated.add(item.path)
+                                if (activePanel == MtPanelId.PANEL_A) selectedA = updated else selectedB = updated
+                            } else if (item.isDirectory) {
                                 updateCurrentPath(item.path)
                             } else {
-                                // Determine if image or text/editable file
-                                val cleanName = item.name.removeSuffix(".isovault").lowercase()
-                                val isImg = cleanName.endsWith(".jpg") || cleanName.endsWith(".jpeg") ||
-                                        cleanName.endsWith(".png") || cleanName.endsWith(".webp")
-
-                                if (isImg) {
-                                    coroutineScope.launch(Dispatchers.IO) {
-                                        val bmp = try {
-                                            val f = File(item.path)
-                                            val bytes = if (item.isEncrypted) {
-                                                AesVaultCipher.decrypt(f.readBytes())
-                                            } else {
-                                                f.readBytes()
+                                handleOpenFile(
+                                    item = item,
+                                    context = context,
+                                    coroutineScope = coroutineScope,
+                                    onShowImage = { title, bmp ->
+                                        previewImageTitle = title
+                                        previewBitmap = bmp
+                                    },
+                                    onShowEditor = { target, text ->
+                                        editorTargetFile = target
+                                        editorContent = text
+                                        showEditorDialog = true
+                                    },
+                                    onExtractZip = { zipFile ->
+                                        coroutineScope.launch(Dispatchers.IO) {
+                                            val targetDir = File(zipFile.parentFile, zipFile.nameWithoutExtension)
+                                            val res = FileManagerHelper.extractZip(zipFile, targetDir)
+                                            withContext(Dispatchers.Main) {
+                                                if (res.isSuccess) {
+                                                    Toast.makeText(context, "Extracted ${res.getOrNull()} files into ${targetDir.name}", Toast.LENGTH_LONG).show()
+                                                    refreshAll()
+                                                } else {
+                                                    Toast.makeText(context, "Extract error: ${res.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
+                                                }
                                             }
-                                            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
-                                        } catch (_: Exception) {
-                                            null
-                                        }
-                                        withContext(Dispatchers.Main) {
-                                            if (bmp != null) {
-                                                previewImageTitle = item.name
-                                                previewBitmap = bmp
-                                            } else {
-                                                Toast.makeText(context, "Unable to decode image", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    // Open in built-in MT Text/Code Editor
-                                    coroutineScope.launch(Dispatchers.IO) {
-                                        val f = File(item.path)
-                                        val text = try {
-                                            val bytes = if (item.isEncrypted) {
-                                                AesVaultCipher.decrypt(f.readBytes())
-                                            } else {
-                                                f.readBytes()
-                                            }
-                                            if (bytes.size > 256 * 1024) {
-                                                "File is large (${bytes.size / 1024} KB). Showing first 8 KB:\n\n" +
-                                                        String(bytes.copyOfRange(0, 8192), Charsets.UTF_8)
-                                            } else {
-                                                String(bytes, Charsets.UTF_8)
-                                            }
-                                        } catch (e: Exception) {
-                                            "Cannot read file directly (${e.message})"
-                                        }
-                                        withContext(Dispatchers.Main) {
-                                            editorTargetFile = item
-                                            editorContent = text
-                                            showEditorDialog = true
                                         }
                                     }
-                                }
+                                )
                             }
                         },
                         onAction = { action ->
                             when (action) {
+                                "SELECT" -> {
+                                    val updated = currentSelected.toMutableSet()
+                                    updated.add(item.path)
+                                    if (activePanel == MtPanelId.PANEL_A) selectedA = updated else selectedB = updated
+                                }
                                 "COPY" -> {
                                     clipboardEntry = ClipboardEntry(item, isCutOperation = false)
                                 }
                                 "CUT" -> {
                                     clipboardEntry = ClipboardEntry(item, isCutOperation = true)
                                 }
+                                "COPY_TO_OTHER_PANEL" -> {
+                                    val destDir = if (activePanel == MtPanelId.PANEL_A) pathB else pathA
+                                    coroutineScope.launch(Dispatchers.IO) {
+                                        val src = File(item.path)
+                                        val dst = File(destDir, src.name)
+                                        try {
+                                            if (src.isDirectory) src.copyRecursively(dst, overwrite = true)
+                                            else src.copyTo(dst, overwrite = true)
+                                            withContext(Dispatchers.Main) {
+                                                Toast.makeText(context, "Copied to opposite panel (${File(destDir).name})", Toast.LENGTH_SHORT).show()
+                                                refreshAll()
+                                            }
+                                        } catch (e: Exception) {
+                                            withContext(Dispatchers.Main) {
+                                                Toast.makeText(context, "Copy failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
+                                }
+                                "MOVE_TO_OTHER_PANEL" -> {
+                                    val destDir = if (activePanel == MtPanelId.PANEL_A) pathB else pathA
+                                    coroutineScope.launch(Dispatchers.IO) {
+                                        val src = File(item.path)
+                                        val dst = File(destDir, src.name)
+                                        try {
+                                            if (src.isDirectory) {
+                                                src.copyRecursively(dst, overwrite = true)
+                                                src.deleteRecursively()
+                                            } else {
+                                                src.copyTo(dst, overwrite = true)
+                                                src.delete()
+                                            }
+                                            withContext(Dispatchers.Main) {
+                                                Toast.makeText(context, "Moved to opposite panel (${File(destDir).name})", Toast.LENGTH_SHORT).show()
+                                                refreshAll()
+                                            }
+                                        } catch (e: Exception) {
+                                            withContext(Dispatchers.Main) {
+                                                Toast.makeText(context, "Move failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
+                                }
+                                "EXPORT_DOWNLOADS" -> {
+                                    coroutineScope.launch(Dispatchers.IO) {
+                                        val res = FileManagerHelper.exportToPublicDownload(context, File(item.path), decryptIfEncrypted = true)
+                                        withContext(Dispatchers.Main) {
+                                            if (res.isSuccess) {
+                                                Toast.makeText(context, "Exported: ${res.getOrNull()}", Toast.LENGTH_LONG).show()
+                                            } else {
+                                                Toast.makeText(context, "Export failed: ${res.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
+                                }
+                                "EXPORT_SAVE_AS" -> {
+                                    pendingExportFile = File(item.path)
+                                    val defaultName = item.name.removeSuffix(".isovault")
+                                    exportDocumentPicker.launch(defaultName)
+                                }
+                                "SHARE_WITH_APP" -> {
+                                    FileManagerHelper.shareFileWithExternalApp(context, File(item.path), decryptIfEncrypted = true)
+                                }
+                                "HEX_VIEWER" -> {
+                                    coroutineScope.launch(Dispatchers.IO) {
+                                        val file = File(item.path)
+                                        val dump = FileManagerHelper.generateHexDump(file, 4096)
+                                        withContext(Dispatchers.Main) {
+                                            hexTargetFile = file
+                                            hexLines = dump
+                                            showHexDialog = true
+                                        }
+                                    }
+                                }
+                                "EXTRACT_ZIP" -> {
+                                    coroutineScope.launch(Dispatchers.IO) {
+                                        val zipFile = File(item.path)
+                                        val targetDir = File(zipFile.parentFile, zipFile.nameWithoutExtension)
+                                        val res = FileManagerHelper.extractZip(zipFile, targetDir)
+                                        withContext(Dispatchers.Main) {
+                                            if (res.isSuccess) {
+                                                Toast.makeText(context, "Extracted ${res.getOrNull()} files into ${targetDir.name}", Toast.LENGTH_LONG).show()
+                                                refreshAll()
+                                            } else {
+                                                Toast.makeText(context, "Extract error: ${res.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
+                                }
                                 "ENCRYPT_DECRYPT" -> {
                                     coroutineScope.launch(Dispatchers.IO) {
                                         try {
                                             val src = File(item.path)
                                             if (item.isEncrypted) {
-                                                val decrypted = AesVaultCipher.decrypt(src.readBytes())
+                                                val dec = AesVaultCipher.decrypt(src.readBytes())
                                                 val out = File(src.parentFile, item.name.removeSuffix(".isovault"))
-                                                out.writeBytes(decrypted)
+                                                out.writeBytes(dec)
                                                 src.delete()
                                                 withContext(Dispatchers.Main) {
                                                     Toast.makeText(context, "Decrypted: ${out.name}", Toast.LENGTH_SHORT).show()
-                                                    refreshFiles()
+                                                    refreshAll()
                                                 }
                                             } else {
-                                                val encrypted = AesVaultCipher.encrypt(src.readBytes())
+                                                val enc = AesVaultCipher.encrypt(src.readBytes())
                                                 val out = File(src.parentFile, "${item.name}.isovault")
-                                                out.writeBytes(encrypted)
+                                                out.writeBytes(enc)
                                                 src.delete()
                                                 withContext(Dispatchers.Main) {
                                                     Toast.makeText(context, "AES-256 Encrypted: ${out.name}", Toast.LENGTH_SHORT).show()
-                                                    refreshFiles()
+                                                    refreshAll()
                                                 }
                                             }
                                         } catch (e: Exception) {
                                             withContext(Dispatchers.Main) {
                                                 Toast.makeText(context, "Cipher error: ${e.message}", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                    }
-                                }
-                                "EXPORT" -> {
-                                    coroutineScope.launch(Dispatchers.IO) {
-                                        try {
-                                            val src = File(item.path)
-                                            val dest = File("/storage/emulated/0/Download/IsoVault_Exported/${item.name.removeSuffix(".isovault")}")
-                                            dest.parentFile?.mkdirs()
-                                            if (item.isEncrypted) {
-                                                val dec = AesVaultCipher.decrypt(src.readBytes())
-                                                dest.writeBytes(dec)
-                                            } else if (src.isDirectory) {
-                                                src.copyRecursively(dest, overwrite = true)
-                                            } else {
-                                                src.copyTo(dest, overwrite = true)
-                                            }
-                                            withContext(Dispatchers.Main) {
-                                                Toast.makeText(context, "Exported to ${dest.absolutePath}", Toast.LENGTH_SHORT).show()
-                                            }
-                                        } catch (e: Exception) {
-                                            withContext(Dispatchers.Main) {
-                                                Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                    }
-                                }
-                                "IMPORT_TO_VAULT" -> {
-                                    coroutineScope.launch(Dispatchers.IO) {
-                                        try {
-                                            val src = File(item.path)
-                                            val dest = File("${MountManager.PERSISTENT_VAULT_ROOT}/imported/${item.name}")
-                                            dest.parentFile?.mkdirs()
-                                            if (src.isDirectory) {
-                                                src.copyRecursively(dest, overwrite = true)
-                                            } else {
-                                                src.copyTo(dest, overwrite = true)
-                                            }
-                                            withContext(Dispatchers.Main) {
-                                                Toast.makeText(context, "Copied into Vault /imported/${item.name}", Toast.LENGTH_SHORT).show()
-                                            }
-                                        } catch (e: Exception) {
-                                            withContext(Dispatchers.Main) {
-                                                Toast.makeText(context, "Import failed: ${e.message}", Toast.LENGTH_SHORT).show()
                                             }
                                         }
                                     }
@@ -941,12 +1333,12 @@ fun MtFileExplorerScreen(
                                     coroutineScope.launch(Dispatchers.IO) {
                                         val hash = try {
                                             val f = File(item.path)
-                                            if (!f.isDirectory && f.canRead() && f.length() < 20 * 1024 * 1024) {
+                                            if (!f.isDirectory && f.canRead() && f.length() < 25 * 1024 * 1024) {
                                                 val md = MessageDigest.getInstance("SHA-256")
                                                 val digest = md.digest(f.readBytes())
-                                                digest.joinToString("") { "%02x".format(it) }.take(32) + "..."
+                                                digest.joinToString("") { "%02x".format(it) }
                                             } else {
-                                                "Directory / Stream"
+                                                "Directory / Not Readable"
                                             }
                                         } catch (_: Exception) {
                                             "N/A"
@@ -961,11 +1353,8 @@ fun MtFileExplorerScreen(
                                         val f = File(item.path)
                                         val deleted = f.deleteRecursively() || MountManager.deleteViaRoot(item.path).isSuccess
                                         withContext(Dispatchers.Main) {
-                                            if (deleted) {
-                                                refreshFiles()
-                                            } else {
-                                                Toast.makeText(context, "Delete failed", Toast.LENGTH_SHORT).show()
-                                            }
+                                            if (deleted) refreshAll()
+                                            else Toast.makeText(context, "Delete failed", Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 }
@@ -973,8 +1362,58 @@ fun MtFileExplorerScreen(
                         }
                     )
                 }
-                item { Spacer(modifier = Modifier.height(20.dp)) }
+                item { Spacer(modifier = Modifier.height(24.dp)) }
             }
+        }
+
+        // Import Options Dialog (Normal vs AES-256 Encrypted container)
+        if (showImportChoiceDialog) {
+            AlertDialog(
+                onDismissRequest = { showImportChoiceDialog = false },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Download, null, tint = AccentSky, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Import Selected Files", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            text = "${pendingImportUris.size} file(s) selected to import into:\n$currentPath",
+                            color = TextMuted,
+                            fontSize = 12.sp,
+                            fontFamily = JakartaFontFamily
+                        )
+                        Text(
+                            text = "Original filenames and file structures are strictly preserved.",
+                            color = AccentMint,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = { executeImport(encryptWithAes = false) },
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentSky)
+                    ) {
+                        Text("Import Normal", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    Button(
+                        onClick = { executeImport(encryptWithAes = true) },
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentLavender)
+                    ) {
+                        Icon(Icons.Default.Lock, null, tint = Color.White, modifier = Modifier.size(13.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Encrypt (AES-256)", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                },
+                containerColor = DarkSurfaceElevated,
+                shape = RoundedCornerShape(18.dp)
+            )
         }
 
         // Create Folder Dialog
@@ -1001,38 +1440,41 @@ fun MtFileExplorerScreen(
                     Button(
                         onClick = {
                             if (newFolderName.isNotBlank()) {
-                                File(currentPath, newFolderName.trim()).mkdirs()
-                                showNewFolderDialog = false
-                                newFolderName = ""
-                                refreshFiles()
+                                val target = File(currentPath, newFolderName.trim())
+                                val created = target.mkdirs() || MountManager.createDirViaRoot(target.absolutePath).isSuccess
+                                if (created) {
+                                    refreshAll()
+                                    showNewFolderDialog = false
+                                    newFolderName = ""
+                                } else {
+                                    Toast.makeText(context, "Cannot create folder", Toast.LENGTH_SHORT).show()
+                                }
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = AccentSky)
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentMint)
                     ) {
-                        Text("Create", color = Color.White)
+                        Text("Create", color = Color.Black, fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showNewFolderDialog = false }) {
-                        Text("Cancel", color = TextMuted)
-                    }
+                    TextButton(onClick = { showNewFolderDialog = false }) { Text("Cancel", color = TextMuted) }
                 },
                 containerColor = DarkSurfaceElevated,
                 shape = RoundedCornerShape(18.dp)
             )
         }
 
-        // Create New Text/Script File Dialog
+        // Create Text File Dialog
         if (showNewFileDialog) {
             AlertDialog(
                 onDismissRequest = { showNewFileDialog = false },
                 title = { Text("Create New File", color = TextWhite, fontWeight = FontWeight.Bold) },
                 text = {
-                    Column {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(
                             value = newFileName,
                             onValueChange = { newFileName = it },
-                            placeholder = { Text("Filename (e.g. notes.txt, config.json)") },
+                            placeholder = { Text("Filename (e.g. config.json, notes.txt)") },
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = AccentSky,
@@ -1042,13 +1484,11 @@ fun MtFileExplorerScreen(
                             ),
                             modifier = Modifier.fillMaxWidth()
                         )
-                        Spacer(modifier = Modifier.height(10.dp))
                         OutlinedTextField(
                             value = newFileContent,
                             onValueChange = { newFileContent = it },
-                            placeholder = { Text("File contents...") },
-                            minLines = 4,
-                            maxLines = 8,
+                            placeholder = { Text("Optional initial file content...") },
+                            minLines = 3,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = AccentSky,
                                 unfocusedBorderColor = DarkBorder,
@@ -1063,14 +1503,13 @@ fun MtFileExplorerScreen(
                     Button(
                         onClick = {
                             if (newFileName.isNotBlank()) {
+                                val target = File(currentPath, newFileName.trim())
                                 try {
-                                    val target = File(currentPath, newFileName.trim())
-                                    target.parentFile?.mkdirs()
                                     target.writeText(newFileContent)
+                                    refreshAll()
                                     showNewFileDialog = false
                                     newFileName = ""
                                     newFileContent = ""
-                                    refreshFiles()
                                 } catch (e: Exception) {
                                     Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
                                 }
@@ -1078,13 +1517,11 @@ fun MtFileExplorerScreen(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = AccentSky)
                     ) {
-                        Text("Save File", color = Color.White)
+                        Text("Create", color = Color.White, fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showNewFileDialog = false }) {
-                        Text("Cancel", color = TextMuted)
-                    }
+                    TextButton(onClick = { showNewFileDialog = false }) { Text("Cancel", color = TextMuted) }
                 },
                 containerColor = DarkSurfaceElevated,
                 shape = RoundedCornerShape(18.dp)
@@ -1095,7 +1532,7 @@ fun MtFileExplorerScreen(
         if (showRenameDialog && renameTarget != null) {
             AlertDialog(
                 onDismissRequest = { showRenameDialog = false },
-                title = { Text("Rename Item", color = TextWhite, fontWeight = FontWeight.Bold) },
+                title = { Text("Rename File", color = TextWhite, fontWeight = FontWeight.Bold) },
                 text = {
                     OutlinedTextField(
                         value = renameNewName,
@@ -1113,12 +1550,14 @@ fun MtFileExplorerScreen(
                 confirmButton = {
                     Button(
                         onClick = {
-                            if (renameNewName.isNotBlank()) {
-                                val old = File(renameTarget!!.path)
-                                val target = File(old.parentFile, renameNewName.trim())
-                                old.renameTo(target)
+                            val src = File(renameTarget!!.path)
+                            val dst = File(src.parentFile, renameNewName.trim())
+                            val ok = src.renameTo(dst) || MountManager.renameViaRoot(src.absolutePath, dst.absolutePath).isSuccess
+                            if (ok) {
+                                refreshAll()
                                 showRenameDialog = false
-                                refreshFiles()
+                            } else {
+                                Toast.makeText(context, "Rename failed", Toast.LENGTH_SHORT).show()
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = AccentSky)
@@ -1127,90 +1566,85 @@ fun MtFileExplorerScreen(
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showRenameDialog = false }) {
-                        Text("Cancel", color = TextMuted)
-                    }
+                    TextButton(onClick = { showRenameDialog = false }) { Text("Cancel", color = TextMuted) }
                 },
                 containerColor = DarkSurfaceElevated,
                 shape = RoundedCornerShape(18.dp)
             )
         }
 
-        // Built-in MT Text / Code Editor Dialog
+        // Code Editor Dialog
         if (showEditorDialog && editorTargetFile != null) {
-            val target = editorTargetFile!!
-            AlertDialog(
-                onDismissRequest = { showEditorDialog = false },
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Edit, null, tint = AccentSky, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = target.name,
-                            color = TextWhite,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                },
-                text = {
-                    OutlinedTextField(
-                        value = editorContent,
-                        onValueChange = { editorContent = it },
-                        textStyle = androidx.compose.ui.text.TextStyle(
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 12.sp,
-                            color = AccentMint
-                        ),
-                        minLines = 10,
-                        maxLines = 15,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = AccentSky,
-                            unfocusedBorderColor = DarkBorder,
-                            focusedContainerColor = DarkBackground,
-                            unfocusedContainerColor = DarkBackground
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            coroutineScope.launch(Dispatchers.IO) {
-                                try {
-                                    val f = File(target.path)
-                                    val rawBytes = editorContent.toByteArray(Charsets.UTF_8)
-                                    if (target.isEncrypted) {
-                                        f.writeBytes(AesVaultCipher.encrypt(rawBytes))
-                                    } else {
-                                        f.writeBytes(rawBytes)
-                                    }
-                                    withContext(Dispatchers.Main) {
-                                        Toast.makeText(context, "Saved changes to ${target.name}", Toast.LENGTH_SHORT).show()
-                                        showEditorDialog = false
-                                        refreshFiles()
-                                    }
-                                } catch (e: Exception) {
-                                    withContext(Dispatchers.Main) {
-                                        Toast.makeText(context, "Save failed: ${e.message}", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
+            CodeEditorDialog(
+                file = File(editorTargetFile!!.path),
+                initialContent = editorContent,
+                onSave = { updated ->
+                    coroutineScope.launch(Dispatchers.IO) {
+                        try {
+                            val f = File(editorTargetFile!!.path)
+                            if (editorTargetFile!!.isEncrypted) {
+                                val enc = AesVaultCipher.encrypt(updated.toByteArray(Charsets.UTF_8))
+                                f.writeBytes(enc)
+                            } else {
+                                f.writeText(updated, Charsets.UTF_8)
                             }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = AccentSky)
-                    ) {
-                        Text("Save Changes", color = Color.White, fontWeight = FontWeight.Bold)
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(context, "Saved ${f.name}", Toast.LENGTH_SHORT).show()
+                                showEditorDialog = false
+                                refreshAll()
+                            }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(context, "Save error: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
                     }
                 },
-                dismissButton = {
-                    TextButton(onClick = { showEditorDialog = false }) {
-                        Text("Close", color = TextMuted)
+                onDismiss = { showEditorDialog = false }
+            )
+        }
+
+        // Hex Inspector Dialog
+        if (showHexDialog && hexTargetFile != null) {
+            HexViewerDialog(
+                file = hexTargetFile!!,
+                hexLines = hexLines,
+                onDismiss = { showHexDialog = false }
+            )
+        }
+
+        // Zip Compress Dialog
+        if (showZipDialog && currentSelected.isNotEmpty()) {
+            ZipCompressDialog(
+                selectedCount = currentSelected.size,
+                defaultName = "Archive_${System.currentTimeMillis()}.zip",
+                onCompress = { zipName ->
+                    showZipDialog = false
+                    val destZip = File(currentPath, zipName)
+                    val filesToCompress = currentSelected.map { File(it) }
+                    coroutineScope.launch(Dispatchers.IO) {
+                        val res = FileManagerHelper.compressToZip(filesToCompress, destZip)
+                        withContext(Dispatchers.Main) {
+                            if (res.isSuccess) {
+                                Toast.makeText(context, "Created archive: ${destZip.name}", Toast.LENGTH_LONG).show()
+                                clearCurrentSelection()
+                                refreshAll()
+                            } else {
+                                Toast.makeText(context, "Zip error: ${res.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
                     }
                 },
-                containerColor = DarkSurfaceElevated,
-                shape = RoundedCornerShape(18.dp)
+                onDismiss = { showZipDialog = false }
+            )
+        }
+
+        // Properties Dialog
+        propertiesTarget?.let { prop ->
+            FilePropertiesDialog(
+                item = prop,
+                sha256 = propertiesSha256,
+                onDismiss = { propertiesTarget = null }
             )
         }
 
@@ -1257,59 +1691,89 @@ fun MtFileExplorerScreen(
                 shape = RoundedCornerShape(18.dp)
             )
         }
+    }
+}
 
-        // Properties & SHA-256 Inspector Dialog
-        propertiesTarget?.let { prop ->
-            AlertDialog(
-                onDismissRequest = { propertiesTarget = null },
-                title = {
-                    Text("File Properties", color = TextWhite, fontWeight = FontWeight.Bold)
-                },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        PropertyLine("Name", prop.name)
-                        PropertyLine("Full Path", prop.path)
-                        PropertyLine("Type", if (prop.isDirectory) "Directory" else if (prop.isEncrypted) "AES-256 Encrypted (.isovault)" else "Regular File")
-                        PropertyLine("Size", if (prop.isDirectory) "${prop.sizeBytes} items" else "${prop.sizeBytes} bytes (${prop.sizeBytes / 1024} KB)")
-                        PropertyLine("Permissions", prop.permissions)
-                        PropertyLine("Modified", SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(prop.lastModified)))
-                        if (!prop.isDirectory) {
-                            PropertyLine("SHA-256", propertiesSha256)
-                        }
-                    }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = { propertiesTarget = null },
-                        colors = ButtonDefaults.buttonColors(containerColor = AccentSky)
-                    ) {
-                        Text("OK", color = Color.White)
-                    }
-                },
-                containerColor = DarkSurfaceElevated,
-                shape = RoundedCornerShape(18.dp)
-            )
+@Composable
+private fun BookmarkChip(
+    label: String,
+    path: String,
+    scope: StorageScope,
+    onSelect: (String, StorageScope) -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(DarkSurfaceCard)
+            .border(1.dp, DarkBorderSubtle, RoundedCornerShape(8.dp))
+            .clickable { onSelect(path, scope) }
+            .padding(horizontal = 9.dp, vertical = 4.dp)
+    ) {
+        Text(
+            text = label,
+            color = TextWhite,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            fontFamily = JakartaFontFamily
+        )
+    }
+}
+
+private fun handleOpenFile(
+    item: MtFileItem,
+    context: android.content.Context,
+    coroutineScope: kotlinx.coroutines.CoroutineScope,
+    onShowImage: (String, ImageBitmap) -> Unit,
+    onShowEditor: (MtFileItem, String) -> Unit,
+    onExtractZip: (File) -> Unit
+) {
+    val cleanName = item.name.removeSuffix(".isovault").lowercase()
+    val isImage = cleanName.endsWith(".jpg") || cleanName.endsWith(".jpeg") ||
+            cleanName.endsWith(".png") || cleanName.endsWith(".webp")
+    val isZip = cleanName.endsWith(".zip")
+
+    if (isZip) {
+        onExtractZip(File(item.path))
+    } else if (isImage) {
+        coroutineScope.launch(Dispatchers.IO) {
+            val bmp = try {
+                val f = File(item.path)
+                val bytes = if (item.isEncrypted) AesVaultCipher.decrypt(f.readBytes()) else f.readBytes()
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+            } catch (_: Exception) {
+                null
+            }
+            withContext(Dispatchers.Main) {
+                if (bmp != null) onShowImage(item.name, bmp)
+                else Toast.makeText(context, "Unable to decode image", Toast.LENGTH_SHORT).show()
+            }
+        }
+    } else {
+        coroutineScope.launch(Dispatchers.IO) {
+            val f = File(item.path)
+            val text = try {
+                val bytes = if (item.isEncrypted) AesVaultCipher.decrypt(f.readBytes()) else f.readBytes()
+                if (bytes.size > 256 * 1024) {
+                    "File is large (${bytes.size / 1024} KB). Showing first 8 KB:\n\n" +
+                            String(bytes.copyOfRange(0, 8192), Charsets.UTF_8)
+                } else {
+                    String(bytes, Charsets.UTF_8)
+                }
+            } catch (e: Exception) {
+                "Cannot read file directly (${e.message})"
+            }
+            withContext(Dispatchers.Main) {
+                onShowEditor(item, text)
+            }
         }
     }
 }
 
 @Composable
-private fun PropertyLine(label: String, value: String) {
-    Column {
-        Text(text = label, color = TextSubtle, fontSize = 11.sp)
-        Text(
-            text = value,
-            color = TextWhite,
-            fontSize = 12.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Medium
-        )
-    }
-}
-
-@Composable
-private fun MtFileRow(
+private fun MtFileItemRow(
     item: MtFileItem,
+    isSelected: Boolean,
+    onToggleSelect: () -> Unit,
     onClick: () -> Unit,
     onAction: (String) -> Unit
 ) {
@@ -1318,26 +1782,46 @@ private fun MtFileRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(DarkSurfaceCard)
-            .border(1.dp, DarkBorderSubtle, RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (isSelected) AccentSky.copy(alpha = 0.15f) else DarkSurfaceCard)
+            .border(
+                width = if (isSelected) 1.5.dp else 1.dp,
+                color = if (isSelected) AccentSky else DarkBorderSubtle,
+                shape = RoundedCornerShape(12.dp)
+            )
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 11.dp),
+            .padding(horizontal = 12.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        // Selection Checkbox
+        Checkbox(
+            checked = isSelected,
+            onCheckedChange = { onToggleSelect() },
+            colors = CheckboxDefaults.colors(
+                checkedColor = AccentSky,
+                uncheckedColor = DarkBorder,
+                checkmarkColor = Color.White
+            ),
+            modifier = Modifier.size(24.dp)
+        )
+
+        Spacer(modifier = Modifier.width(8.dp))
+
         val cleanName = item.name.removeSuffix(".isovault").lowercase()
         val isImage = cleanName.endsWith(".jpg") || cleanName.endsWith(".jpeg") || cleanName.endsWith(".png") || cleanName.endsWith(".webp")
         val isVideo = cleanName.endsWith(".mp4") || cleanName.endsWith(".mkv") || cleanName.endsWith(".mov")
+        val isZip = cleanName.endsWith(".zip")
 
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(11.dp))
+                .size(38.dp)
+                .clip(RoundedCornerShape(10.dp))
                 .background(
                     when {
                         item.isDirectory -> AccentSky.copy(alpha = 0.15f)
                         item.isEncrypted -> AccentLavender.copy(alpha = 0.16f)
+                        isZip -> AccentMint.copy(alpha = 0.16f)
                         isImage -> AccentMint.copy(alpha = 0.15f)
                         isVideo -> AccentAmber.copy(alpha = 0.15f)
                         else -> DarkSurfaceElevated
@@ -1348,6 +1832,7 @@ private fun MtFileRow(
                 imageVector = when {
                     item.isDirectory -> Icons.Default.Folder
                     item.isEncrypted -> Icons.Default.Lock
+                    isZip -> Icons.Default.FolderZip
                     isImage -> Icons.Default.Image
                     isVideo -> Icons.Default.VideoFile
                     else -> Icons.Default.Description
@@ -1356,6 +1841,7 @@ private fun MtFileRow(
                 tint = when {
                     item.isDirectory -> AccentSky
                     item.isEncrypted -> AccentLavender
+                    isZip -> AccentMint
                     isImage -> AccentMint
                     isVideo -> AccentAmber
                     else -> TextMuted
@@ -1364,13 +1850,13 @@ private fun MtFileRow(
             )
         }
 
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(10.dp))
 
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = item.name,
                 color = TextWhite,
-                fontSize = 14.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 fontFamily = JakartaFontFamily,
                 maxLines = 1,
@@ -1392,7 +1878,7 @@ private fun MtFileRow(
                 Text(
                     text = "$sizeLabel • ${item.permissions} • $dateStr",
                     color = TextSubtle,
-                    fontSize = 11.sp,
+                    fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace
                 )
 
@@ -1401,7 +1887,7 @@ private fun MtFileRow(
                     Text(
                         text = "AES-256",
                         color = AccentLavender,
-                        fontSize = 10.sp,
+                        fontSize = 9.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -1413,12 +1899,7 @@ private fun MtFileRow(
                 onClick = { showMenu = true },
                 modifier = Modifier.size(32.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.MoreVert,
-                    contentDescription = "File Actions",
-                    tint = TextMuted,
-                    modifier = Modifier.size(18.dp)
-                )
+                Icon(Icons.Default.MoreVert, contentDescription = "Actions", tint = TextMuted, modifier = Modifier.size(18.dp))
             }
 
             DropdownMenu(
@@ -1427,81 +1908,89 @@ private fun MtFileRow(
                 modifier = Modifier.background(DarkSurfaceElevated)
             ) {
                 DropdownMenuItem(
+                    text = { Text("Select", color = TextWhite) },
+                    leadingIcon = { Icon(Icons.Default.Check, null, tint = AccentSky) },
+                    onClick = { showMenu = false; onAction("SELECT") }
+                )
+                DropdownMenuItem(
+                    text = { Text("Copy to Opposite Panel ->", color = TextWhite) },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.CompareArrows, null, tint = AccentSky) },
+                    onClick = { showMenu = false; onAction("COPY_TO_OTHER_PANEL") }
+                )
+                DropdownMenuItem(
+                    text = { Text("Move to Opposite Panel ->", color = TextWhite) },
+                    leadingIcon = { Icon(Icons.Default.ContentCut, null, tint = AccentAmber) },
+                    onClick = { showMenu = false; onAction("MOVE_TO_OTHER_PANEL") }
+                )
+                DropdownMenuItem(
                     text = { Text("Copy", color = TextWhite) },
                     leadingIcon = { Icon(Icons.Default.ContentCopy, null, tint = AccentSky) },
-                    onClick = {
-                        showMenu = false
-                        onAction("COPY")
-                    }
+                    onClick = { showMenu = false; onAction("COPY") }
                 )
                 DropdownMenuItem(
                     text = { Text("Cut / Move", color = TextWhite) },
                     leadingIcon = { Icon(Icons.Default.ContentCut, null, tint = AccentAmber) },
-                    onClick = {
-                        showMenu = false
-                        onAction("CUT")
-                    }
+                    onClick = { showMenu = false; onAction("CUT") }
                 )
+                if (cleanName.endsWith(".zip")) {
+                    DropdownMenuItem(
+                        text = { Text("Extract ZIP Here", color = AccentMint) },
+                        leadingIcon = { Icon(Icons.Default.Unarchive, null, tint = AccentMint) },
+                        onClick = { showMenu = false; onAction("EXTRACT_ZIP") }
+                    )
+                }
                 if (!item.isDirectory) {
                     DropdownMenuItem(
                         text = {
                             Text(
-                                text = if (item.isEncrypted) "Decrypt (.isovault -> Raw)" else "Encrypt (AES-256 .isovault)",
+                                text = if (item.isEncrypted) "Decrypt (AES -> Plain)" else "Encrypt (AES-256 .isovault)",
                                 color = AccentLavender
                             )
                         },
                         leadingIcon = {
                             Icon(
-                                imageVector = if (item.isEncrypted) Icons.Default.LockOpen else Icons.Default.Lock,
-                                contentDescription = null,
+                                if (item.isEncrypted) Icons.Default.LockOpen else Icons.Default.Lock,
+                                null,
                                 tint = AccentLavender
                             )
                         },
-                        onClick = {
-                            showMenu = false
-                            onAction("ENCRYPT_DECRYPT")
-                        }
+                        onClick = { showMenu = false; onAction("ENCRYPT_DECRYPT") }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Hex / Binary Inspector", color = AccentSky) },
+                        leadingIcon = { Icon(Icons.Default.DataObject, null, tint = AccentSky) },
+                        onClick = { showMenu = false; onAction("HEX_VIEWER") }
                     )
                 }
                 DropdownMenuItem(
-                    text = { Text("Copy into Vault (/imported)", color = TextWhite) },
-                    leadingIcon = { Icon(Icons.Default.Upload, null, tint = AccentMint) },
-                    onClick = {
-                        showMenu = false
-                        onAction("IMPORT_TO_VAULT")
-                    }
-                )
-                DropdownMenuItem(
                     text = { Text("Export to Phone (/Download)", color = TextWhite) },
                     leadingIcon = { Icon(Icons.Default.Download, null, tint = AccentSky) },
-                    onClick = {
-                        showMenu = false
-                        onAction("EXPORT")
-                    }
+                    onClick = { showMenu = false; onAction("EXPORT_DOWNLOADS") }
+                )
+                DropdownMenuItem(
+                    text = { Text("Save As (SAF Picker)", color = TextWhite) },
+                    leadingIcon = { Icon(Icons.Default.Upload, null, tint = AccentMint) },
+                    onClick = { showMenu = false; onAction("EXPORT_SAVE_AS") }
+                )
+                DropdownMenuItem(
+                    text = { Text("Open with MT Manager / Share", color = TextWhite) },
+                    leadingIcon = { Icon(Icons.Default.Share, null, tint = AccentSky) },
+                    onClick = { showMenu = false; onAction("SHARE_WITH_APP") }
                 )
                 DropdownMenuItem(
                     text = { Text("Rename", color = TextWhite) },
                     leadingIcon = { Icon(Icons.Default.Edit, null, tint = TextMuted) },
-                    onClick = {
-                        showMenu = false
-                        onAction("RENAME")
-                    }
+                    onClick = { showMenu = false; onAction("RENAME") }
                 )
                 DropdownMenuItem(
                     text = { Text("Properties & SHA-256", color = TextWhite) },
                     leadingIcon = { Icon(Icons.Default.Info, null, tint = TextMuted) },
-                    onClick = {
-                        showMenu = false
-                        onAction("PROPERTIES")
-                    }
+                    onClick = { showMenu = false; onAction("PROPERTIES") }
                 )
                 DropdownMenuItem(
                     text = { Text("Delete", color = AccentCoral) },
                     leadingIcon = { Icon(Icons.Default.Delete, null, tint = AccentCoral) },
-                    onClick = {
-                        showMenu = false
-                        onAction("DELETE")
-                    }
+                    onClick = { showMenu = false; onAction("DELETE") }
                 )
             }
         }

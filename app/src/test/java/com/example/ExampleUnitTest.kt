@@ -57,4 +57,37 @@ class ExampleUnitTest {
         )
         assertEquals(AuditAction.PERMITTED, whitelisted.action)
     }
+
+    @Test
+    fun testFileManagerHelperZipAndHexDump() {
+        val tempDir = java.nio.file.Files.createTempDirectory("isovault_test").toFile()
+        try {
+            val fileA = java.io.File(tempDir, "fileA.txt").apply { writeText("Hello MT Manager A") }
+            val fileB = java.io.File(tempDir, "fileB.txt").apply { writeText("Hello MT Manager B") }
+
+            val zipDest = java.io.File(tempDir, "archive.zip")
+            val zipRes = com.example.isolation.storage.FileManagerHelper.compressToZip(listOf(fileA, fileB), zipDest)
+            assertTrue(zipRes.isSuccess)
+            assertTrue(zipDest.exists() && zipDest.length() > 0)
+
+            val extractDir = java.io.File(tempDir, "extracted")
+            val extractRes = com.example.isolation.storage.FileManagerHelper.extractZip(zipDest, extractDir)
+            assertTrue(extractRes.isSuccess)
+            assertEquals(2, extractRes.getOrNull())
+            assertEquals("Hello MT Manager A", java.io.File(extractDir, "fileA.txt").readText())
+            assertEquals("Hello MT Manager B", java.io.File(extractDir, "fileB.txt").readText())
+
+            // Test Hex dump
+            val hexDump = com.example.isolation.storage.FileManagerHelper.generateHexDump(fileA)
+            assertTrue(hexDump.isNotEmpty())
+            assertEquals("00000000", hexDump[0].offset)
+            assertTrue(hexDump[0].asciiString.contains("Hello"))
+
+            // Test unique name resolution
+            val unique = com.example.isolation.storage.FileManagerHelper.resolveUniqueFile(tempDir, "fileA.txt")
+            assertEquals("fileA (1).txt", unique.name)
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
 }

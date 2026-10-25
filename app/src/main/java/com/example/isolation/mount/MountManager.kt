@@ -167,6 +167,23 @@ object MountManager {
     }
 
     /**
+     * Creates a directory using root
+     */
+    fun createDirViaRoot(targetPath: String): MountExecutionResult {
+        val escaped = targetPath.replace("\"", "\\\"")
+        return runRootCommand("mkdir -p \"$escaped\" && chmod 777 \"$escaped\"")
+    }
+
+    /**
+     * Renames or moves a file/directory using root
+     */
+    fun renameViaRoot(sourcePath: String, destPath: String): MountExecutionResult {
+        val escapedSrc = sourcePath.replace("\"", "\\\"")
+        val escapedDst = destPath.replace("\"", "\\\"")
+        return runRootCommand("mv \"$escapedSrc\" \"$escapedDst\"")
+    }
+
+    /**
      * Lists files in a directory using root `ls -la` when standard File.listFiles() returns null
      */
     fun listFilesWithRootFallback(dirPath: String): List<File> {

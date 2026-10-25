@@ -1182,32 +1182,13 @@ private fun importRealMediaUrisToVault(
     targetDirPath: String,
     encryptWithAes: Boolean
 ): Int {
-    val targetDir = File(targetDirPath)
-    if (!targetDir.exists()) targetDir.mkdirs()
+    val targetDir = File(targetDirPath).apply { mkdirs() }
     var importedCount = 0
-
-    for ((idx, uri) in uris.withIndex()) {
-        try {
-            val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
-            val ext = when {
-                mime.contains("png") -> "png"
-                mime.contains("webp") -> "webp"
-                mime.contains("mp4") || mime.contains("video") -> "mp4"
-                else -> "jpg"
-            }
-            val baseName = "VAULT_${System.currentTimeMillis()}_$idx.$ext"
-            val rawBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: continue
-
-            if (encryptWithAes) {
-                val encryptedBytes = AesVaultCipher.encrypt(rawBytes)
-                val outFile = File(targetDir, "$baseName.isovault")
-                outFile.writeBytes(encryptedBytes)
-            } else {
-                val outFile = File(targetDir, baseName)
-                FileOutputStream(outFile).use { it.write(rawBytes) }
-            }
+    for (uri in uris) {
+        val res = com.example.isolation.storage.FileManagerHelper.importFromUri(context, uri, targetDir, encryptWithAes)
+        if (res.isSuccess) {
             importedCount++
-        } catch (_: Exception) {}
+        }
     }
     return importedCount
 }
@@ -1216,29 +1197,12 @@ private fun exportRealMediaToPublicGallery(
     context: Context,
     media: RealVaultMediaFile
 ): String? {
-    return try {
-        val exportDir = File("/storage/emulated/0/Pictures/IsoVault_Exported")
-        if (!exportDir.exists()) exportDir.mkdirs()
-        val cleanName = media.name.removeSuffix(".isovault")
-        val destFile = File(exportDir, cleanName)
-
-        if (media.isEncrypted) {
-            val decrypted = AesVaultCipher.decrypt(media.file.readBytes())
-            destFile.writeBytes(decrypted)
-        } else {
-            media.file.copyTo(destFile, overwrite = true)
-        }
-
-        MediaScannerConnection.scanFile(
-            context,
-            arrayOf(destFile.absolutePath),
-            null,
-            null
-        )
-        destFile.absolutePath
-    } catch (_: Exception) {
-        null
-    }
+    val res = com.example.isolation.storage.FileManagerHelper.exportToPublicDownload(
+        context = context,
+        sourceFile = media.file,
+        decryptIfEncrypted = true
+    )
+    return res.getOrNull()
 }
 
 private fun toggleFileEncryptionOnDisk(media: RealVaultMediaFile) {

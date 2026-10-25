@@ -1,21 +1,24 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# ProGuard / R8 rules for Vault-LSPosed
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Keep Xposed / LSPosed entry point class and all its methods
+-keep class com.example.isolation.hook.StorageIsolationHook {
+    public *;
+    private *;
+}
+-keep class com.example.isolation.hook.** { *; }
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Keep MainActivity self-hook status method called by StorageIsolationHook
+-keepclassmembers class com.example.MainActivity {
+    public static boolean isLsposedModuleActiveReal();
+}
+-keepclassmembers class com.example.MainActivity$Companion {
+    public boolean isLsposedModuleActiveReal();
+}
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Keep Xposed API interfaces and callbacks
+-keep class de.robv.android.xposed.** { *; }
+-dontwarn de.robv.android.xposed.**
+
+# Keep Room entities & database migrations
+-keep class com.example.isolation.data.entity.** { *; }
+-keep class com.example.isolation.data.IsoVaultDatabase* { *; }

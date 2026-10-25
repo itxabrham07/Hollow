@@ -1,39 +1,127 @@
 package com.example.isolation.ui.components
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.FolderShared
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Send
-import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.theme.JakartaFontFamily
 
+private fun drawableToImageBitmap(drawable: Drawable, targetPx: Int = 128): ImageBitmap? {
+    return try {
+        if (drawable is BitmapDrawable && drawable.bitmap != null) {
+            return drawable.bitmap.asImageBitmap()
+        }
+        val width = drawable.intrinsicWidth.takeIf { it > 0 } ?: targetPx
+        val height = drawable.intrinsicHeight.takeIf { it > 0 } ?: targetPx
+        val bmp = Bitmap.createBitmap(
+            width.coerceAtMost(256),
+            height.coerceAtMost(256),
+            Bitmap.Config.ARGB_8888
+        )
+        val canvas = Canvas(bmp)
+        drawable.setBounds(0, 0, canvas.width, canvas.height)
+        drawable.draw(canvas)
+        bmp.asImageBitmap()
+    } catch (_: Exception) {
+        null
+    }
+}
+
 @Composable
 fun BrandSquircleIcon(
     name: String,
     size: Dp = 42.dp,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    packageName: String? = null,
+    appDrawable: Drawable? = null
 ) {
+    val context = LocalContext.current
     val cornerRadius = size * 0.28f
     val cleanName = name.lowercase().trim()
 
+    val resolvedBitmap: ImageBitmap? = remember(packageName, appDrawable) {
+        if (appDrawable != null) {
+            drawableToImageBitmap(appDrawable)
+        } else if (!packageName.isNullOrBlank() &&
+            packageName != "shared.vault" &&
+            !packageName.startsWith("volume.")
+        ) {
+            try {
+                val drawable = context.packageManager.getApplicationIcon(packageName)
+                drawableToImageBitmap(drawable)
+            } catch (_: Exception) {
+                null
+            }
+        } else {
+            null
+        }
+    }
+
+    if (resolvedBitmap != null) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = modifier
+                .size(size)
+                .clip(RoundedCornerShape(cornerRadius))
+                .background(MaterialTheme.colorScheme.surface)
+        ) {
+            Image(
+                bitmap = resolvedBitmap,
+                contentDescription = name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+        return
+    }
+
     when {
+        packageName == "shared.vault" || cleanName.contains("shared space") -> {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = modifier
+                    .size(size)
+                    .clip(RoundedCornerShape(cornerRadius))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f))
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FolderShared,
+                    contentDescription = name,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(size * 0.54f)
+                )
+            }
+        }
         cleanName.contains("google") -> {
             Box(
                 contentAlignment = Alignment.Center,
@@ -51,55 +139,6 @@ fun BrandSquircleIcon(
                 )
             }
         }
-        cleanName.contains("apple") -> {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = modifier
-                    .size(size)
-                    .clip(RoundedCornerShape(cornerRadius))
-                    .background(Color(0xFF000000))
-            ) {
-                Text(
-                    text = "",
-                    fontSize = (size.value * 0.52f).sp,
-                    color = Color.White
-                )
-            }
-        }
-        cleanName.contains("amazon") -> {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = modifier
-                    .size(size)
-                    .clip(RoundedCornerShape(cornerRadius))
-                    .background(Color.White)
-            ) {
-                Text(
-                    text = "a",
-                    fontSize = (size.value * 0.6f).sp,
-                    fontWeight = FontWeight.Black,
-                    fontFamily = JakartaFontFamily,
-                    color = Color.Black
-                )
-            }
-        }
-        cleanName.contains("behance") -> {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = modifier
-                    .size(size)
-                    .clip(RoundedCornerShape(cornerRadius))
-                    .background(Color(0xFF0057FF))
-            ) {
-                Text(
-                    text = "Bē",
-                    fontSize = (size.value * 0.42f).sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = JakartaFontFamily,
-                    color = Color.White
-                )
-            }
-        }
         cleanName.contains("snapchat") -> {
             Box(
                 contentAlignment = Alignment.Center,
@@ -108,9 +147,11 @@ fun BrandSquircleIcon(
                     .clip(RoundedCornerShape(cornerRadius))
                     .background(Color(0xFFFFFC00))
             ) {
-                Text(
-                    text = "👻",
-                    fontSize = (size.value * 0.5f).sp
+                Icon(
+                    imageVector = Icons.Default.CameraAlt,
+                    contentDescription = name,
+                    tint = Color.Black,
+                    modifier = Modifier.size(size * 0.52f)
                 )
             }
         }
@@ -124,7 +165,7 @@ fun BrandSquircleIcon(
             ) {
                 Icon(
                     imageVector = Icons.Default.Chat,
-                    contentDescription = null,
+                    contentDescription = name,
                     tint = Color.White,
                     modifier = Modifier.size(size * 0.52f)
                 )
@@ -144,7 +185,7 @@ fun BrandSquircleIcon(
             ) {
                 Icon(
                     imageVector = Icons.Default.CameraAlt,
-                    contentDescription = null,
+                    contentDescription = name,
                     tint = Color.White,
                     modifier = Modifier.size(size * 0.52f)
                 )
@@ -160,41 +201,9 @@ fun BrandSquircleIcon(
             ) {
                 Icon(
                     imageVector = Icons.Default.Send,
-                    contentDescription = null,
+                    contentDescription = name,
                     tint = Color.White,
                     modifier = Modifier.size(size * 0.48f)
-                )
-            }
-        }
-        cleanName.contains("binance") -> {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = modifier
-                    .size(size)
-                    .clip(RoundedCornerShape(cornerRadius))
-                    .background(Color(0xFFF3BA2F))
-            ) {
-                Text(
-                    text = "◈",
-                    fontSize = (size.value * 0.55f).sp,
-                    color = Color.Black
-                )
-            }
-        }
-        cleanName.contains("adobe") -> {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = modifier
-                    .size(size)
-                    .clip(RoundedCornerShape(cornerRadius))
-                    .background(Color(0xFFED2224))
-            ) {
-                Text(
-                    text = "A",
-                    fontSize = (size.value * 0.55f).sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = JakartaFontFamily,
-                    color = Color.White
                 )
             }
         }
@@ -208,7 +217,7 @@ fun BrandSquircleIcon(
             ) {
                 Icon(
                     imageVector = Icons.Default.Image,
-                    contentDescription = null,
+                    contentDescription = name,
                     tint = Color.White,
                     modifier = Modifier.size(size * 0.52f)
                 )
@@ -220,14 +229,14 @@ fun BrandSquircleIcon(
                 modifier = modifier
                     .size(size)
                     .clip(RoundedCornerShape(cornerRadius))
-                    .background(Color(0xFF282A34))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f))
             ) {
                 Text(
-                    text = name.take(1).uppercase(),
-                    fontSize = (size.value * 0.5f).sp,
+                    text = name.trim().take(1).uppercase().ifBlank { "V" },
+                    fontSize = (size.value * 0.48f).sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = JakartaFontFamily,
-                    color = Color.White
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
         }

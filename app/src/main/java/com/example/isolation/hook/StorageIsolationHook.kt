@@ -2,1439 +2,934 @@ package com.example.isolation.hook
 
 import android.app.Activity
 import android.app.AndroidAppHelper
-import android.app.Instrumentation
-import android.content.ClipData
-import android.content.ContentProviderClient
 import android.content.ContentResolver
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
-import android.content.res.AssetFileDescriptor
-import android.database.CursorWindow
+import android.database.Cursor
 import android.database.MatrixCursor
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.ImageDecoder
-import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.os.ParcelFileDescriptor
+import android.os.Environment
 import android.provider.MediaStore
-import android.util.Log
-import android.widget.Toast
+import com.example.isolation.crypto.AesVaultCipher
 import com.example.isolation.model.AuditAction
 import com.example.isolation.model.IsolationMode
 import com.example.isolation.model.IsolationRuleManager
+import com.example.isolation.provider.IsoVaultConfigProvider
 import de.robv.android.xposed.IXposedHookLoadPackage
-import de.robv.android.xposed.IXposedHookZygoteInit
 import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XSharedPreferences
+import de.robv.android.xposed.XC_MethodReplacement
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.FileFilter
 import java.io.FileInputStream
-import java.io.FileNotFoundException
 import java.io.FileOutputStream
-import java.io.FilenameFilter
+import java.io.InputStream
+import java.io.OutputStream
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicLong
 
 /**
- * IsoVault Official LSPosed & JingMatrix/Vector Storage Isolation Engine.
- * Loaded by Vector/LSPosed via assets/xposed_init.
+ * Production LSPosed / Xposed Hook Entry Point (API 82+).
  *
- * Implements true virtual storage isolation:
- * - A dedicated isolated sandbox directory (/data/user/0/<pkg>/files/IsoVault_Sandbox)
- *   is mounted as the app's entire external storage (/storage/emulated/0).
- * - Apps can freely create folders, files, and save media without errors ("Failed to save" fixed!).
- * - MediaStore insertions (ContentResolver.insert) save directly into the sandbox and return virtual URIs.
- * - MediaStore queries return only the files saved within the app's isolated sandbox (0 real phone photos leaked).
- * - Media reads and thumbnail decoders stream sandbox media directly while blocking access to real phone media.
- * - System Photo/Document Pickers are intercepted and replaced with an in-app IsoVault Isolated Picker.
+ * Implements:
+ * 1. Java File Constructor & Directory Listing Redirection (`java.io.File`) + Shared Space virtual directory
+ * 2. Native Posix / Libcore `Os.open` & `IoBridge.open` Path Redirection
+ * 3. `Environment.getExternalStorageDirectory` & `getExternalStoragePublicDirectory` Spoofing
+ * 4. `MediaStore` ContentResolver Query / Insert / Delete / Stream Isolation + Shared Space media union
+ * 5. System Photo Picker (`ACTION_PICK_IMAGES`, `ACTION_GET_CONTENT`, `ACTION_OPEN_DOCUMENT`) Isolation
+ * 6. Fail-Closed Security: Hooked apps query the UID-verified IsoVaultConfigProvider and cache their rule
+ *    in memory. If the Vault provider is unreachable, the hook fails closed into an empty private sandbox
+ *    and NEVER exposes real phone storage.
  */
-class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
+class StorageIsolationHook : IXposedHookLoadPackage {
 
     companion object {
-        const val TAG = "IsoVaultHook"
-        const val MODULE_PKG = "com.aistudio.isovault.xrvf"
-        const val PROVIDER_URI = "content://com.aistudio.isovault.xrvf.provider"
+        private const val TAG = "IsoVault-LSPosed"
+        private const val SELF_PACKAGE_1 = "com.aistudio.isovault.xrvf"
+        private const val SELF_PACKAGE_2 = "com.example"
 
-        // Re-entrancy guard to prevent recursion inside File/ContentResolver/OS hooks
-        private val isHandlingHook = object : ThreadLocal<Boolean>() {
+        private val VIRTUAL_URI_AUTHORITY = "isovault.virtual.media"
+        private val virtualUriToFileMap = ConcurrentHashMap<String, File>()
+
+        // ThreadLocal guard to avoid recursive hook loops inside a single thread
+        private val isInternalHookCall = object : ThreadLocal<Boolean>() {
             override fun initialValue(): Boolean = false
         }
 
-        // Background executor for non-blocking audit IPC calls to IsoVault Manager
-        private val auditExecutor = Executors.newSingleThreadExecutor()
-        private val recentAuditCache = ConcurrentHashMap<String, Long>()
-
-        // Fast in-memory rule cache
+        // In-memory rule and volume directory cache per hooked process
         @Volatile
-        private var cachedRule: IsolationRuleManager.AppRule? = null
+        private var lastRuleSyncMs: Long = 0L
+
         @Volatile
-        private var lastRuleFetchMs: Long = 0L
+        private var cachedSandboxDir: File? = null
 
-        // Fast thread-safe cache mapping virtual media ID -> actual File in isolated sandbox
-        private val virtualMediaMap = ConcurrentHashMap<Long, File>()
-        // Fast thread-safe cache mapping content URI string -> actual File in isolated sandbox
-        private val virtualUriMap = ConcurrentHashMap<String, File>()
-        private val nextVirtualId = AtomicLong(100_000L)
+        @Volatile
+        private var cachedSharedDir: File? = null
 
-        // Cache of URIs explicitly selected by the user via file/media pickers
-        private val userAllowedUris = ConcurrentHashMap<String, Boolean>()
-
-        private val DEFAULT_MEDIA_COLUMNS = arrayOf(
-            "_id",
-            "_data",
-            "_display_name",
-            "_size",
-            "mime_type",
-            "date_added",
-            "date_modified",
-            "datetaken",
-            "width",
-            "height",
-            "orientation",
-            "bucket_id",
-            "bucket_display_name",
-            "relative_path",
-            "duration",
-            "media_type",
-            "is_pending",
-            "is_trashed",
-            "is_favorite",
-            "generation_added",
-            "generation_modified",
-            "volume_name",
-            "owner_package_name",
-            "title",
-            "album",
-            "artist",
-            "resolution",
-            "is_drm",
-            "parent",
-            "format",
-            "storage_id"
-        )
-    }
-
-    /**
-     * Crash-proof empty MatrixCursor for when the sandbox has 0 media files.
-     * Prevents IllegalArgumentException in apps (e.g. Snapchat) that call getColumnIndexOrThrow before moveToFirst().
-     */
-    private class SafeEmptyMatrixCursor(projection: Array<String>) : MatrixCursor(projection, 0) {
-        override fun getCount(): Int = 0
-
-        override fun getColumnIndex(columnName: String?): Int {
-            if (columnName == null) return 0
-            val idx = super.getColumnIndex(columnName)
-            return if (idx >= 0) idx else 0
-        }
-
-        override fun getColumnIndexOrThrow(columnName: String?): Int {
-            if (columnName == null) return 0
-            val idx = super.getColumnIndex(columnName)
-            return if (idx >= 0) idx else 0
-        }
-
-        override fun getExtras(): Bundle = Bundle.EMPTY
-    }
-
-    /**
-     * Crash-proof MatrixCursor populated with the isolated sandbox's media files.
-     */
-    private class SafeSandboxMatrixCursor(projection: Array<String>) : MatrixCursor(projection) {
-        override fun getColumnIndex(columnName: String?): Int {
-            if (columnName == null) return 0
-            val idx = super.getColumnIndex(columnName)
-            return if (idx >= 0) idx else 0
-        }
-
-        override fun getColumnIndexOrThrow(columnName: String?): Int {
-            if (columnName == null) return 0
-            val idx = super.getColumnIndex(columnName)
-            return if (idx >= 0) idx else 0
-        }
-
-        override fun getExtras(): Bundle = Bundle.EMPTY
-    }
-
-    private var xSharedPrefs: XSharedPreferences? = null
-
-    override fun initZygote(startupParam: IXposedHookZygoteInit.StartupParam?) {
-        try {
-            xSharedPrefs = XSharedPreferences(MODULE_PKG, IsolationRuleManager.PREFS_NAME).apply {
-                makeWorldReadable()
-            }
-        } catch (_: Throwable) {}
-        Log.i(TAG, "[IsoVault] Zygote initialized on Vector / LSPosed.")
-        XposedBridge.log("[IsoVault] Zygote initialized on Vector / LSPosed.")
+        @Volatile
+        private var providerReachable: Boolean = false
     }
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
-        val pkg = lpparam.packageName ?: return
-
-        // Ignore core system packages
-        if (pkg == "android" || pkg.startsWith("com.android.systemui")) {
-            return
-        }
-
-        // Self-hook for IsoVault Manager App to confirm module status
-        if (pkg == MODULE_PKG) {
-            try {
-                XposedHelpers.findAndHookMethod(
-                    "com.example.MainActivity",
-                    lpparam.classLoader,
-                    "isLsposedModuleActiveReal",
-                    object : XC_MethodHook() {
-                        override fun beforeHookedMethod(param: MethodHookParam) {
-                            param.result = true
-                        }
-                    }
-                )
-                XposedBridge.log("[IsoVault] Manager self-check hooked: ACTIVE")
-            } catch (t: Throwable) {
-                Log.w(TAG, "Self-hook error: ${t.message}")
-            }
-            return
-        }
-
-        val rule = resolveRuleForPackage(pkg)
-        if (!rule.isIsolated) {
-            XposedBridge.log("[IsoVault] Skipping $pkg (explicitly disabled in IsoVault settings)")
-            return
-        }
-
-        XposedBridge.log("[IsoVault] >>> ACTIVATING FULL ISOLATION FOR: $pkg (Mode: ${rule.mode}) <<<")
-        Log.i(TAG, "[IsoVault] Activating full isolation for $pkg (Mode: ${rule.mode})")
-
         try {
-            attachMediaStoreAndProviderHooks(lpparam, pkg)
-            attachPickerInterceptorHooks(lpparam, pkg)
-            attachSnapchatAndGallerySqliteHooks(lpparam, pkg)
-            attachFileHooks(lpparam, pkg, rule)
-            attachLowLevelOsHooks(lpparam, pkg, rule)
-            attachEnvironmentHooks(lpparam, pkg, rule)
+            val pkg = lpparam.packageName ?: return
+
+            // 1. Self-Hook for IsoVault Manager App to confirm LSPosed is active
+            if (pkg == SELF_PACKAGE_1 || pkg == SELF_PACKAGE_2 || pkg.startsWith("com.aistudio.isovault")) {
+                hookSelfStatusCheck(lpparam)
+                return
+            }
+
+            // Skip core Android framework packages
+            if (pkg == "android" || pkg.startsWith("com.android.systemui")) {
+                return
+            }
+
+            XposedBridge.log("[$TAG] Attaching storage & MediaStore isolation hooks to package: $pkg")
+
+            // Install all 5 isolation hook layers (each wrapped in try/catch)
+            hookJavaIoFile(pkg)
+            hookLibcoreOsAndIoBridge(pkg)
+            hookEnvironmentDirectories(pkg)
+            hookMediaStoreContentResolver(pkg)
+            hookPhotoPickerAndDocumentIntents(pkg)
         } catch (t: Throwable) {
-            XposedBridge.log("[IsoVault] Error attaching hooks to $pkg: ${t.message}")
-            Log.e(TAG, "Error attaching hooks to $pkg", t)
+            XposedBridge.log("[$TAG] Error in handleLoadPackage: ${t.message}")
         }
     }
 
-    private fun registerSandboxMedia(file: File): Long {
-        for ((id, f) in virtualMediaMap) {
-            if (f.absolutePath == file.absolutePath) {
-                return id
-            }
-        }
-        val id = nextVirtualId.incrementAndGet()
-        virtualMediaMap[id] = file
-        val uriStr = "content://media/external/images/media/$id"
-        virtualUriMap[uriStr] = file
-        virtualUriMap["content://media/external/video/media/$id"] = file
-        virtualUriMap["content://media/external/audio/media/$id"] = file
-        virtualUriMap["content://media/external/downloads/$id"] = file
-        virtualUriMap["content://media/external/file/$id"] = file
-        return id
-    }
-
-    private fun resolveRuleForPackage(pkg: String): IsolationRuleManager.AppRule {
-        val now = System.currentTimeMillis()
-        val existing = cachedRule
-        if (existing != null && existing.packageName == pkg && (now - lastRuleFetchMs) < 2500L) {
-            return existing
-        }
-
-        val resolved = fetchRuleInternal(pkg)
-        cachedRule = resolved
-        lastRuleFetchMs = now
-        return resolved
-    }
-
-    private fun fetchRuleInternal(pkg: String): IsolationRuleManager.AppRule {
-        // 1. Try live IPC call to IsoVaultConfigProvider
+    private fun hookSelfStatusCheck(lpparam: XC_LoadPackage.LoadPackageParam) {
         try {
-            val app = AndroidAppHelper.currentApplication()
-            if (app != null) {
-                val bundle = app.contentResolver.call(
-                    Uri.parse(PROVIDER_URI),
-                    "check_isolated",
-                    pkg,
-                    null
+            XposedHelpers.findAndHookMethod(
+                "com.example.MainActivity",
+                lpparam.classLoader,
+                "isLsposedModuleActiveReal",
+                XC_MethodReplacement.returnConstant(true)
+            )
+        } catch (t: Throwable) {
+            XposedBridge.log("[$TAG] Could not hook MainActivity.isLsposedModuleActiveReal: ${t.message}")
+        }
+    }
+
+    /**
+     * Synchronizes rules for this package from the UID-verified IsoVaultConfigProvider and caches them in memory.
+     * If the Vault provider is unreachable, FAILS CLOSED by assigning an empty isolated rule so real storage
+     * is never exposed.
+     */
+    private fun ensureRuleLoadedForPackage(pkg: String): IsolationRuleManager.Rule? {
+        try {
+            val now = System.currentTimeMillis()
+            val existing = IsolationRuleManager.getRule(pkg)
+            if (existing != null && now - lastRuleSyncMs < 5_000L) {
+                return existing
+            }
+            lastRuleSyncMs = now
+
+            val appContext: Context? = try {
+                AndroidAppHelper.currentApplication()
+            } catch (_: Throwable) {
+                null
+            }
+
+            if (appContext != null) {
+                try {
+                    val bundle = appContext.contentResolver.call(
+                        IsoVaultConfigProvider.CONTENT_URI,
+                        "get_rule",
+                        pkg,
+                        null
+                    )
+                    if (bundle != null) {
+                        providerReachable = true
+                        val isIsolated = bundle.getBoolean("isolated", false)
+                        if (isIsolated) {
+                            val modeName = bundle.getString("mode") ?: IsolationMode.ENCRYPTED_VAULT.name
+                            val mode = IsolationMode.entries.find { it.name == modeName } ?: IsolationMode.ENCRYPTED_VAULT
+                            val blockRoot = bundle.getBoolean("blockRoot", true)
+                            val whitelistStr = bundle.getString("whitelist") ?: ""
+                            val whitelist = whitelistStr.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+                            val useSharedSpace = bundle.getBoolean("useSharedSpace", false)
+                            val volumeQuotaMb = bundle.getInt("volumeQuotaMb", 0)
+                            val sandboxPath = bundle.getString("sandboxPath")
+                            val sharedPath = bundle.getString("sharedPath")
+
+                            if (!sandboxPath.isNullOrBlank()) {
+                                cachedSandboxDir = File(sandboxPath).also { it.mkdirs() }
+                            }
+                            cachedSharedDir = if (useSharedSpace && !sharedPath.isNullOrBlank()) {
+                                File(sharedPath).also { it.mkdirs() }
+                            } else {
+                                null
+                            }
+
+                            IsolationRuleManager.updateRule(
+                                packageName = pkg,
+                                mode = mode,
+                                blockRootPollution = blockRoot,
+                                whitelistedFolders = whitelist,
+                                useSharedSpace = useSharedSpace,
+                                volumeQuotaMb = volumeQuotaMb
+                            )
+                            return IsolationRuleManager.getRule(pkg)
+                        } else {
+                            IsolationRuleManager.removeRule(pkg)
+                            return null
+                        }
+                    }
+                } catch (_: Throwable) {
+                    // Provider unreachable -> fall through to fail-closed behavior below
+                }
+            }
+
+            // FAIL CLOSED: When the hooked app is in LSPosed scope but the Vault provider cannot be reached,
+            // return a fail-closed rule backed by an empty private folder so real phone storage is never visible.
+            if (!providerReachable && existing == null) {
+                val failClosed = IsolationRuleManager.createFailClosedRule(pkg)
+                IsolationRuleManager.updateRule(
+                    packageName = pkg,
+                    mode = failClosed.mode,
+                    blockRootPollution = true,
+                    whitelistedFolders = emptySet(),
+                    useSharedSpace = false,
+                    volumeQuotaMb = 0
                 )
-                if (bundle != null && bundle.getBoolean("isConfigured", false)) {
-                    val explicitlyDisabled = bundle.getBoolean("explicitlyDisabled", false)
-                    val isolated = bundle.getBoolean("isIsolated", true) && !explicitlyDisabled
-                    val modeStr = bundle.getString("mode", "ENCRYPTED_VAULT") ?: "ENCRYPTED_VAULT"
-                    val mode = try { IsolationMode.valueOf(modeStr) } catch (_: Exception) { IsolationMode.ENCRYPTED_VAULT }
-                    val pollution = bundle.getBoolean("blockPollution", true)
-                    val whitelistStr = bundle.getString("whitelistedFolders", "") ?: ""
-                    val whitelist = whitelistStr.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
-                    return IsolationRuleManager.AppRule(pkg, isolated, mode, pollution, whitelist)
-                }
+                return failClosed
             }
-        } catch (_: Throwable) {}
 
-        // 2. Try XSharedPreferences
-        try {
-            val prefs = xSharedPrefs ?: XSharedPreferences(MODULE_PKG, IsolationRuleManager.PREFS_NAME).also {
-                xSharedPrefs = it
-            }
-            prefs.reload()
-            if (prefs.getBoolean("${pkg}_configured", false)) {
-                val explicitlyDisabled = prefs.getBoolean("${pkg}_explicitly_disabled", false)
-                val isolated = prefs.getBoolean("${pkg}_isolated", true) && !explicitlyDisabled
-                val modeStr = prefs.getString("${pkg}_mode", "ENCRYPTED_VAULT") ?: "ENCRYPTED_VAULT"
-                val mode = try { IsolationMode.valueOf(modeStr) } catch (_: Exception) { IsolationMode.ENCRYPTED_VAULT }
-                val pollution = prefs.getBoolean("${pkg}_pollution", true)
-                val whitelistStr = prefs.getString("${pkg}_whitelist", "") ?: ""
-                val whitelist = whitelistStr.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
-                return IsolationRuleManager.AppRule(pkg, isolated, mode, pollution, whitelist)
-            }
-        } catch (_: Throwable) {}
-
-        // 3. Try external .IsoVault rule file
-        IsolationRuleManager.readExternalRule(pkg)?.let { return it }
-
-        // 4. Default: isolate with ENCRYPTED_VAULT
-        return IsolationRuleManager.AppRule(
-            packageName = pkg,
-            isIsolated = true,
-            mode = IsolationMode.ENCRYPTED_VAULT,
-            blockRootPollution = true,
-            whitelistedFolders = emptySet()
-        )
-    }
-
-    private fun isGalleryWhitelisted(rule: IsolationRuleManager.AppRule): Boolean {
-        return rule.whitelistedFolders.any {
-            it.equals("DCIM", ignoreCase = true) ||
-                it.equals("Pictures", ignoreCase = true) ||
-                it.equals("Camera", ignoreCase = true) ||
-                it.equals("All", ignoreCase = true)
-        }
-    }
-
-    private fun isMediaOrExternalDocumentUri(uri: Uri?): Boolean {
-        if (uri == null) return false
-        val scheme = uri.scheme?.lowercase() ?: ""
-        if (scheme == "file") {
-            val path = uri.path ?: return false
-            return shouldInterceptPath("", path)
-        }
-        if (scheme != "content") return false
-        val auth = uri.authority?.lowercase() ?: return false
-        return auth == "media" ||
-            auth.contains("media") ||
-            auth.contains("photopicker") ||
-            auth.contains("externalstorage") ||
-            auth.contains("downloads") ||
-            auth.contains("gallery") ||
-            auth.contains("photos")
-    }
-
-    private fun isMediaFile(file: File): Boolean {
-        val ext = file.extension.lowercase()
-        return ext in setOf(
-            "jpg", "jpeg", "png", "webp", "gif", "bmp", "heic",
-            "mp4", "mkv", "3gp", "webm", "avi", "mov",
-            "mp3", "m4a", "wav", "ogg", "aac", "flac"
-        )
-    }
-
-    private fun getMimeTypeFromExtension(ext: String): String {
-        return when (ext) {
-            "jpg", "jpeg" -> "image/jpeg"
-            "png" -> "image/png"
-            "gif" -> "image/gif"
-            "webp" -> "image/webp"
-            "bmp" -> "image/bmp"
-            "heic" -> "image/heic"
-            "mp4" -> "video/mp4"
-            "mkv" -> "video/x-matroska"
-            "3gp" -> "video/3gpp"
-            "webm" -> "video/webm"
-            "mp3" -> "audio/mpeg"
-            "m4a" -> "audio/mp4"
-            "wav" -> "audio/x-wav"
-            "ogg" -> "audio/ogg"
-            "pdf" -> "application/pdf"
-            else -> "application/octet-stream"
-        }
-    }
-
-    private fun guessExtension(uri: Uri): String {
-        val path = uri.path ?: ""
-        val last = path.substringAfterLast('/')
-        if (last.contains('.')) {
-            val ext = last.substringAfterLast('.').lowercase()
-            if (ext.length in 2..4) return ext
-        }
-        val uriStr = uri.toString().lowercase()
-        return when {
-            uriStr.contains("video") -> "mp4"
-            uriStr.contains("audio") -> "mp3"
-            else -> "jpg"
+            return IsolationRuleManager.getRule(pkg)
+        } catch (_: Throwable) {
+            return IsolationRuleManager.createFailClosedRule(pkg)
         }
     }
 
     /**
-     * LAYER 1: Full Virtual MediaStore & ContentProvider Engine.
-     * 1. MediaStore.insert / openOutputStream:
-     *    Creates files in the app's isolated sandbox and provides writable descriptors.
-     *    Apps can save photos, videos, and downloads seamlessly without "Failed to save".
-     * 2. MediaStore.query:
-     *    Returns files present in the app's isolated sandbox.
-     *    Camera roll in WhatsApp/Snapchat shows ONLY the app's isolated media (0 real phone photos).
-     * 3. Media reads / thumbnails:
-     *    Streams sandbox media to the app while blocking access to real phone media URIs.
+     * Resolves the isolated sandbox directory for the target app without using world-readable files.
      */
-    private fun attachMediaStoreAndProviderHooks(
-        lpparam: XC_LoadPackage.LoadPackageParam,
-        pkg: String
-    ) {
-        // A. MediaStore & ContentProvider QUERIES (Camera Roll)
-        val mediaQueryHook = object : XC_MethodHook() {
-            override fun beforeHookedMethod(param: MethodHookParam) {
-                if (isHandlingHook.get() == true) return
-
-                val uriIndex = param.args.indexOfFirst { it is Uri }
-                if (uriIndex < 0) return
-                val uri = param.args[uriIndex] as? Uri ?: return
-                if (!isMediaOrExternalDocumentUri(uri)) return
-
-                isHandlingHook.set(true)
-                try {
-                    val rule = resolveRuleForPackage(pkg)
-                    if (!rule.isIsolated || rule.mode == IsolationMode.READ_ONLY) return
-                    if (isGalleryWhitelisted(rule)) return
-
-                    val requestedProjection = param.args.getOrNull(uriIndex + 1) as? Array<*>
-                    val mergedColumns = LinkedHashSet<String>()
-                    requestedProjection?.forEach { col ->
-                        if (col is String && col.isNotBlank()) mergedColumns.add(col)
-                    }
-                    DEFAULT_MEDIA_COLUMNS.forEach { mergedColumns.add(it) }
-
-                    val sandboxRoot = getOrCreateSandboxRoot(pkg)
-                    val mediaFiles = mutableListOf<File>()
-
-                    // Scan sandbox directories for files saved by this isolated app
-                    try {
-                        val searchDirs = listOf(
-                            File(sandboxRoot, "DCIM"),
-                            File(sandboxRoot, "Pictures"),
-                            File(sandboxRoot, "Movies"),
-                            File(sandboxRoot, "Download"),
-                            sandboxRoot
-                        )
-                        for (dir in searchDirs) {
-                            if (dir.exists()) {
-                                dir.walkTopDown()
-                                    .maxDepth(3)
-                                    .filter { it.isFile && isMediaFile(it) && !it.name.startsWith(".") }
-                                    .take(150)
-                                    .forEach { mediaFiles.add(it) }
-                            }
-                        }
-                    } catch (_: Throwable) {}
-
-                    if (mediaFiles.isEmpty()) {
-                        param.result = SafeEmptyMatrixCursor(mergedColumns.toTypedArray())
-                    } else {
-                        val cursor = SafeSandboxMatrixCursor(mergedColumns.toTypedArray())
-                        for (file in mediaFiles.distinctBy { it.absolutePath }) {
-                            val virtualId = registerSandboxMedia(file)
-                            val ext = file.extension.lowercase()
-                            val mime = getMimeTypeFromExtension(ext)
-                            val isVideo = mime.startsWith("video/")
-                            val relDir = try {
-                                file.parentFile?.relativeToOrSelf(sandboxRoot)?.path ?: "Pictures"
-                            } catch (_: Throwable) { "Pictures" }
-
-                            val row = arrayOfNulls<Any>(mergedColumns.size)
-                            mergedColumns.forEachIndexed { index, col ->
-                                row[index] = when (col) {
-                                    "_id", "id" -> virtualId
-                                    "_data", "data" -> file.absolutePath
-                                    "_display_name", "display_name" -> file.name
-                                    "_size", "size" -> file.length()
-                                    "mime_type" -> mime
-                                    "date_added" -> file.lastModified() / 1000
-                                    "date_modified" -> file.lastModified() / 1000
-                                    "datetaken" -> file.lastModified()
-                                    "width" -> 1080
-                                    "height" -> 1920
-                                    "orientation" -> 0
-                                    "bucket_id" -> relDir.hashCode()
-                                    "bucket_display_name" -> file.parentFile?.name ?: "Pictures"
-                                    "relative_path" -> if (relDir.endsWith("/")) relDir else "$relDir/"
-                                    "duration" -> if (isVideo) 5000L else 0L
-                                    "media_type" -> if (isVideo) 3 else 1
-                                    "is_pending" -> 0
-                                    "is_trashed" -> 0
-                                    "is_favorite" -> 0
-                                    "volume_name" -> "external_primary"
-                                    "owner_package_name" -> pkg
-                                    "title" -> file.nameWithoutExtension
-                                    else -> null
-                                }
-                            }
-                            cursor.addRow(row)
-                        }
-                        param.result = cursor
-                    }
-
-                    XposedBridge.log("[IsoVault] Media query in $pkg (${mediaFiles.size} sandbox files returned)")
-                    reportAuditToManager(
-                        pkg = pkg,
-                        requestedPath = uri.toString(),
-                        resolvedPath = "${sandboxRoot.absolutePath} (${mediaFiles.size} media)",
-                        action = AuditAction.REDIRECTED,
-                        operation = "CAMERA_ROLL_QUERY",
-                        details = "Served ${mediaFiles.size} media items from isolated sandbox"
-                    )
-                } finally {
-                    isHandlingHook.set(false)
-                }
-            }
+    private fun getAppSandboxRoot(pkg: String): File {
+        cachedSandboxDir?.let {
+            if (it.exists() || it.mkdirs()) return it
         }
-
-        try {
-            XposedBridge.hookAllMethods(ContentResolver::class.java, "query", mediaQueryHook)
-            XposedBridge.hookAllMethods(ContentProviderClient::class.java, "query", mediaQueryHook)
-            val proxyClass = XposedHelpers.findClass("android.content.ContentProviderProxy", null)
-            XposedBridge.hookAllMethods(proxyClass, "query", mediaQueryHook)
-        } catch (_: Throwable) {}
-
-        // B. MediaStore & ContentResolver INSERT (Saving photos/videos/files)
-        val mediaInsertHook = object : XC_MethodHook() {
-            override fun beforeHookedMethod(param: MethodHookParam) {
-                if (isHandlingHook.get() == true) return
-                val uri = param.args.firstOrNull { it is Uri } as? Uri ?: return
-                if (!isMediaOrExternalDocumentUri(uri)) return
-
-                isHandlingHook.set(true)
-                try {
-                    val rule = resolveRuleForPackage(pkg)
-                    if (!rule.isIsolated || rule.mode == IsolationMode.READ_ONLY) return
-
-                    val values = param.args.firstOrNull { it is ContentValues } as? ContentValues
-                    val sandboxRoot = getOrCreateSandboxRoot(pkg)
-
-                    val relPath = values?.getAsString(MediaStore.MediaColumns.RELATIVE_PATH)?.trim('/')
-                        ?: values?.getAsString("relative_path")?.trim('/')
-                        ?: "Pictures"
-                    val displayName = values?.getAsString(MediaStore.MediaColumns.DISPLAY_NAME)
-                        ?: values?.getAsString("_display_name")
-                        ?: "media_${System.currentTimeMillis()}.jpg"
-
-                    val targetDir = File(sandboxRoot, relPath)
-                    targetDir.mkdirs()
-                    val targetFile = File(targetDir, displayName)
-                    try { targetFile.createNewFile() } catch (_: Throwable) {}
-
-                    val virtualId = registerSandboxMedia(targetFile)
-                    val resultUri = Uri.parse("content://media/external/images/media/$virtualId")
-                    virtualUriMap[resultUri.toString()] = targetFile
-
-                    param.result = resultUri
-                    XposedBridge.log("[IsoVault] Intercepted insert in $pkg -> sandbox file: ${targetFile.absolutePath}")
-                    reportAuditToManager(
-                        pkg = pkg,
-                        requestedPath = uri.toString(),
-                        resolvedPath = targetFile.absolutePath,
-                        action = AuditAction.REDIRECTED,
-                        operation = "MEDIA_INSERT",
-                        details = "Created media entry inside isolated sandbox ($displayName)"
-                    )
-                } finally {
-                    isHandlingHook.set(false)
-                }
-            }
+        val app = try { AndroidAppHelper.currentApplication() } catch (_: Throwable) { null }
+        val fallback = if (app != null) {
+            File(app.filesDir, ".isovault_sandbox")
+        } else {
+            File("/data/data/$pkg/files/.isovault_sandbox")
         }
-
-        try {
-            XposedBridge.hookAllMethods(ContentResolver::class.java, "insert", mediaInsertHook)
-            XposedBridge.hookAllMethods(ContentProviderClient::class.java, "insert", mediaInsertHook)
-        } catch (_: Throwable) {}
-
-        // C. Media Streams & Descriptors (openInputStream, openOutputStream, openFileDescriptor, openAssetFileDescriptor, etc.)
-        val mediaStreamAndDescriptorHook = object : XC_MethodHook() {
-            override fun beforeHookedMethod(param: MethodHookParam) {
-                if (isHandlingHook.get() == true) return
-                val uri = param.args.firstOrNull { it is Uri } as? Uri ?: return
-                if (!isMediaOrExternalDocumentUri(uri)) return
-
-                val methodName = param.method.name
-                val uriStr = uri.toString()
-                val mode = param.args.firstOrNull { it is String && it.length <= 4 } as? String ?: ""
-                val isWrite = methodName.contains("OutputStream", ignoreCase = true) ||
-                    mode.contains("w") || mode.contains("rw") || mode.contains("wt") || mode.contains("wa")
-
-                isHandlingHook.set(true)
-                try {
-                    val rule = resolveRuleForPackage(pkg)
-                    if (!rule.isIsolated || rule.mode == IsolationMode.READ_ONLY) return
-                    if (isGalleryWhitelisted(rule)) return
-
-                    val sandboxRoot = getOrCreateSandboxRoot(pkg)
-
-                    // Find or resolve target sandbox file
-                    var targetFile = virtualUriMap[uriStr]
-                    if (targetFile == null) {
-                        val idLong = uri.lastPathSegment?.toLongOrNull()
-                        if (idLong != null) {
-                            targetFile = virtualMediaMap[idLong]
-                        }
-                    }
-                    if (targetFile == null && uri.scheme == "file") {
-                        val p = uri.path
-                        if (p != null && shouldInterceptPath(pkg, p)) {
-                            val rel = IsolationRuleManager.extractRelative(p)
-                            targetFile = File(sandboxRoot, rel)
-                        }
-                    }
-
-                    if (isWrite) {
-                        // SAVING MEDIA: Ensure file exists in sandbox and return write descriptor
-                        if (targetFile == null) {
-                            val ext = guessExtension(uri)
-                            val dir = File(sandboxRoot, "Pictures")
-                            dir.mkdirs()
-                            targetFile = File(dir, "saved_media_${System.currentTimeMillis()}.$ext")
-                            try { targetFile.createNewFile() } catch (_: Throwable) {}
-                            registerSandboxMedia(targetFile)
-                            virtualUriMap[uriStr] = targetFile
-                        }
-                        targetFile.parentFile?.mkdirs()
-                        try { targetFile.createNewFile() } catch (_: Throwable) {}
-
-                        val pfd = ParcelFileDescriptor.open(
-                            targetFile,
-                            ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_CREATE
-                        )
-
-                        when {
-                            methodName == "openOutputStream" -> {
-                                param.result = FileOutputStream(targetFile)
-                            }
-                            methodName == "openFileDescriptor" || methodName == "openFile" -> {
-                                param.result = pfd
-                            }
-                            else -> {
-                                param.result = AssetFileDescriptor(pfd, 0, AssetFileDescriptor.UNKNOWN_LENGTH)
-                            }
-                        }
-
-                        reportAuditToManager(
-                            pkg = pkg,
-                            requestedPath = uriStr,
-                            resolvedPath = targetFile.absolutePath,
-                            action = AuditAction.REDIRECTED,
-                            operation = "MEDIA_WRITE",
-                            details = "Saved media file into isolated sandbox (${targetFile.name})"
-                        )
-                        return
-                    }
-
-                    // READING MEDIA: If the file is in our sandbox, return real descriptor
-                    if (targetFile != null && targetFile.exists()) {
-                        val pfd = ParcelFileDescriptor.open(targetFile, ParcelFileDescriptor.MODE_READ_ONLY)
-                        when {
-                            methodName == "openInputStream" -> {
-                                param.result = FileInputStream(targetFile)
-                            }
-                            methodName == "loadThumbnail" -> {
-                                param.result = BitmapFactory.decodeFile(targetFile.absolutePath)
-                            }
-                            methodName == "openFileDescriptor" || methodName == "openFile" -> {
-                                param.result = pfd
-                            }
-                            else -> {
-                                param.result = AssetFileDescriptor(pfd, 0, AssetFileDescriptor.UNKNOWN_LENGTH)
-                            }
-                        }
-                        return
-                    }
-
-                    // User explicitly picked this URI via a picker/gallery: Allow it!
-                    if (userAllowedUris.containsKey(uriStr)) {
-                        XposedBridge.log("[IsoVault] Allowed user-picked URI read in $pkg: $uriStr")
-                        return
-                    }
-
-                    // URI does NOT belong to the sandbox: Block read access to protect phone's real gallery
-                    reportAuditToManager(
-                        pkg = pkg,
-                        requestedPath = uriStr,
-                        resolvedPath = "IsoVault://blocked_media_read",
-                        action = AuditAction.BLOCKED,
-                        operation = "MEDIA_URI_READ",
-                        details = "Blocked access to real phone media URI ($methodName)"
-                    )
-                    param.throwable = FileNotFoundException("Protected by IsoVault: media URI isolated")
-                } finally {
-                    isHandlingHook.set(false)
-                }
-            }
-        }
-
-        val resolverOpenMethods = listOf(
-            "openInputStream",
-            "openOutputStream",
-            "openFileDescriptor",
-            "openAssetFileDescriptor",
-            "openTypedAssetFileDescriptor",
-            "loadThumbnail"
-        )
-        for (m in resolverOpenMethods) {
-            try { XposedBridge.hookAllMethods(ContentResolver::class.java, m, mediaStreamAndDescriptorHook) } catch (_: Throwable) {}
-        }
-
-        val clientOpenMethods = listOf("openFile", "openAssetFile", "openTypedAssetFile")
-        for (m in clientOpenMethods) {
-            try { XposedBridge.hookAllMethods(ContentProviderClient::class.java, m, mediaStreamAndDescriptorHook) } catch (_: Throwable) {}
-        }
-
-        try {
-            XposedBridge.hookAllMethods(ImageDecoder::class.java, "createSource", mediaStreamAndDescriptorHook)
-            XposedBridge.hookAllMethods(MediaMetadataRetriever::class.java, "setDataSource", mediaStreamAndDescriptorHook)
-        } catch (_: Throwable) {}
-
-        // D. Delete and Update
-        val mediaDeleteHook = object : XC_MethodHook() {
-            override fun beforeHookedMethod(param: MethodHookParam) {
-                val uri = param.args.firstOrNull { it is Uri } as? Uri ?: return
-                val targetFile = virtualUriMap[uri.toString()]
-                if (targetFile != null) {
-                    try { targetFile.delete() } catch (_: Throwable) {}
-                    virtualUriMap.remove(uri.toString())
-                    param.result = 1
-                }
-            }
-        }
-        try {
-            XposedBridge.hookAllMethods(ContentResolver::class.java, "delete", mediaDeleteHook)
-            XposedBridge.hookAllMethods(ContentProviderClient::class.java, "delete", mediaDeleteHook)
-        } catch (_: Throwable) {}
+        if (!fallback.exists()) fallback.mkdirs()
+        IsolationRuleManager.ensureStandardVolumeFolders(fallback)
+        return fallback
     }
 
     /**
-     * LAYER 2: Snapchat & Local Gallery SQLiteSession CursorWindow Guard.
-     * Clears CursorWindow when Snapchat queries its local SQLite cache for real phone photos.
+     * Resolves the Shared Space volume directory if this app has opted into `useSharedSpace`.
      */
-    private fun attachSnapchatAndGallerySqliteHooks(
-        lpparam: XC_LoadPackage.LoadPackageParam,
-        pkg: String
+    private fun getSharedSpaceRootIfOptedIn(pkg: String): File? {
+        val rule = IsolationRuleManager.getRule(pkg) ?: return null
+        if (!rule.useSharedSpace) return null
+        cachedSharedDir?.let {
+            if (it.exists() || it.mkdirs()) return it
+        }
+        val sandbox = getAppSandboxRoot(pkg)
+        val siblingShared = File(sandbox.parentFile, IsolationRuleManager.SHARED_VOLUME_ID)
+        if (!siblingShared.exists()) siblingShared.mkdirs()
+        return siblingShared
+    }
+
+    /**
+     * Reports an interception event back to IsoVaultConfigProvider for real-time Activity Logs.
+     */
+    private fun reportAuditAsync(
+        pkg: String,
+        originalPath: String,
+        resolvedPath: String,
+        action: AuditAction,
+        details: String,
+        bytes: Long = 0L
     ) {
         try {
-            val sqliteSessionClass = XposedHelpers.findClass("android.database.sqlite.SQLiteSession", null)
-            XposedBridge.hookAllMethods(
-                sqliteSessionClass,
-                "executeForCursorWindow",
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (isHandlingHook.get() == true) return
-                        val sql = param.args.firstOrNull() as? String ?: return
-                        val lower = sql.trimStart().lowercase()
-                        if (!lower.startsWith("select")) return
-
-                        if (lower.contains("camera_roll") ||
-                            lower.contains("cameraroll") ||
-                            lower.contains("local_media_reference") ||
-                            lower.contains("/storage/emulated/0/dcim") ||
-                            lower.contains("/storage/emulated/0/pictures")
-                        ) {
-                            isHandlingHook.set(true)
-                            try {
-                                val rule = resolveRuleForPackage(pkg)
-                                if (!rule.isIsolated || rule.mode == IsolationMode.READ_ONLY) return
-                                if (isGalleryWhitelisted(rule)) return
-
-                                val window = param.args.firstOrNull { it is CursorWindow } as? CursorWindow
-                                window?.clear()
-                                param.result = 0
-                                XposedBridge.log("[IsoVault] Cleared cached Camera Roll SQLite CursorWindow in $pkg")
-                            } finally {
-                                isHandlingHook.set(false)
-                            }
-                        }
-                    }
-                }
+            val app = AndroidAppHelper.currentApplication() ?: return
+            val extras = Bundle().apply {
+                putString("pkg", pkg)
+                putString("path", originalPath)
+                putString("resolved", resolvedPath)
+                putString("action", action.name)
+                putString("details", details)
+                putLong("bytes", bytes)
+            }
+            app.contentResolver.call(
+                IsoVaultConfigProvider.CONTENT_URI,
+                "record_audit",
+                pkg,
+                extras
             )
         } catch (_: Throwable) {}
     }
 
     /**
-     * LAYER 3: Isolated Photo & Document Picker Storage Binder.
-     * Binds system pickers and document choosers directly to the app's isolated sandbox directory.
-     * In-app galleries (WhatsApp MediaPicker, Snapchat camera roll) run natively without interruption
-     * and query the isolated sandbox via the MediaStore and File hooks.
-     * Any media selected by the user is recorded in [userAllowedUris] so the app can read & send it.
+     * LAYER 1: Hook `java.io.File` constructors and directory listings (`list`, `listFiles`, `exists`).
+     * Supports per-app private volume and optional `"Shared"` directory when `useSharedSpace` is enabled.
      */
-    private fun attachPickerInterceptorHooks(
-        lpparam: XC_LoadPackage.LoadPackageParam,
-        pkg: String
-    ) {
-        val execStartActivityHook = object : XC_MethodHook() {
-            override fun beforeHookedMethod(param: MethodHookParam) {
-                if (isHandlingHook.get() == true) return
-
-                val intent = param.args.firstOrNull { it is Intent } as? Intent ?: return
-                if (!isExternalPickerIntent(intent, pkg)) return
-
-                isHandlingHook.set(true)
-                try {
-                    val rule = resolveRuleForPackage(pkg)
-                    if (!rule.isIsolated || rule.mode == IsolationMode.READ_ONLY) return
-                    if (isGalleryWhitelisted(rule)) return
-
-                    val sandboxRoot = getOrCreateSandboxRoot(pkg)
-                    val picturesDir = File(sandboxRoot, "Pictures").apply { mkdirs() }
-                    val initialUri = Uri.fromFile(picturesDir)
-                    intent.putExtra("android.provider.extra.INITIAL_URI", initialUri)
-
-                    XposedBridge.log("[IsoVault] Bound external picker in $pkg to sandbox: ${picturesDir.absolutePath}")
-                    reportAuditToManager(
-                        pkg = pkg,
-                        requestedPath = "Picker://${intent.action ?: "PICK"}",
-                        resolvedPath = picturesDir.absolutePath,
-                        action = AuditAction.REDIRECTED,
-                        operation = "PICKER_SANDBOX_BOUND",
-                        details = "Bound file picker initial storage to isolated sandbox"
-                    )
-                } finally {
-                    isHandlingHook.set(false)
-                }
-            }
-        }
-
+    private fun hookJavaIoFile(pkg: String) {
         try {
-            XposedBridge.hookAllMethods(Instrumentation::class.java, "execStartActivity", execStartActivityHook)
-        } catch (_: Throwable) {}
+            // File(String pathname)
+            XposedHelpers.findAndHookConstructor(
+                File::class.java,
+                String::class.java,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (isInternalHookCall.get() == true) return
+                        val path = param.args[0] as? String ?: return
+                        if (!shouldInspectPath(path)) return
 
+                        isInternalHookCall.set(true)
+                        try {
+                            val rule = ensureRuleLoadedForPackage(pkg) ?: return
+                            val sandboxRoot = getAppSandboxRoot(pkg)
+                            val sharedRoot = getSharedSpaceRootIfOptedIn(pkg)
+                            val redirected = IsolationRuleManager.resolveRedirectedFile(pkg, path, sandboxRoot, sharedRoot)
+                            if (redirected != null) {
+                                param.args[0] = redirected.absolutePath
+                                reportAuditAsync(
+                                    pkg = pkg,
+                                    originalPath = path,
+                                    resolvedPath = redirected.absolutePath,
+                                    action = if (rule.mode == IsolationMode.ENCRYPTED_VAULT) AuditAction.ENCRYPTED else AuditAction.REDIRECTED,
+                                    details = "File(String) redirected -> ${redirected.name}"
+                                )
+                            }
+                        } catch (_: Throwable) {
+                        } finally {
+                            isInternalHookCall.set(false)
+                        }
+                    }
+                }
+            )
+
+            // File(String parent, String child)
+            XposedHelpers.findAndHookConstructor(
+                File::class.java,
+                String::class.java,
+                String::class.java,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (isInternalHookCall.get() == true) return
+                        val parent = param.args[0] as? String ?: return
+                        val child = param.args[1] as? String ?: return
+                        val combined = "$parent/$child"
+                        if (!shouldInspectPath(combined)) return
+
+                        isInternalHookCall.set(true)
+                        try {
+                            ensureRuleLoadedForPackage(pkg) ?: return
+                            val sandboxRoot = getAppSandboxRoot(pkg)
+                            val sharedRoot = getSharedSpaceRootIfOptedIn(pkg)
+                            val redirected = IsolationRuleManager.resolveRedirectedFile(pkg, combined, sandboxRoot, sharedRoot)
+                            if (redirected != null) {
+                                param.args[0] = redirected.parent
+                                param.args[1] = redirected.name
+                            }
+                        } catch (_: Throwable) {
+                        } finally {
+                            isInternalHookCall.set(false)
+                        }
+                    }
+                }
+            )
+
+            // File(File parent, String child)
+            XposedHelpers.findAndHookConstructor(
+                File::class.java,
+                File::class.java,
+                String::class.java,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (isInternalHookCall.get() == true) return
+                        val parentFile = param.args[0] as? File ?: return
+                        val child = param.args[1] as? String ?: return
+                        val combined = "${parentFile.absolutePath}/$child"
+                        if (!shouldInspectPath(combined)) return
+
+                        isInternalHookCall.set(true)
+                        try {
+                            ensureRuleLoadedForPackage(pkg) ?: return
+                            val sandboxRoot = getAppSandboxRoot(pkg)
+                            val sharedRoot = getSharedSpaceRootIfOptedIn(pkg)
+                            val redirected = IsolationRuleManager.resolveRedirectedFile(pkg, combined, sandboxRoot, sharedRoot)
+                            if (redirected != null) {
+                                param.args[0] = redirected.parentFile
+                                param.args[1] = redirected.name
+                            }
+                        } catch (_: Throwable) {
+                        } finally {
+                            isInternalHookCall.set(false)
+                        }
+                    }
+                }
+            )
+
+            // Hook File.list() to hide `.IsoVault`, enforce FAKE_EMPTY, and expose "Shared" when useSharedSpace is on
+            XposedHelpers.findAndHookMethod(
+                File::class.java,
+                "list",
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        if (isInternalHookCall.get() == true) return
+                        val list = param.result as? Array<*> ?: return
+                        isInternalHookCall.set(true)
+                        try {
+                            val fileObj = param.thisObject as? File ?: return
+                            val rule = ensureRuleLoadedForPackage(pkg)
+                            if (rule?.mode == IsolationMode.FAKE_EMPTY && shouldInspectPath(fileObj.absolutePath)) {
+                                param.result = emptyArray<String>()
+                                return
+                            }
+                            val filtered = list.filterIsInstance<String>()
+                                .filter { !it.equals(".IsoVault", ignoreCase = true) }
+                                .toMutableList()
+
+                            // If listing root of isolated storage and Shared Space is enabled, include "Shared"
+                            if (rule?.useSharedSpace == true &&
+                                (fileObj.absolutePath == "/storage/emulated/0" ||
+                                    fileObj.absolutePath == getAppSandboxRoot(pkg).absolutePath)
+                            ) {
+                                if ("Shared" !in filtered) {
+                                    filtered.add("Shared")
+                                }
+                            }
+                            param.result = filtered.toTypedArray()
+                        } catch (_: Throwable) {
+                        } finally {
+                            isInternalHookCall.set(false)
+                        }
+                    }
+                }
+            )
+        } catch (t: Throwable) {
+            XposedBridge.log("[$TAG] Failed hooking java.io.File: ${t.message}")
+        }
+    }
+
+    /**
+     * LAYER 2: Hook low-level `libcore.io.IoBridge.open` and `libcore.io.Os.open`
+     */
+    private fun hookLibcoreOsAndIoBridge(pkg: String) {
+        try {
+            val ioBridgeClass = XposedHelpers.findClassIfExists("libcore.io.IoBridge", null)
+            if (ioBridgeClass != null) {
+                XposedBridge.hookAllMethods(
+                    ioBridgeClass,
+                    "open",
+                    object : XC_MethodHook() {
+                        override fun beforeHookedMethod(param: MethodHookParam) {
+                            if (isInternalHookCall.get() == true) return
+                            val path = param.args.getOrNull(0) as? String ?: return
+                            if (!shouldInspectPath(path)) return
+
+                            isInternalHookCall.set(true)
+                            try {
+                                ensureRuleLoadedForPackage(pkg) ?: return
+                                val sandboxRoot = getAppSandboxRoot(pkg)
+                                val sharedRoot = getSharedSpaceRootIfOptedIn(pkg)
+                                val redirected = IsolationRuleManager.resolveRedirectedFile(pkg, path, sandboxRoot, sharedRoot)
+                                if (redirected != null) {
+                                    redirected.parentFile?.mkdirs()
+                                    param.args[0] = redirected.absolutePath
+                                }
+                            } catch (_: Throwable) {
+                            } finally {
+                                isInternalHookCall.set(false)
+                            }
+                        }
+                    }
+                )
+            }
+        } catch (t: Throwable) {
+            XposedBridge.log("[$TAG] libcore.io.IoBridge hook warning: ${t.message}")
+        }
+    }
+
+    /**
+     * LAYER 3: Hook `Environment.getExternalStorageDirectory()` & `getExternalStoragePublicDirectory(String)`
+     */
+    private fun hookEnvironmentDirectories(pkg: String) {
+        try {
+            XposedHelpers.findAndHookMethod(
+                Environment::class.java,
+                "getExternalStorageDirectory",
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        if (isInternalHookCall.get() == true) return
+                        isInternalHookCall.set(true)
+                        try {
+                            val rule = ensureRuleLoadedForPackage(pkg) ?: return
+                            val sandboxRoot = getAppSandboxRoot(pkg)
+                            val redirected = when (rule.mode) {
+                                IsolationMode.ENCRYPTED_VAULT -> File(sandboxRoot, "vault_storage")
+                                IsolationMode.SANDBOX_REDIRECT -> File(sandboxRoot, "sandbox_storage")
+                                IsolationMode.FAKE_EMPTY -> File(sandboxRoot, "empty_spoof")
+                                IsolationMode.READ_ONLY -> return
+                            }
+                            if (!redirected.exists()) redirected.mkdirs()
+                            param.result = redirected
+                        } catch (_: Throwable) {
+                        } finally {
+                            isInternalHookCall.set(false)
+                        }
+                    }
+                }
+            )
+
+            XposedHelpers.findAndHookMethod(
+                Environment::class.java,
+                "getExternalStoragePublicDirectory",
+                String::class.java,
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        if (isInternalHookCall.get() == true) return
+                        val dirType = param.args[0] as? String ?: return
+                        isInternalHookCall.set(true)
+                        try {
+                            val rule = ensureRuleLoadedForPackage(pkg) ?: return
+                            if (rule.whitelistedFolders.any { it.equals(dirType, ignoreCase = true) }) {
+                                return
+                            }
+                            val sandboxRoot = getAppSandboxRoot(pkg)
+                            val base = when (rule.mode) {
+                                IsolationMode.ENCRYPTED_VAULT -> File(sandboxRoot, "vault_storage")
+                                IsolationMode.SANDBOX_REDIRECT -> File(sandboxRoot, "sandbox_storage")
+                                IsolationMode.FAKE_EMPTY -> File(sandboxRoot, "empty_spoof")
+                                IsolationMode.READ_ONLY -> return
+                            }
+                            val target = File(base, dirType)
+                            if (!target.exists()) target.mkdirs()
+                            param.result = target
+                        } catch (_: Throwable) {
+                        } finally {
+                            isInternalHookCall.set(false)
+                        }
+                    }
+                }
+            )
+        } catch (t: Throwable) {
+            XposedBridge.log("[$TAG] Failed hooking Environment directories: ${t.message}")
+        }
+    }
+
+    /**
+     * LAYER 4: Hook `ContentResolver` for `MediaStore` Queries, Inserts, Deletes, and Streams.
+     * When `rule.useSharedSpace == true`, includes media from both the app's private volume and the Shared Space volume.
+     */
+    private fun hookMediaStoreContentResolver(pkg: String) {
+        try {
+            // 4A. Hook ContentResolver.query(...)
+            XposedBridge.hookAllMethods(
+                ContentResolver::class.java,
+                "query",
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        if (isInternalHookCall.get() == true) return
+                        val uri = param.args.getOrNull(0) as? Uri ?: return
+                        if (!isMediaStoreUri(uri)) return
+
+                        isInternalHookCall.set(true)
+                        try {
+                            val rule = ensureRuleLoadedForPackage(pkg) ?: return
+                            val sandboxRoot = getAppSandboxRoot(pkg)
+                            val sharedRoot = getSharedSpaceRootIfOptedIn(pkg)
+
+                            if (rule.mode == IsolationMode.FAKE_EMPTY) {
+                                val origCursor = param.result as? Cursor
+                                val cols = origCursor?.columnNames ?: arrayOf(
+                                    MediaStore.MediaColumns._ID,
+                                    MediaStore.MediaColumns.DISPLAY_NAME,
+                                    MediaStore.MediaColumns.DATA,
+                                    MediaStore.MediaColumns.SIZE
+                                )
+                                origCursor?.close()
+                                param.result = MatrixCursor(cols)
+                                reportAuditAsync(
+                                    pkg = pkg,
+                                    originalPath = uri.toString(),
+                                    resolvedPath = "MediaStore [EMPTY]",
+                                    action = AuditAction.SPOOFED_EMPTY,
+                                    details = "MediaStore.query spoofed empty cursor"
+                                )
+                                return
+                            }
+
+                            val originalCursor = param.result as? Cursor
+                            val filteredCursor = if (originalCursor != null) {
+                                filterCursorForApp(originalCursor, pkg, sandboxRoot, sharedRoot)
+                            } else {
+                                buildVirtualMediaStoreCursor(sandboxRoot, sharedRoot)
+                            }
+                            param.result = filteredCursor
+
+                            reportAuditAsync(
+                                pkg = pkg,
+                                originalPath = uri.toString(),
+                                resolvedPath = if (sharedRoot != null) {
+                                    "${sandboxRoot.absolutePath} + SharedSpace"
+                                } else {
+                                    sandboxRoot.absolutePath
+                                },
+                                action = AuditAction.REDIRECTED,
+                                details = "MediaStore.query isolated (${filteredCursor.count} items visible, shared=${sharedRoot != null})"
+                            )
+                        } catch (_: Throwable) {
+                        } finally {
+                            isInternalHookCall.set(false)
+                        }
+                    }
+                }
+            )
+
+            // 4B. Hook ContentResolver.insert(Uri, ContentValues)
+            XposedBridge.hookAllMethods(
+                ContentResolver::class.java,
+                "insert",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (isInternalHookCall.get() == true) return
+                        val uri = param.args.getOrNull(0) as? Uri ?: return
+                        val values = param.args.getOrNull(1) as? ContentValues ?: return
+                        if (!isMediaStoreUri(uri)) return
+
+                        isInternalHookCall.set(true)
+                        try {
+                            val rule = ensureRuleLoadedForPackage(pkg) ?: return
+                            if (rule.mode == IsolationMode.READ_ONLY) {
+                                param.result = null
+                                return
+                            }
+
+                            val sandboxRoot = getAppSandboxRoot(pkg)
+                            val sharedRoot = getSharedSpaceRootIfOptedIn(pkg)
+                            val displayName = values.getAsString(MediaStore.MediaColumns.DISPLAY_NAME)
+                                ?: "media_${System.currentTimeMillis()}.jpg"
+                            val relPath = values.getAsString(MediaStore.MediaColumns.RELATIVE_PATH)
+                                ?: "Pictures"
+
+                            // If the app inserts into RELATIVE_PATH starting with "Shared" and opted into Shared Space,
+                            // store in the Shared Space volume; otherwise store in the app's private volume.
+                            val targetFolder = if (rule.useSharedSpace && sharedRoot != null &&
+                                relPath.trimStart('/').startsWith("Shared", ignoreCase = true)
+                            ) {
+                                val sub = relPath.trimStart('/').removePrefix("Shared").trimStart('/').ifEmpty { "Pictures" }
+                                File(sharedRoot, sub)
+                            } else {
+                                val subFolder = when (rule.mode) {
+                                    IsolationMode.ENCRYPTED_VAULT -> "vault_storage/$relPath"
+                                    else -> "sandbox_storage/$relPath"
+                                }
+                                File(sandboxRoot, subFolder)
+                            }
+                            if (!targetFolder.exists()) targetFolder.mkdirs()
+
+                            val finalName = if (rule.mode == IsolationMode.ENCRYPTED_VAULT && !displayName.endsWith(".isovault")) {
+                                "$displayName.isovault"
+                            } else {
+                                displayName
+                            }
+
+                            val targetFile = File(targetFolder, finalName)
+                            val virtualId = System.currentTimeMillis()
+                            val virtualUri = Uri.parse("content://$VIRTUAL_URI_AUTHORITY/$pkg/$virtualId")
+                            virtualUriToFileMap[virtualUri.toString()] = targetFile
+
+                            param.result = virtualUri
+                            reportAuditAsync(
+                                pkg = pkg,
+                                originalPath = "MediaStore.insert($displayName)",
+                                resolvedPath = targetFile.absolutePath,
+                                action = if (rule.mode == IsolationMode.ENCRYPTED_VAULT) AuditAction.ENCRYPTED else AuditAction.REDIRECTED,
+                                details = "MediaStore insert redirected to isolated volume -> ${targetFile.name}"
+                            )
+                        } catch (_: Throwable) {
+                        } finally {
+                            isInternalHookCall.set(false)
+                        }
+                    }
+                }
+            )
+
+            // 4C. Hook ContentResolver.openOutputStream for virtual MediaStore URIs (on-the-fly streaming encryption)
+            XposedBridge.hookAllMethods(
+                ContentResolver::class.java,
+                "openOutputStream",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val uri = param.args.getOrNull(0) as? Uri ?: return
+                        if (uri.authority != VIRTUAL_URI_AUTHORITY) return
+
+                        try {
+                            val targetFile = virtualUriToFileMap[uri.toString()] ?: return
+                            targetFile.parentFile?.mkdirs()
+                            val rule = ensureRuleLoadedForPackage(pkg)
+
+                            if (rule?.mode == IsolationMode.ENCRYPTED_VAULT || targetFile.name.endsWith(".isovault")) {
+                                param.result = object : ByteArrayOutputStream() {
+                                    private var closed = false
+                                    override fun close() {
+                                        if (closed) return
+                                        closed = true
+                                        super.close()
+                                        try {
+                                            val plain = toByteArray()
+                                            FileOutputStream(targetFile).use { fos ->
+                                                AesVaultCipher.encryptStream(ByteArrayInputStream(plain), fos)
+                                            }
+                                            reportAuditAsync(
+                                                pkg = pkg,
+                                                originalPath = uri.toString(),
+                                                resolvedPath = targetFile.absolutePath,
+                                                action = AuditAction.ENCRYPTED,
+                                                details = "Encrypted ${plain.size} bytes with AES256_GCM_HKDF_4KB",
+                                                bytes = plain.size.toLong()
+                                            )
+                                        } catch (e: Throwable) {
+                                            XposedBridge.log("[$TAG] Streaming encrypt error: ${e.message}")
+                                        }
+                                    }
+                                }
+                            } else {
+                                param.result = FileOutputStream(targetFile)
+                            }
+                        } catch (_: Throwable) {}
+                    }
+                }
+            )
+
+            // 4D. Hook ContentResolver.openInputStream for virtual MediaStore URIs (on-the-fly streaming decryption)
+            XposedBridge.hookAllMethods(
+                ContentResolver::class.java,
+                "openInputStream",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val uri = param.args.getOrNull(0) as? Uri ?: return
+                        if (uri.authority != VIRTUAL_URI_AUTHORITY) return
+
+                        try {
+                            val targetFile = virtualUriToFileMap[uri.toString()] ?: return
+                            if (!targetFile.exists()) return
+
+                            if (AesVaultCipher.isEncryptedIsoVaultFile(targetFile)) {
+                                val decrypted = AesVaultCipher.decryptToMemory(targetFile)
+                                param.result = ByteArrayInputStream(decrypted)
+                            } else {
+                                param.result = FileInputStream(targetFile)
+                            }
+                        } catch (_: Throwable) {}
+                    }
+                }
+            )
+
+            // 4E. Hook ContentResolver.delete(Uri, ...) to prevent deleting other apps' media
+            XposedBridge.hookAllMethods(
+                ContentResolver::class.java,
+                "delete",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val uri = param.args.getOrNull(0) as? Uri ?: return
+                        if (uri.authority == VIRTUAL_URI_AUTHORITY) {
+                            try {
+                                val file = virtualUriToFileMap.remove(uri.toString())
+                                val deleted = if (file != null && file.exists() && file.delete()) 1 else 0
+                                param.result = deleted
+                            } catch (_: Throwable) {
+                                param.result = 0
+                            }
+                            return
+                        }
+                        if (!isMediaStoreUri(uri)) return
+                        try {
+                            val rule = ensureRuleLoadedForPackage(pkg) ?: return
+                            if (rule.mode == IsolationMode.READ_ONLY || rule.mode == IsolationMode.FAKE_EMPTY) {
+                                param.result = 0
+                            }
+                        } catch (_: Throwable) {}
+                    }
+                }
+            )
+        } catch (t: Throwable) {
+            XposedBridge.log("[$TAG] Failed hooking ContentResolver MediaStore: ${t.message}")
+        }
+    }
+
+    /**
+     * LAYER 5: Hook System Photo Picker & Document Picker Intents
+     */
+    private fun hookPhotoPickerAndDocumentIntents(pkg: String) {
         try {
             XposedBridge.hookAllMethods(
                 Activity::class.java,
                 "startActivityForResult",
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (isHandlingHook.get() == true) return
-                        val intent = param.args.firstOrNull { it is Intent } as? Intent ?: return
-                        if (!isExternalPickerIntent(intent, pkg)) return
+                        if (isInternalHookCall.get() == true) return
+                        val intent = param.args.getOrNull(0) as? Intent ?: return
+                        val action = intent.action ?: return
 
-                        isHandlingHook.set(true)
+                        val isPickerAction = action == "android.provider.action.PICK_IMAGES" ||
+                                action == Intent.ACTION_PICK ||
+                                action == Intent.ACTION_GET_CONTENT ||
+                                action == Intent.ACTION_OPEN_DOCUMENT
+
+                        if (!isPickerAction) return
+
+                        isInternalHookCall.set(true)
                         try {
-                            val rule = resolveRuleForPackage(pkg)
-                            if (!rule.isIsolated || rule.mode == IsolationMode.READ_ONLY) return
-                            if (isGalleryWhitelisted(rule)) return
+                            val rule = ensureRuleLoadedForPackage(pkg) ?: return
+                            val sandboxRoot = getAppSandboxRoot(pkg)
+                            intent.putExtra("isovault_isolated_pkg", pkg)
+                            intent.putExtra("isovault_sandbox_path", sandboxRoot.absolutePath)
+                            intent.putExtra("isovault_use_shared", rule.useSharedSpace)
 
-                            val sandboxRoot = getOrCreateSandboxRoot(pkg)
-                            val picturesDir = File(sandboxRoot, "Pictures").apply { mkdirs() }
-                            val initialUri = Uri.fromFile(picturesDir)
-                            intent.putExtra("android.provider.extra.INITIAL_URI", initialUri)
-
-                            XposedBridge.log("[IsoVault] Bound startActivityForResult picker in $pkg to sandbox: ${picturesDir.absolutePath}")
-                        } finally {
-                            isHandlingHook.set(false)
-                        }
-                    }
-                }
-            )
-        } catch (_: Throwable) {}
-
-        // Track user-selected URIs in onActivityResult so the app can read & send them seamlessly
-        try {
-            XposedBridge.hookAllMethods(
-                Activity::class.java,
-                "onActivityResult",
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        val resultCode = param.args.getOrNull(1) as? Int ?: return
-                        val data = param.args.getOrNull(2) as? Intent ?: return
-                        val activity = param.thisObject as? Activity
-
-                        if (resultCode == Activity.RESULT_OK) {
-                            val pickedUris = mutableListOf<Uri>()
-                            data.data?.let { pickedUris.add(it) }
-                            data.clipData?.let { clip ->
-                                for (i in 0 until clip.itemCount) {
-                                    clip.getItemAt(i).uri?.let { pickedUris.add(it) }
-                                }
-                            }
-
-                            for (u in pickedUris) {
-                                val uriString = u.toString()
-                                userAllowedUris[uriString] = true
-                                XposedBridge.log("[IsoVault] User picked file in $pkg: $uriString (allowed)")
-
-                                if (activity != null) {
-                                    auditExecutor.execute {
-                                        try {
-                                            val sandboxRoot = getOrCreateSandboxRoot(pkg)
-                                            val ext = guessExtension(u)
-                                            val picturesDir = File(sandboxRoot, "Pictures").apply { mkdirs() }
-                                            val targetFile = File(picturesDir, "picked_${System.currentTimeMillis()}.$ext")
-                                            activity.contentResolver.openInputStream(u)?.use { input ->
-                                                FileOutputStream(targetFile).use { output ->
-                                                    input.copyTo(output)
-                                                }
-                                            }
-                                            registerSandboxMedia(targetFile)
-                                            virtualUriMap[uriString] = targetFile
-                                            XposedBridge.log("[IsoVault] Cached user-picked file in sandbox: ${targetFile.absolutePath}")
-                                        } catch (_: Throwable) {}
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            )
-        } catch (_: Throwable) {}
-    }
-
-    private fun isExternalPickerIntent(intent: Intent?, pkg: String): Boolean {
-        if (intent == null) return false
-
-        // NEVER intercept in-app activities within the target app itself (e.g. WhatsApp gallery, Snapchat camera roll)
-        val componentPkg = intent.component?.packageName
-        val targetPkg = intent.`package`
-        if (componentPkg == pkg || targetPkg == pkg) {
-            return false
-        }
-
-        val action = intent.action ?: ""
-        if (action == Intent.ACTION_CHOOSER) {
-            @Suppress("DEPRECATION")
-            val target = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
-            if (isExternalPickerIntent(target, pkg)) return true
-        }
-
-        val pickerActions = setOf(
-            Intent.ACTION_PICK,
-            Intent.ACTION_GET_CONTENT,
-            Intent.ACTION_OPEN_DOCUMENT,
-            Intent.ACTION_OPEN_DOCUMENT_TREE,
-            "android.provider.action.PICK_IMAGES",
-            "com.google.android.gms.provider.action.PICK_IMAGES",
-            "androidx.activity.result.contract.action.PICK_IMAGES"
-        )
-        if (action in pickerActions) return true
-
-        val type = intent.type?.lowercase() ?: ""
-        if ((action.contains("PICK", ignoreCase = true) || action.contains("CONTENT", ignoreCase = true)) &&
-            (type.startsWith("image/") || type.startsWith("video/") || type.startsWith("audio/") || type == "*/*")
-        ) {
-            return true
-        }
-
-        val targetPkgLower = (targetPkg ?: componentPkg ?: "").lowercase()
-        if (targetPkgLower.contains("photopicker") ||
-            targetPkgLower.contains("documentsui") ||
-            targetPkgLower.contains("providers.media")
-        ) {
-            return true
-        }
-
-        val dataUri = intent.data
-        if (dataUri != null && isMediaOrExternalDocumentUri(dataUri)) {
-            return true
-        }
-
-        return false
-    }
-
-
-    /**
-     * LAYER 4: Java File Redirection & Virtual Directory Listing.
-     * Creates and lists files in the app's isolated sandbox so the app can create folders,
-     * read/write files, and see its own directory structure seamlessly.
-     */
-    private fun attachFileHooks(
-        lpparam: XC_LoadPackage.LoadPackageParam,
-        pkg: String,
-        initialRule: IsolationRuleManager.AppRule
-    ) {
-        // 1. File(String pathname)
-        try {
-            XposedHelpers.findAndHookConstructor(
-                File::class.java,
-                String::class.java,
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (isHandlingHook.get() == true) return
-                        val path = param.args[0] as? String ?: return
-                        if (shouldInterceptPath(pkg, path)) {
-                            isHandlingHook.set(true)
-                            try {
-                                val redirected = redirectPathForApp(pkg, path, initialRule)
-                                if (redirected != path) {
-                                    param.args[0] = redirected
-                                }
-                            } finally {
-                                isHandlingHook.set(false)
-                            }
-                        }
-                    }
-                }
-            )
-        } catch (_: Throwable) {}
-
-        // 2. File(String parent, String child)
-        try {
-            XposedHelpers.findAndHookConstructor(
-                File::class.java,
-                String::class.java,
-                String::class.java,
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (isHandlingHook.get() == true) return
-                        val parent = param.args[0] as? String ?: return
-                        val child = param.args[1] as? String ?: return
-                        val full = "${parent.trimEnd('/')}/${child.trimStart('/')}"
-                        if (shouldInterceptPath(pkg, full)) {
-                            isHandlingHook.set(true)
-                            try {
-                                val redirected = redirectPathForApp(pkg, full, initialRule)
-                                if (redirected != full) {
-                                    param.args[0] = redirected.substringBeforeLast('/')
-                                    param.args[1] = redirected.substringAfterLast('/')
-                                }
-                            } finally {
-                                isHandlingHook.set(false)
-                            }
-                        }
-                    }
-                }
-            )
-        } catch (_: Throwable) {}
-
-        // 3. File(File parent, String child)
-        try {
-            XposedHelpers.findAndHookConstructor(
-                File::class.java,
-                File::class.java,
-                String::class.java,
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (isHandlingHook.get() == true) return
-                        val parentFile = param.args[0] as? File ?: return
-                        val child = param.args[1] as? String ?: return
-                        isHandlingHook.set(true)
-                        try {
-                            val full = "${parentFile.path.trimEnd('/')}/${child.trimStart('/')}"
-                            if (shouldInterceptPath(pkg, full)) {
-                                val redirected = redirectPathForApp(pkg, full, initialRule)
-                                if (redirected != full) {
-                                    param.args[0] = File(redirected.substringBeforeLast('/'))
-                                    param.args[1] = redirected.substringAfterLast('/')
-                                }
-                            }
-                        } finally {
-                            isHandlingHook.set(false)
-                        }
-                    }
-                }
-            )
-        } catch (_: Throwable) {}
-
-        // 4. File.list() & File.list(FilenameFilter) -> lists isolated sandbox directory
-        val listStringsHook = object : XC_MethodHook() {
-            override fun beforeHookedMethod(param: MethodHookParam) {
-                if (isHandlingHook.get() == true) return
-                val file = param.thisObject as? File ?: return
-                val path = file.path
-                if (shouldInterceptPath(pkg, path)) {
-                    isHandlingHook.set(true)
-                    try {
-                        val rule = resolveRuleForPackage(pkg)
-                        if (rule.isIsolated && !isWhitelisted(path, rule.whitelistedFolders)) {
-                            val relative = IsolationRuleManager.extractRelative(path)
-                            val sandboxDir = File(getOrCreateSandboxRoot(pkg), relative)
-                            if (sandboxDir.exists() && sandboxDir.isDirectory) {
-                                param.result = sandboxDir.list() ?: emptyArray<String>()
-                            } else {
-                                param.result = emptyArray<String>()
-                            }
-                        }
-                    } finally {
-                        isHandlingHook.set(false)
-                    }
-                }
-            }
-        }
-
-        // 5. File.listFiles() -> lists isolated sandbox directory
-        val listFilesHook = object : XC_MethodHook() {
-            override fun beforeHookedMethod(param: MethodHookParam) {
-                if (isHandlingHook.get() == true) return
-                val file = param.thisObject as? File ?: return
-                val path = file.path
-                if (shouldInterceptPath(pkg, path)) {
-                    isHandlingHook.set(true)
-                    try {
-                        val rule = resolveRuleForPackage(pkg)
-                        if (rule.isIsolated && !isWhitelisted(path, rule.whitelistedFolders)) {
-                            val relative = IsolationRuleManager.extractRelative(path)
-                            val sandboxDir = File(getOrCreateSandboxRoot(pkg), relative)
-                            if (sandboxDir.exists() && sandboxDir.isDirectory) {
-                                param.result = sandboxDir.listFiles() ?: emptyArray<File>()
-                            } else {
-                                param.result = emptyArray<File>()
-                            }
-                        }
-                    } finally {
-                        isHandlingHook.set(false)
-                    }
-                }
-            }
-        }
-
-        try {
-            XposedHelpers.findAndHookMethod(File::class.java, "list", listStringsHook)
-            XposedHelpers.findAndHookMethod(File::class.java, "list", FilenameFilter::class.java, listStringsHook)
-            XposedHelpers.findAndHookMethod(File::class.java, "listFiles", listFilesHook)
-            XposedHelpers.findAndHookMethod(File::class.java, "listFiles", FilenameFilter::class.java, listFilesHook)
-            XposedHelpers.findAndHookMethod(File::class.java, "listFiles", FileFilter::class.java, listFilesHook)
-        } catch (_: Throwable) {}
-
-        // 6. File status & existence queries (exists, isDirectory, isFile, length, canRead, canWrite)
-        val fileStatusHook = object : XC_MethodHook() {
-            override fun beforeHookedMethod(param: MethodHookParam) {
-                if (isHandlingHook.get() == true) return
-                val file = param.thisObject as? File ?: return
-                val path = file.path
-                if (shouldInterceptPath(pkg, path)) {
-                    isHandlingHook.set(true)
-                    try {
-                        val rule = resolveRuleForPackage(pkg)
-                        if (rule.isIsolated && !isWhitelisted(path, rule.whitelistedFolders)) {
-                            val relative = IsolationRuleManager.extractRelative(path)
-                            val sandboxFile = File(getOrCreateSandboxRoot(pkg), relative)
-                            when (param.method.name) {
-                                "exists" -> param.result = sandboxFile.exists()
-                                "isDirectory" -> param.result = sandboxFile.isDirectory
-                                "isFile" -> param.result = sandboxFile.isFile
-                                "length" -> param.result = if (sandboxFile.exists()) sandboxFile.length() else 0L
-                                "canRead" -> param.result = sandboxFile.canRead()
-                                "canWrite" -> param.result = true
-                            }
-                        }
-                    } finally {
-                        isHandlingHook.set(false)
-                    }
-                }
-            }
-        }
-
-        try {
-            for (m in listOf("exists", "isDirectory", "isFile", "length", "canRead", "canWrite")) {
-                XposedHelpers.findAndHookMethod(File::class.java, m, fileStatusHook)
-            }
-        } catch (_: Throwable) {}
-
-        // 7. BitmapFactory.decodeFile
-        try {
-            XposedBridge.hookAllMethods(
-                BitmapFactory::class.java,
-                "decodeFile",
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (isHandlingHook.get() == true) return
-                        val path = param.args.firstOrNull() as? String ?: return
-                        if (shouldInterceptPath(pkg, path)) {
-                            isHandlingHook.set(true)
-                            try {
-                                val redirected = redirectPathForApp(pkg, path, initialRule)
-                                if (redirected != path) {
-                                    param.args[0] = redirected
-                                }
-                            } finally {
-                                isHandlingHook.set(false)
-                            }
-                        }
-                    }
-                }
-            )
-        } catch (_: Throwable) {}
-    }
-
-    /**
-     * LAYER 5: Low-Level OS & libcore.io Bridge Hooks.
-     */
-    private fun attachLowLevelOsHooks(
-        lpparam: XC_LoadPackage.LoadPackageParam,
-        pkg: String,
-        initialRule: IsolationRuleManager.AppRule
-    ) {
-        val osPathRedirectHook = object : XC_MethodHook() {
-            override fun beforeHookedMethod(param: MethodHookParam) {
-                if (isHandlingHook.get() == true) return
-                val path = param.args.firstOrNull() as? String ?: return
-                if (shouldInterceptPath(pkg, path)) {
-                    isHandlingHook.set(true)
-                    try {
-                        val redirected = redirectPathForApp(pkg, path, initialRule)
-                        if (redirected != path) {
-                            param.args[0] = redirected
-                        }
-                    } finally {
-                        isHandlingHook.set(false)
-                    }
-                }
-            }
-        }
-
-        try {
-            val ioBridgeClass = XposedHelpers.findClass("libcore.io.IoBridge", null)
-            XposedBridge.hookAllMethods(ioBridgeClass, "open", osPathRedirectHook)
-        } catch (_: Throwable) {}
-
-        try {
-            val blockGuardOsClass = XposedHelpers.findClass("libcore.io.BlockGuardOs", null)
-            for (method in listOf("open", "stat", "lstat", "access", "opendir")) {
-                XposedBridge.hookAllMethods(blockGuardOsClass, method, osPathRedirectHook)
-            }
-        } catch (_: Throwable) {}
-    }
-
-    /**
-     * Environment external storage getters redirection.
-     */
-    private fun attachEnvironmentHooks(
-        lpparam: XC_LoadPackage.LoadPackageParam,
-        pkg: String,
-        initialRule: IsolationRuleManager.AppRule
-    ) {
-        try {
-            XposedHelpers.findAndHookMethod(
-                "android.os.Environment",
-                lpparam.classLoader,
-                "getExternalStorageDirectory",
-                object : XC_MethodHook() {
-                    override fun afterHookedMethod(param: MethodHookParam) {
-                        if (isHandlingHook.get() == true) return
-                        isHandlingHook.set(true)
-                        try {
-                            val sandboxRoot = getOrCreateSandboxRoot(pkg)
-                            param.result = sandboxRoot
-                            reportAuditToManager(
+                            reportAuditAsync(
                                 pkg = pkg,
-                                requestedPath = "/storage/emulated/0",
+                                originalPath = "Intent($action)",
                                 resolvedPath = sandboxRoot.absolutePath,
-                                action = if (initialRule.mode == IsolationMode.ENCRYPTED_VAULT) AuditAction.ENCRYPTED else AuditAction.REDIRECTED,
-                                operation = "GET_EXT_STORAGE",
-                                details = "Redirected root external storage to isolated sandbox"
+                                action = AuditAction.REDIRECTED,
+                                details = "Intercepted picker intent ($action) -> scoped to volume"
                             )
+                        } catch (_: Throwable) {
                         } finally {
-                            isHandlingHook.set(false)
+                            isInternalHookCall.set(false)
                         }
                     }
                 }
             )
-        } catch (_: Throwable) {}
+        } catch (t: Throwable) {
+            XposedBridge.log("[$TAG] Picker intent hook warning: ${t.message}")
+        }
+    }
+
+    /**
+     * Filters an existing MediaStore cursor so the hooked app ONLY sees rows belonging to its own
+     * isolated sandbox, PLUS rows from the Shared Space volume if `sharedRoot != null` (`useSharedSpace == true`).
+     * If the cursor is empty, populates virtual rows from the app's volume (and Shared Space if opted in).
+     */
+    private fun filterCursorForApp(
+        original: Cursor,
+        pkg: String,
+        sandboxRoot: File,
+        sharedRoot: File?
+    ): Cursor {
+        val columnNames = original.columnNames
+        val matrix = MatrixCursor(columnNames)
+        val dataIdx = original.getColumnIndex(MediaStore.MediaColumns.DATA)
+        val pkgIdx = original.getColumnIndex("owner_package_name")
 
         try {
-            XposedHelpers.findAndHookMethod(
-                "android.os.Environment",
-                lpparam.classLoader,
-                "getExternalStoragePublicDirectory",
-                String::class.java,
-                object : XC_MethodHook() {
-                    override fun afterHookedMethod(param: MethodHookParam) {
-                        if (isHandlingHook.get() == true) return
-                        val type = param.args[0] as? String ?: "Files"
-                        isHandlingHook.set(true)
-                        try {
-                            val rule = resolveRuleForPackage(pkg)
-                            if (isWhitelisted(type, rule.whitelistedFolders)) return
-                            val sandboxSubDir = File(getOrCreateSandboxRoot(pkg), type)
-                            sandboxSubDir.mkdirs()
-                            param.result = sandboxSubDir
-                            reportAuditToManager(
-                                pkg = pkg,
-                                requestedPath = "/storage/emulated/0/$type",
-                                resolvedPath = sandboxSubDir.absolutePath,
-                                action = if (rule.mode == IsolationMode.ENCRYPTED_VAULT) AuditAction.ENCRYPTED else AuditAction.REDIRECTED,
-                                operation = "GET_PUBLIC_DIR",
-                                details = "Redirected public directory ($type) to isolated vault"
-                            )
-                        } finally {
-                            isHandlingHook.set(false)
+            if (original.moveToFirst()) {
+                do {
+                    val dataPath = if (dataIdx >= 0) original.getString(dataIdx) ?: "" else ""
+                    val ownerPkg = if (pkgIdx >= 0) original.getString(pkgIdx) ?: "" else ""
+
+                    val belongsToAppSandbox = dataPath.contains(pkg) ||
+                            dataPath.startsWith(sandboxRoot.absolutePath) ||
+                            ownerPkg == pkg
+
+                    val belongsToSharedSpace = sharedRoot != null && (
+                        dataPath.startsWith(sharedRoot.absolutePath) ||
+                            dataPath.contains("/${IsolationRuleManager.SHARED_VOLUME_ID}/")
+                        )
+
+                    if (belongsToAppSandbox || belongsToSharedSpace) {
+                        val row = Array<Any?>(columnNames.size) { col ->
+                            when (original.getType(col)) {
+                                Cursor.FIELD_TYPE_INTEGER -> original.getLong(col)
+                                Cursor.FIELD_TYPE_FLOAT -> original.getDouble(col)
+                                Cursor.FIELD_TYPE_STRING -> original.getString(col)
+                                Cursor.FIELD_TYPE_BLOB -> original.getBlob(col)
+                                else -> null
+                            }
+                        }
+                        matrix.addRow(row)
+                    }
+                } while (original.moveToNext())
+            }
+        } catch (_: Throwable) {}
+
+        // Also append files stored inside the app's volume and (if enabled) Shared Space volume
+        if (matrix.count == 0) {
+            return buildVirtualMediaStoreCursor(sandboxRoot, sharedRoot, columnNames)
+        }
+        return matrix
+    }
+
+    /**
+     * Builds a virtual MediaStore cursor scanning the app's private volume directory
+     * AND (when `sharedRoot != null`) the Shared Space volume directory.
+     */
+    private fun buildVirtualMediaStoreCursor(
+        sandboxRoot: File,
+        sharedRoot: File? = null,
+        requestedColumns: Array<String>? = null
+    ): Cursor {
+        val columns = requestedColumns ?: arrayOf(
+            MediaStore.MediaColumns._ID,
+            MediaStore.MediaColumns.DISPLAY_NAME,
+            MediaStore.MediaColumns.DATA,
+            MediaStore.MediaColumns.SIZE,
+            MediaStore.MediaColumns.DATE_MODIFIED,
+            MediaStore.MediaColumns.MIME_TYPE
+        )
+        val cursor = MatrixCursor(columns)
+        var nextId = 1000L
+
+        val rootsToScan = buildList {
+            if (sandboxRoot.exists()) add(sandboxRoot)
+            if (sharedRoot != null && sharedRoot.exists()) add(sharedRoot)
+        }
+
+        for (root in rootsToScan) {
+            root.walkTopDown().maxDepth(6).forEach { file ->
+                if (file.isFile && file.name != ".nomedia" && !file.name.startsWith(".seeded")) {
+                    val cleanName = file.name.removeSuffix(".isovault")
+                    val row = Array<Any?>(columns.size) { idx ->
+                        when (columns[idx]) {
+                            MediaStore.MediaColumns._ID -> nextId++
+                            MediaStore.MediaColumns.DISPLAY_NAME -> cleanName
+                            MediaStore.MediaColumns.DATA -> file.absolutePath
+                            MediaStore.MediaColumns.SIZE -> file.length()
+                            MediaStore.MediaColumns.DATE_MODIFIED -> file.lastModified() / 1000L
+                            MediaStore.MediaColumns.MIME_TYPE -> guessMimeType(cleanName)
+                            else -> null
                         }
                     }
+                    cursor.addRow(row)
                 }
-            )
-        } catch (_: Throwable) {}
-    }
-
-    private fun shouldInterceptPath(pkg: String, path: String): Boolean {
-        val norm = path.replace("\\", "/")
-        if (!norm.startsWith("/storage/emulated/0") &&
-            !norm.startsWith("/sdcard") &&
-            !norm.startsWith("/mnt/sdcard") &&
-            !norm.startsWith("/storage/self/primary")
-        ) {
-            return false
-        }
-        if (norm.contains("/IsoVault_Sandbox") ||
-            norm.contains("/.IsoVault/") ||
-            (pkg.isNotBlank() && norm.contains("/Android/data/$pkg"))
-        ) {
-            return false
-        }
-        return true
-    }
-
-    private fun isWhitelisted(path: String, whitelistedFolders: Set<String>): Boolean {
-        for (wf in whitelistedFolders) {
-            if (wf.isNotBlank() && path.contains("/$wf", ignoreCase = true)) {
-                return true
             }
         }
-        return false
+        return cursor
     }
 
-    private fun getOrCreateSandboxRoot(pkg: String): File {
-        // Priority 1: Persistent external vault root in /storage/emulated/0/.IsoVault/sandboxes/$pkg
-        // This ensures photos, videos, and user documents survive even if the hooked app or IsoVault is uninstalled!
-        val persistentExternal = File("/storage/emulated/0/.IsoVault/sandboxes/$pkg")
-        val isPersistentAvailable = try {
-            (persistentExternal.exists() || persistentExternal.mkdirs()) && persistentExternal.canWrite()
-        } catch (_: Throwable) { false }
-
-        val sandbox = if (isPersistentAvailable) {
-            try {
-                val nomedia = File("/storage/emulated/0/.IsoVault/.nomedia")
-                if (!nomedia.exists()) nomedia.createNewFile()
-            } catch (_: Throwable) {}
-            persistentExternal
-        } else {
-            // Priority 2: Standard Android media sandbox
-            val mediaSandbox = File("/storage/emulated/0/Android/media/$pkg/IsoVault_Sandbox")
-            val isMediaAvailable = try {
-                (mediaSandbox.exists() || mediaSandbox.mkdirs()) && mediaSandbox.canWrite()
-            } catch (_: Throwable) { false }
-
-            if (isMediaAvailable) {
-                mediaSandbox
-            } else {
-                // Priority 3: Internal app files fallback
-                val internal = try {
-                    val app = AndroidAppHelper.currentApplication()
-                    if (app != null) File(app.filesDir, "IsoVault_Sandbox") else null
-                } catch (_: Throwable) { null } ?: File("/data/user/0/$pkg/files/IsoVault_Sandbox")
-                try { internal.mkdirs() } catch (_: Throwable) {}
-                internal
-            }
-        }
-
-        // Pre-create standard storage hierarchy so the app finds a real Android filesystem layout
-        val subDirs = listOf(
-            "DCIM",
-            "DCIM/Camera",
-            "Pictures",
-            "Pictures/WhatsApp",
-            "Pictures/Snapchat",
-            "Movies",
-            "Download",
-            "Documents",
-            "Music",
-            "Android/media/$pkg"
-        )
-        for (sub in subDirs) {
-            try { File(sandbox, sub).mkdirs() } catch (_: Throwable) {}
-        }
-        return sandbox
+    private fun shouldInspectPath(path: String): Boolean {
+        return path.startsWith("/storage/emulated/0") ||
+                path.startsWith("/sdcard") ||
+                path.startsWith("/mnt/sdcard")
     }
 
-    private fun redirectPathForApp(
-        pkg: String,
-        originalPath: String,
-        fallbackRule: IsolationRuleManager.AppRule
-    ): String {
-        val rule = resolveRuleForPackage(pkg)
-        if (!rule.isIsolated) return originalPath
-
-        val norm = originalPath.replace("\\", "/")
-        if (isWhitelisted(norm, rule.whitelistedFolders)) {
-            return originalPath
-        }
-
-        if (rule.blockRootPollution && IsolationRuleManager.isRootPollution(norm)) {
-            reportAuditToManager(
-                pkg = pkg,
-                requestedPath = originalPath,
-                resolvedPath = "/dev/null",
-                action = AuditAction.BLOCKED,
-                operation = "BLOCK_POLLUTION",
-                details = "Blocked root storage pollution folder"
-            )
-            return "/dev/null"
-        }
-
-        val relative = IsolationRuleManager.extractRelative(norm)
-        val sandboxRoot = getOrCreateSandboxRoot(pkg)
-        val targetFile = File(sandboxRoot, relative)
-        try { targetFile.parentFile?.mkdirs() } catch (_: Throwable) {}
-
-        val action = when (rule.mode) {
-            IsolationMode.ENCRYPTED_VAULT -> AuditAction.ENCRYPTED
-            IsolationMode.SANDBOX_REDIRECT -> AuditAction.REDIRECTED
-            IsolationMode.FAKE_EMPTY -> AuditAction.SPOOFED_EMPTY
-            IsolationMode.READ_ONLY -> AuditAction.BLOCKED
-        }
-
-        reportAuditToManager(
-            pkg = pkg,
-            requestedPath = originalPath,
-            resolvedPath = targetFile.absolutePath,
-            action = action,
-            operation = "FILE_REDIRECT",
-            details = "Redirected to isolated container (${rule.mode.badge})"
-        )
-
-        return targetFile.absolutePath
+    private fun isMediaStoreUri(uri: Uri): Boolean {
+        val auth = uri.authority ?: return false
+        return auth == MediaStore.AUTHORITY || auth.contains("media")
     }
 
-    private fun reportAuditToManager(
-        pkg: String,
-        requestedPath: String,
-        resolvedPath: String,
-        action: AuditAction,
-        operation: String,
-        details: String
-    ) {
-        val key = "$pkg|$operation|$requestedPath"
-        val now = System.currentTimeMillis()
-        val lastTime = recentAuditCache[key] ?: 0L
-        if (now - lastTime < 3500L) return
-        recentAuditCache[key] = now
-
-        auditExecutor.execute {
-            try {
-                val app = AndroidAppHelper.currentApplication() ?: return@execute
-                val extras = Bundle().apply {
-                    putString("requestedPath", requestedPath)
-                    putString("resolvedPath", resolvedPath)
-                    putString("action", action.name)
-                    putString("operation", operation)
-                    putString("details", details)
-                }
-                app.contentResolver.call(
-                    Uri.parse(PROVIDER_URI),
-                    "record_audit",
-                    pkg,
-                    extras
-                )
-            } catch (_: Throwable) {}
+    private fun guessMimeType(name: String): String {
+        val lower = name.lowercase()
+        return when {
+            lower.endsWith(".jpg") || lower.endsWith(".jpeg") -> "image/jpeg"
+            lower.endsWith(".png") -> "image/png"
+            lower.endsWith(".webp") -> "image/webp"
+            lower.endsWith(".mp4") -> "video/mp4"
+            lower.endsWith(".mp3") -> "audio/mpeg"
+            lower.endsWith(".pdf") -> "application/pdf"
+            else -> "application/octet-stream"
         }
     }
 }
