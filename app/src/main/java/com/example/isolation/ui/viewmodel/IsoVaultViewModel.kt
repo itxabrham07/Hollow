@@ -8,9 +8,9 @@ import com.example.isolation.crypto.AesVaultCipher
 import com.example.isolation.data.entity.AccessAuditLog
 import com.example.isolation.data.entity.AppIsolationConfig
 import com.example.isolation.data.entity.VaultFileItem
-import com.example.isolation.hook.StorageIsolationHook
 import com.example.isolation.model.AuditAction
 import com.example.isolation.model.IsolationMode
+import com.example.isolation.model.IsolationRuleManager
 import com.example.isolation.mount.MountEntry
 import com.example.isolation.mount.MountExecutionResult
 import com.example.isolation.mount.MountManager
@@ -67,7 +67,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
     private val _selinuxStatus = MutableStateFlow("Enforcing (Android 15)")
     val selinuxStatus = _selinuxStatus.asStateFlow()
 
-    private val _isLsposedActive = MutableStateFlow(StorageIsolationHook.isModuleHookActive)
+    private val _isLsposedActive = MutableStateFlow(com.example.MainActivity.isLsposedModuleActiveReal())
     val isLsposedActive = _isLsposedActive.asStateFlow()
 
     private val _terminalLogs = MutableStateFlow<List<String>>(
@@ -156,7 +156,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             _systemMounts.value = MountManager.readSystemMounts()
             _selinuxStatus.value = MountManager.getSelinuxStatus()
             val isReal = com.example.MainActivity.isLsposedModuleActiveReal()
-            _isLsposedActive.value = if (isReal) true else StorageIsolationHook.isModuleHookActive
+            _isLsposedActive.value = if (isReal) true else IsolationRuleManager.isSimulatedHookActive
         }
     }
 
@@ -172,7 +172,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             dao.insertOrUpdateConfig(updated)
 
             if (enable) {
-                StorageIsolationHook.updateRule(
+                IsolationRuleManager.updateRule(
                     packageName = updated.packageName,
                     mode = updated.isolationMode,
                     blockRootPollution = updated.blockRootPollution,
@@ -181,7 +181,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 appendTerminalLog("[IsoVault] Isolation ENABLED for ${appInfo.appName} (${updated.isolationMode.badge})")
                 _statusMessage.value = "${appInfo.appName} is now isolated with ${updated.isolationMode.title}."
             } else {
-                StorageIsolationHook.removeRule(updated.packageName)
+                IsolationRuleManager.removeRule(updated.packageName)
                 appendTerminalLog("[IsoVault] Isolation DISABLED for ${appInfo.appName}")
                 _statusMessage.value = "Storage isolation disabled for ${appInfo.appName}."
             }
@@ -196,7 +196,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             if (existing != null) {
                 val updated = existing.copy(isolationMode = newMode)
                 dao.insertOrUpdateConfig(updated)
-                StorageIsolationHook.updateRule(
+                IsolationRuleManager.updateRule(
                     packageName = updated.packageName,
                     mode = updated.isolationMode,
                     blockRootPollution = updated.blockRootPollution,
@@ -214,7 +214,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             if (existing != null) {
                 val updated = existing.copy(blockRootPollution = block)
                 dao.insertOrUpdateConfig(updated)
-                StorageIsolationHook.updateRule(
+                IsolationRuleManager.updateRule(
                     packageName = updated.packageName,
                     mode = updated.isolationMode,
                     blockRootPollution = block,
@@ -230,7 +230,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             if (existing != null) {
                 val updated = existing.copy(whitelistedFolders = folders)
                 dao.insertOrUpdateConfig(updated)
-                StorageIsolationHook.updateRule(
+                IsolationRuleManager.updateRule(
                     packageName = updated.packageName,
                     mode = updated.isolationMode,
                     blockRootPollution = updated.blockRootPollution,
@@ -252,7 +252,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             baseVaultDir.mkdirs()
 
             // Run through hook resolver
-            val result = StorageIsolationHook.resolvePath(
+            val result = IsolationRuleManager.resolvePath(
                 packageName = packageName,
                 requestedPath = testPath,
                 isWriteOperation = true,
@@ -381,8 +381,8 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun toggleLsposedStatus() {
-        val next = !StorageIsolationHook.isModuleHookActive
-        StorageIsolationHook.isModuleHookActive = next
+        val next = !IsolationRuleManager.isSimulatedHookActive
+        IsolationRuleManager.isSimulatedHookActive = next
         _isLsposedActive.value = next
         appendTerminalLog("[LSPosed Framework] Module hook status toggled to: ${if (next) "ACTIVE" else "INACTIVE"}")
     }

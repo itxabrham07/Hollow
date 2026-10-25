@@ -1,8 +1,7 @@
 package com.example.isolation.hook
 
 import android.util.Log
-import com.example.isolation.model.AuditAction
-import com.example.isolation.model.IsolationMode
+import com.example.isolation.model.IsolationRuleManager
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.IXposedHookZygoteInit
 import de.robv.android.xposed.XC_MethodHook
@@ -12,164 +11,17 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage
 import java.io.File
 
 /**
- * IsoVault Official LSPosed Module Hook Implementation
- * Excluded from APK (compileOnly) to prevent classloader collisions.
+ * IsoVault Official LSPosed Module Hook Implementation.
+ * Loaded ONLY by LSPosed runtime via assets/xposed_init.
  */
 class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
 
     companion object {
         const val TAG = "IsoVaultHook"
-        const val HOOK_VERSION = "2.5.3-android15"
         const val MODULE_PKG = "com.aistudio.isovault.xrvf"
-
-        // In-memory runtime tracking for in-app tests
-        @Volatile
-        var isModuleHookActive: Boolean = false
-
-        // Listener for in-app live ticker
-        var onAccessIntercepted: ((packageName: String, path: String, action: AuditAction, details: String) -> Unit)? = null
-
-        // In-memory map of isolated apps
-        val localRules = mutableMapOf<String, AppRule>()
-
-        data class AppRule(
-            val packageName: String,
-            val isIsolated: Boolean,
-            val mode: IsolationMode,
-            val blockRootPollution: Boolean,
-            val whitelistedFolders: Set<String>
-        )
-
-        init {
-            // Default target rule for Snapchat so it hooks immediately out of the box
-            updateRule("com.snapchat.android", IsolationMode.ENCRYPTED_VAULT, true, setOf("Download"))
-        }
-
-        fun updateRule(
-            packageName: String,
-            mode: IsolationMode,
-            blockRootPollution: Boolean = true,
-            whitelistedFolders: Set<String> = setOf("Download")
-        ) {
-            localRules[packageName] = AppRule(
-                packageName = packageName,
-                isIsolated = true,
-                mode = mode,
-                blockRootPollution = blockRootPollution,
-                whitelistedFolders = whitelistedFolders
-            )
-            writeRuleToFile(packageName, true, mode.name)
-        }
-
-        fun removeRule(packageName: String) {
-            localRules.remove(packageName)
-            writeRuleToFile(packageName, false, "NONE")
-        }
-
-        fun isPackageIsolated(packageName: String): Boolean {
-            val rule = localRules[packageName]
-            if (rule != null) return rule.isIsolated
-            return checkRuleFile(packageName)
-        }
-
-        private fun writeRuleToFile(pkg: String, isolated: Boolean, mode: String) {
-            try {
-                val dir = File("/data/local/tmp")
-                if (dir.exists() && dir.canWrite()) {
-                    val file = File(dir, "isovault_$pkg.rule")
-                    file.writeText("$isolated|$mode")
-                }
-            } catch (_: Exception) {}
-        }
-
-        private fun checkRuleFile(pkg: String): Boolean {
-            return try {
-                val file = File("/data/local/tmp/isovault_$pkg.rule")
-                if (file.exists() && file.canRead()) {
-                    file.readText().trim().startsWith("true")
-                } else false
-            } catch (_: Exception) {
-                false
-            }
-        }
-
-        fun resolvePath(
-            packageName: String,
-            requestedPath: String,
-            isWriteOperation: Boolean = false,
-            baseAppVaultDir: File? = null
-        ): PathResolutionResult {
-            val rule = localRules[packageName]
-                ?: return PathResolutionResult(requestedPath, requestedPath, AuditAction.PERMITTED, "Not isolated")
-
-            val normalized = requestedPath.replace("\\", "/")
-
-            if (rule.blockRootPollution && isRootPollution(normalized)) {
-                onAccessIntercepted?.invoke(packageName, requestedPath, AuditAction.BLOCKED, "Blocked root pollution folder")
-                return PathResolutionResult(requestedPath, "/dev/null", AuditAction.BLOCKED, "Root pollution blocked")
-            }
-
-            for (wf in rule.whitelistedFolders) {
-                if (normalized.contains("/$wf", ignoreCase = true)) {
-                    onAccessIntercepted?.invoke(packageName, requestedPath, AuditAction.PERMITTED, "Whitelisted folder")
-                    return PathResolutionResult(requestedPath, requestedPath, AuditAction.PERMITTED, "Whitelisted folder")
-                }
-            }
-
-            val targetBase = baseAppVaultDir?.absolutePath ?: "/data/data/$packageName/isolated_storage"
-            val relative = extractRelative(normalized)
-
-            return when (rule.mode) {
-                IsolationMode.ENCRYPTED_VAULT -> {
-                    val encPath = "$targetBase/$relative.isovault"
-                    onAccessIntercepted?.invoke(packageName, requestedPath, AuditAction.ENCRYPTED, "Encrypted vault redirection")
-                    PathResolutionResult(requestedPath, encPath, AuditAction.ENCRYPTED, "AES-256 vault container")
-                }
-                IsolationMode.SANDBOX_REDIRECT -> {
-                    val sandPath = "$targetBase/$relative"
-                    onAccessIntercepted?.invoke(packageName, requestedPath, AuditAction.REDIRECTED, "Sandbox redirection")
-                    PathResolutionResult(requestedPath, sandPath, AuditAction.REDIRECTED, "Isolated sandbox container")
-                }
-                IsolationMode.FAKE_EMPTY -> {
-                    onAccessIntercepted?.invoke(packageName, requestedPath, AuditAction.SPOOFED_EMPTY, "Empty storage spoofed")
-                    PathResolutionResult(requestedPath, "/data/local/tmp/isovault_empty_dummy", AuditAction.SPOOFED_EMPTY, "Empty spoof")
-                }
-                IsolationMode.READ_ONLY -> {
-                    if (isWriteOperation) {
-                        onAccessIntercepted?.invoke(packageName, requestedPath, AuditAction.BLOCKED, "Write blocked in Read-Only mode")
-                        PathResolutionResult(requestedPath, "/dev/null", AuditAction.BLOCKED, "Read-only blocked")
-                    } else {
-                        PathResolutionResult(requestedPath, requestedPath, AuditAction.PERMITTED, "Read allowed")
-                    }
-                }
-            }
-        }
-
-        private fun isRootPollution(path: String): Boolean {
-            val patterns = listOf("/.tencent", "/.baidu", "/.pdd", "/.snssdk", "/.amap", "/.alipay")
-            return patterns.any { path.contains(it, ignoreCase = true) }
-        }
-
-        private fun extractRelative(path: String): String {
-            val p1 = "/storage/emulated/0/"
-            val p2 = "/sdcard/"
-            return when {
-                path.startsWith(p1) -> path.removePrefix(p1)
-                path.startsWith(p2) -> path.removePrefix(p2)
-                else -> path.trimStart('/')
-            }
-        }
     }
 
-    data class PathResolutionResult(
-        val originalPath: String,
-        val resolvedPath: String,
-        val action: AuditAction,
-        val details: String
-    )
-
     override fun initZygote(startupParam: IXposedHookZygoteInit.StartupParam?) {
-        isModuleHookActive = true
         Log.i(TAG, "[IsoVault] Zygote initialized successfully on Android 15 runtime.")
         XposedBridge.log("[IsoVault] Zygote initialized. Storage Isolation Module active.")
     }
@@ -198,7 +50,7 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
         }
 
         // 2. Check if this package should be isolated (Snapchat is enabled by default)
-        val shouldIsolate = isPackageIsolated(pkg) || pkg == "com.snapchat.android"
+        val shouldIsolate = IsolationRuleManager.isPackageIsolated(pkg) || pkg == "com.snapchat.android"
         if (!shouldIsolate) return
 
         XposedBridge.log("[IsoVault] Attaching storage isolation to: $pkg")
@@ -248,7 +100,7 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
                         val full = "$parent/$child"
                         if (shouldRedirect(full)) {
                             param.args[0] = getRedirectedBase(pkg)
-                            param.args[1] = extractRelative(full)
+                            param.args[1] = IsolationRuleManager.extractRelative(full)
                         }
                     }
                 }
@@ -311,7 +163,7 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
     }
 
     private fun getRedirectedPath(pkg: String, originalPath: String): String {
-        val rel = extractRelative(originalPath)
+        val rel = IsolationRuleManager.extractRelative(originalPath)
         val isolatedDir = File("/data/data/$pkg/isolated_storage")
         try { isolatedDir.mkdirs() } catch (_: Exception) {}
         return File(isolatedDir, rel).absolutePath

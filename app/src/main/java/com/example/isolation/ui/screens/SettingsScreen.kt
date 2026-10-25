@@ -50,7 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.isolation.crypto.AesVaultCipher
-import com.example.isolation.hook.StorageIsolationHook
+import com.example.isolation.model.IsolationRuleManager
 import com.example.isolation.ui.components.StatusBadge
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
 import com.example.ui.theme.CyberAmber
@@ -251,7 +251,7 @@ fun SettingsScreen(
                     FeatureRow(title = "Target OS Support", value = "Android 15 (API 35/36)")
                     FeatureRow(title = "Mount Namespace Mode", value = "CLONE_NEWNS (Isolated)")
                     FeatureRow(title = "Cipher Engine", value = "AES-256-GCM Authenticated")
-                    FeatureRow(title = "Hook Framework", value = StorageIsolationHook.HOOK_VERSION)
+                    FeatureRow(title = "Hook Framework", value = IsolationRuleManager.HOOK_VERSION)
                     FeatureRow(title = "Root Pollution Blocker", value = "Active (.tencent, .baidu, .pdd)")
                 }
             }

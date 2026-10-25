@@ -6,9 +6,9 @@ import com.example.isolation.data.IsoVaultDatabase
 import com.example.isolation.data.entity.AccessAuditLog
 import com.example.isolation.data.entity.AppIsolationConfig
 import com.example.isolation.data.entity.VaultFileItem
-import com.example.isolation.hook.StorageIsolationHook
 import com.example.isolation.model.AuditAction
 import com.example.isolation.model.IsolationMode
+import com.example.isolation.model.IsolationRuleManager
 import com.example.isolation.pkg.AppPackageRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,7 +29,7 @@ class IsoVaultApp : Application() {
         instance = this
 
         // Connect hook interception engine to database audit logger
-        StorageIsolationHook.onAccessIntercepted = { pkg, path, action, details ->
+        IsolationRuleManager.onAccessIntercepted = { pkg, path, action, details ->
             applicationScope.launch {
                 try {
                     val config = database.isolationDao().getConfigForPackage(pkg)
@@ -88,10 +88,10 @@ class IsoVaultApp : Application() {
             )
             dao.insertConfigs(initial)
 
-            // Register rule in hook
+            // Register rule in rule manager
             for (cfg in initial) {
                 if (cfg.isIsolated) {
-                    StorageIsolationHook.updateRule(
+                    IsolationRuleManager.updateRule(
                         packageName = cfg.packageName,
                         mode = cfg.isolationMode,
                         blockRootPollution = cfg.blockRootPollution,
@@ -100,10 +100,10 @@ class IsoVaultApp : Application() {
                 }
             }
         } else {
-            // Re-sync active rules to hook
+            // Re-sync active rules to rule manager
             for (cfg in existingConfigs) {
                 if (cfg.isIsolated) {
-                    StorageIsolationHook.updateRule(
+                    IsolationRuleManager.updateRule(
                         packageName = cfg.packageName,
                         mode = cfg.isolationMode,
                         blockRootPollution = cfg.blockRootPollution,

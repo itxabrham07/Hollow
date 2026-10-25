@@ -1,9 +1,9 @@
 package com.example
 
 import com.example.isolation.crypto.AesVaultCipher
-import com.example.isolation.hook.StorageIsolationHook
 import com.example.isolation.model.AuditAction
 import com.example.isolation.model.IsolationMode
+import com.example.isolation.model.IsolationRuleManager
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -26,9 +26,9 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun testStorageIsolationHookPathResolution() {
+    fun testStorageIsolationPathResolution() {
         val testPkg = "com.test.isolated.app"
-        StorageIsolationHook.updateRule(
+        IsolationRuleManager.updateRule(
             packageName = testPkg,
             mode = IsolationMode.ENCRYPTED_VAULT,
             blockRootPollution = true,
@@ -36,14 +36,14 @@ class ExampleUnitTest {
         )
 
         // Test root pollution block
-        val rootPollution = StorageIsolationHook.resolvePath(
+        val rootPollution = IsolationRuleManager.resolvePath(
             packageName = testPkg,
             requestedPath = "/sdcard/.tencent/ad_tracker"
         )
         assertEquals(AuditAction.BLOCKED, rootPollution.action)
 
         // Test normal storage file redirection to encrypted vault
-        val normalAccess = StorageIsolationHook.resolvePath(
+        val normalAccess = IsolationRuleManager.resolvePath(
             packageName = testPkg,
             requestedPath = "/storage/emulated/0/DCIM/Photo.jpg"
         )
@@ -51,7 +51,7 @@ class ExampleUnitTest {
         assertTrue(normalAccess.resolvedPath.endsWith(".isovault"))
 
         // Test whitelisted folder
-        val whitelisted = StorageIsolationHook.resolvePath(
+        val whitelisted = IsolationRuleManager.resolvePath(
             packageName = testPkg,
             requestedPath = "/storage/emulated/0/Download/Document.pdf"
         )
