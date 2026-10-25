@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.isolation.model.AuditAction
 import com.example.isolation.ui.components.AuditActionBadge
+import com.example.isolation.ui.components.friendlyPathSummary
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
 import com.example.ui.theme.CoralError
 import com.example.ui.theme.ForestPrimary

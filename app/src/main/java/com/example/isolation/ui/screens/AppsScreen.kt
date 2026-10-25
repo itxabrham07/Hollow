@@ -1,8 +1,9 @@
 package com.example.isolation.ui.screens
 
-import android.graphics.drawable.BitmapDrawable
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,18 +17,24 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -35,18 +42,15 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -58,547 +62,739 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.isolation.data.entity.AppIsolationConfig
 import com.example.isolation.model.IsolationMode
 import com.example.isolation.pkg.InstalledAppInfo
-import com.example.isolation.ui.components.ModeBadge
-import com.example.isolation.ui.components.StatusBadge
-import com.example.isolation.ui.viewmodel.AppListFilter
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
-import com.example.ui.theme.ClaySecondary
-import com.example.ui.theme.CoralError
-import com.example.ui.theme.ForestPrimary
-import com.example.ui.theme.FrauncesFontFamily
-import com.example.ui.theme.HoneyTertiary
-import com.example.ui.theme.InkPrimary
-import com.example.ui.theme.InkSecondary
+import com.example.ui.theme.AccentAmber
+import com.example.ui.theme.AccentCoral
+import com.example.ui.theme.AccentLavender
+import com.example.ui.theme.AccentMint
+import com.example.ui.theme.AccentSky
+import com.example.ui.theme.DarkBackground
+import com.example.ui.theme.DarkBorder
+import com.example.ui.theme.DarkBorderSubtle
+import com.example.ui.theme.DarkSurfaceCard
+import com.example.ui.theme.DarkSurfaceElevated
 import com.example.ui.theme.JakartaFontFamily
-import com.example.ui.theme.SageSoft
-import com.example.ui.theme.SageTint
-import com.example.ui.theme.WarmIvory
-import com.example.ui.theme.WarmSand
-import com.example.ui.theme.WarmStone
+import com.example.ui.theme.TextMuted
+import com.example.ui.theme.TextSubtle
+import com.example.ui.theme.TextWhite
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppsScreen(
-    viewModel: IsoVaultViewModel
+    viewModel: IsoVaultViewModel,
+    onOpenExplorerForPackage: ((String) -> Unit)? = null
 ) {
-    val filteredApps by viewModel.filteredApps.collectAsState()
-    val searchQuery by viewModel.searchQuery.collectAsState()
-    val activeFilter by viewModel.filter.collectAsState()
-    val selectedApp by viewModel.selectedAppForDetail.collectAsState()
     val configs by viewModel.configs.collectAsState()
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedConfig by remember { mutableStateOf<AppIsolationConfig?>(null) }
+    var showAddAppDialog by remember { mutableStateOf(false) }
+    var customPackageInput by remember { mutableStateOf("") }
+    var customAppNameInput by remember { mutableStateOf("") }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    val filteredConfigs = configs.filter {
+        searchQuery.isBlank() ||
+                it.appName.contains(searchQuery, ignoreCase = true) ||
+                it.packageName.contains(searchQuery, ignoreCase = true)
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(DarkBackground)
             .padding(horizontal = 20.dp)
             .testTag("apps_screen")
     ) {
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        Text(
-            text = "Your Apps",
-            fontSize = 24.sp,
-            fontWeight = FontWeight.SemiBold,
-            fontFamily = FrauncesFontFamily,
-            color = InkPrimary
-        )
-        Text(
-            text = "Turn on privacy for any app so it only sees its own folder.",
-            fontSize = 13.sp,
-            color = InkSecondary,
-            fontFamily = JakartaFontFamily
-        )
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        // Pill Search Bar
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { viewModel.setSearchQuery(it) },
-            placeholder = {
+        // Header Title
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
                 Text(
-                    "Find an app (e.g. Snapchat, WhatsApp)...",
-                    color = InkSecondary,
-                    fontSize = 14.sp,
-                    fontFamily = JakartaFontFamily
+                    text = "Isolated Apps",
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = JakartaFontFamily,
+                    color = TextWhite
                 )
-            },
-            leadingIcon = {
-                Icon(imageVector = Icons.Default.Search, contentDescription = null, tint = ForestPrimary)
-            },
-            trailingIcon = {
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { viewModel.setSearchQuery("") }) {
-                        Icon(imageVector = Icons.Default.Close, contentDescription = "Clear", tint = InkSecondary)
-                    }
+                Text(
+                    text = "LSPosed active targets & storage permissions",
+                    fontSize = 12.sp,
+                    fontFamily = JakartaFontFamily,
+                    color = TextMuted
+                )
+            }
+
+            // Quick Status Pill
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(AccentMint.copy(alpha = 0.15f))
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(AccentMint)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "${configs.count { it.isIsolated }} Isolated",
+                        color = AccentMint,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = JakartaFontFamily
+                    )
                 }
-            },
-            singleLine = true,
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = ForestPrimary,
-                unfocusedBorderColor = WarmStone,
-                focusedContainerColor = WarmIvory,
-                unfocusedContainerColor = WarmIvory
-            ),
-            shape = RoundedCornerShape(50),
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("apps_search_input")
-        )
+            }
+        }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // Filter Pills
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth()
+        // Search Pill + Sky Blue '+' Button
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            item {
-                FilterChip(
-                    selected = activeFilter == AppListFilter.ALL,
-                    onClick = { viewModel.setFilter(AppListFilter.ALL) },
-                    label = { Text("All (${filteredApps.size})", fontFamily = JakartaFontFamily) },
-                    shape = RoundedCornerShape(50),
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = ForestPrimary,
-                        selectedLabelColor = Color.White,
-                        containerColor = WarmIvory,
-                        labelColor = InkSecondary
-                    ),
-                    border = FilterChipDefaults.filterChipBorder(
-                        enabled = true,
-                        selected = activeFilter == AppListFilter.ALL,
-                        borderColor = WarmStone,
-                        selectedBorderColor = ForestPrimary
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(DarkSurfaceCard)
+                    .padding(horizontal = 16.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = TextMuted,
+                        modifier = Modifier.size(20.dp)
                     )
-                )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = {
+                            Text(
+                                text = "Search apps...",
+                                color = TextMuted,
+                                fontSize = 14.sp,
+                                fontFamily = JakartaFontFamily
+                            )
+                        },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color.Transparent,
+                            unfocusedBorderColor = Color.Transparent,
+                            focusedTextColor = TextWhite,
+                            unfocusedTextColor = TextWhite,
+                            cursorColor = AccentSky
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("apps_search_input")
+                    )
+                }
             }
-            item {
-                FilterChip(
-                    selected = activeFilter == AppListFilter.ISOLATED_ONLY,
-                    onClick = { viewModel.setFilter(AppListFilter.ISOLATED_ONLY) },
-                    label = { Text("Protected", fontFamily = JakartaFontFamily) },
-                    shape = RoundedCornerShape(50),
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = ForestPrimary,
-                        selectedLabelColor = Color.White,
-                        containerColor = WarmIvory,
-                        labelColor = InkSecondary
-                    ),
-                    border = FilterChipDefaults.filterChipBorder(
-                        enabled = true,
-                        selected = activeFilter == AppListFilter.ISOLATED_ONLY,
-                        borderColor = WarmStone,
-                        selectedBorderColor = ForestPrimary
-                    )
-                )
-            }
-            item {
-                FilterChip(
-                    selected = activeFilter == AppListFilter.USER_APPS,
-                    onClick = { viewModel.setFilter(AppListFilter.USER_APPS) },
-                    label = { Text("Downloaded", fontFamily = JakartaFontFamily) },
-                    shape = RoundedCornerShape(50),
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = ForestPrimary,
-                        selectedLabelColor = Color.White,
-                        containerColor = WarmIvory,
-                        labelColor = InkSecondary
-                    ),
-                    border = FilterChipDefaults.filterChipBorder(
-                        enabled = true,
-                        selected = activeFilter == AppListFilter.USER_APPS,
-                        borderColor = WarmStone,
-                        selectedBorderColor = ForestPrimary
-                    )
-                )
-            }
-            item {
-                FilterChip(
-                    selected = activeFilter == AppListFilter.SYSTEM_APPS,
-                    onClick = { viewModel.setFilter(AppListFilter.SYSTEM_APPS) },
-                    label = { Text("Pre-installed", fontFamily = JakartaFontFamily) },
-                    shape = RoundedCornerShape(50),
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = ForestPrimary,
-                        selectedLabelColor = Color.White,
-                        containerColor = WarmIvory,
-                        labelColor = InkSecondary
-                    ),
-                    border = FilterChipDefaults.filterChipBorder(
-                        enabled = true,
-                        selected = activeFilter == AppListFilter.SYSTEM_APPS,
-                        borderColor = WarmStone,
-                        selectedBorderColor = ForestPrimary
-                    )
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // '+' Add Custom Target App Button
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(AccentSky)
+                    .clickable { showAddAppDialog = true }
+                    .testTag("add_custom_app_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Add Target App",
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
-        // App List
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.weight(1f)
-        ) {
-            items(filteredApps, key = { it.packageName }) { appInfo ->
-                AppItemCard(
-                    appInfo = appInfo,
-                    onToggleIsolation = { enable -> viewModel.toggleAppIsolation(appInfo, enable) },
-                    onClick = { viewModel.selectAppForDetail(appInfo) }
-                )
+        // Configured Apps Cards List
+        if (filteredConfigs.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = 60.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Default.Apps,
+                        contentDescription = null,
+                        tint = TextSubtle,
+                        modifier = Modifier.size(56.dp)
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "No apps found",
+                        color = TextMuted,
+                        fontSize = 15.sp,
+                        fontFamily = JakartaFontFamily
+                    )
+                }
             }
-
-            item {
-                Spacer(modifier = Modifier.height(20.dp))
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                items(filteredConfigs, key = { it.packageName }) { config ->
+                    ConfiguredAppCard(
+                        config = config,
+                        onToggleStorage = { isIsolated ->
+                            viewModel.toggleAppIsolation(
+                                InstalledAppInfo(
+                                    packageName = config.packageName,
+                                    appName = config.appName,
+                                    icon = null,
+                                    isSystemApp = false,
+                                    targetSdkVersion = 34,
+                                    isIsolated = isIsolated,
+                                    isolationMode = config.isolationMode
+                                ),
+                                enable = isIsolated
+                            )
+                        },
+                        onClick = { selectedConfig = config }
+                    )
+                }
             }
         }
-    }
 
-    // App Detail Modal Bottom Sheet
-    selectedApp?.let { appInfo ->
-        val cfg = configs.find { it.packageName == appInfo.packageName }
+        // App Detail & Permission Sheet
+        selectedConfig?.let { config ->
+            ModalBottomSheet(
+                onDismissRequest = { selectedConfig = null },
+                sheetState = sheetState,
+                containerColor = DarkSurfaceElevated,
+                dragHandle = null,
+                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+            ) {
+                AppDetailPermissionSheet(
+                    config = config,
+                    viewModel = viewModel,
+                    onClose = { selectedConfig = null },
+                    onOpenExplorer = {
+                        selectedConfig = null
+                        onOpenExplorerForPackage?.invoke(config.packageName)
+                    }
+                )
+            }
+        }
 
-        ModalBottomSheet(
-            onDismissRequest = { viewModel.selectAppForDetail(null) },
-            sheetState = sheetState,
-            containerColor = WarmIvory,
-            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
-        ) {
-            AppIsolationDetailContent(
-                appInfo = appInfo,
-                blockRootPollution = cfg?.blockRootPollution ?: true,
-                whitelistedFolders = cfg?.whitelistedFolders ?: "",
-                onUpdateMode = { mode -> viewModel.updateAppIsolationMode(appInfo.packageName, mode) },
-                onTogglePollution = { block -> viewModel.updateRootPollution(appInfo.packageName, block) },
-                onUpdateWhitelist = { whitelist -> viewModel.updateWhitelistedFolders(appInfo.packageName, whitelist) },
-                onSimulateIo = { path ->
-                    viewModel.testSimulateAppIo(
-                        packageName = appInfo.packageName,
-                        appName = appInfo.appName,
-                        testPath = path
+        // Add Custom Target App Dialog
+        if (showAddAppDialog) {
+            AlertDialog(
+                onDismissRequest = { showAddAppDialog = false },
+                title = {
+                    Text(
+                        text = "Add Isolated Target App",
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = JakartaFontFamily,
+                        color = TextWhite
                     )
                 },
-                onPurgeVault = { viewModel.purgeVaultForPackage(appInfo.packageName) }
+                text = {
+                    Column {
+                        Text(
+                            text = "Add any app package enabled in LSPosed scope to configure isolated storage rules.",
+                            color = TextMuted,
+                            fontSize = 13.sp,
+                            fontFamily = JakartaFontFamily
+                        )
+                        Spacer(modifier = Modifier.height(14.dp))
+                        OutlinedTextField(
+                            value = customAppNameInput,
+                            onValueChange = { customAppNameInput = it },
+                            placeholder = { Text("App Name (e.g. TikTok, Gallery)") },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = AccentSky,
+                                unfocusedBorderColor = DarkBorder,
+                                focusedTextColor = TextWhite,
+                                unfocusedTextColor = TextWhite,
+                                cursorColor = AccentSky
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        OutlinedTextField(
+                            value = customPackageInput,
+                            onValueChange = { customPackageInput = it },
+                            placeholder = { Text("Package Name (e.g. com.zhiliaoapp.musically)") },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = AccentSky,
+                                unfocusedBorderColor = DarkBorder,
+                                focusedTextColor = TextWhite,
+                                unfocusedTextColor = TextWhite,
+                                cursorColor = AccentSky
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            if (customPackageInput.isNotBlank()) {
+                                val pkg = customPackageInput.trim()
+                                val name = customAppNameInput.ifBlank { pkg.substringAfterLast('.') }
+                                viewModel.toggleAppIsolation(
+                                    InstalledAppInfo(
+                                        packageName = pkg,
+                                        appName = name,
+                                        icon = null,
+                                        isSystemApp = false,
+                                        targetSdkVersion = 34,
+                                        isIsolated = true,
+                                        isolationMode = IsolationMode.ENCRYPTED_VAULT
+                                    ),
+                                    enable = true
+                                )
+                                showAddAppDialog = false
+                                customPackageInput = ""
+                                customAppNameInput = ""
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentSky)
+                    ) {
+                        Text("Add Target", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showAddAppDialog = false }) {
+                        Text("Cancel", color = TextMuted)
+                    }
+                },
+                containerColor = DarkSurfaceElevated,
+                shape = RoundedCornerShape(20.dp)
             )
         }
     }
 }
 
 @Composable
-fun AppItemCard(
-    appInfo: InstalledAppInfo,
-    onToggleIsolation: (Boolean) -> Unit,
+private fun ConfiguredAppCard(
+    config: AppIsolationConfig,
+    onToggleStorage: (Boolean) -> Unit,
     onClick: () -> Unit
 ) {
     Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (appInfo.isIsolated) SageTint else WarmIvory
-        ),
         shape = RoundedCornerShape(22.dp),
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            if (appInfo.isIsolated) ForestPrimary.copy(alpha = 0.28f) else WarmStone
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        colors = CardDefaults.cardColors(containerColor = DarkSurfaceCard),
+        border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorderSubtle),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() }
-            .testTag("app_item_${appInfo.packageName.replace('.', '_')}")
+            .clickable(onClick = onClick)
+            .testTag("app_card_${config.packageName}")
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(16.dp)
-        ) {
-            val drawable = appInfo.icon
-            if (drawable is BitmapDrawable) {
-                Image(
-                    bitmap = drawable.bitmap.asImageBitmap(),
-                    contentDescription = appInfo.appName,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                )
-            } else {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Squircle App Icon tile
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(46.dp)
                         .clip(RoundedCornerShape(14.dp))
-                        .background(SageSoft)
+                        .background(
+                            when {
+                                config.packageName.contains("snapchat") -> Color(0xFFFFFC00).copy(alpha = 0.2f)
+                                config.packageName.contains("whatsapp") -> Color(0xFF25D366).copy(alpha = 0.2f)
+                                config.packageName.contains("telegram") -> Color(0xFF0088CC).copy(alpha = 0.2f)
+                                config.packageName.contains("instagram") -> Color(0xFFE1306C).copy(alpha = 0.2f)
+                                else -> AccentSky.copy(alpha = 0.15f)
+                            }
+                        )
                 ) {
-                    Text(
-                        text = appInfo.appName.take(1).uppercase(),
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        fontFamily = FrauncesFontFamily,
-                        color = ForestPrimary
+                    Icon(
+                        imageVector = Icons.Default.Shield,
+                        contentDescription = null,
+                        tint = when {
+                            config.packageName.contains("snapchat") -> Color(0xFFFACC15)
+                            config.packageName.contains("whatsapp") -> Color(0xFF4ADE80)
+                            config.packageName.contains("telegram") -> Color(0xFF38BDF8)
+                            config.packageName.contains("instagram") -> Color(0xFFF472B6)
+                            else -> AccentSky
+                        },
+                        modifier = Modifier.size(24.dp)
                     )
                 }
+
+                Spacer(modifier = Modifier.width(14.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = config.appName,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = JakartaFontFamily,
+                        color = TextWhite,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = config.packageName,
+                        fontSize = 12.sp,
+                        fontFamily = JakartaFontFamily,
+                        color = TextSubtle,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = "Details",
+                    tint = TextSubtle,
+                    modifier = Modifier.size(20.dp)
+                )
             }
 
-            Spacer(modifier = Modifier.width(14.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = appInfo.appName,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 16.sp,
-                    color = InkPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontFamily = JakartaFontFamily
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (appInfo.isIsolated) {
-                        ModeBadge(mode = appInfo.isolationMode)
-                    } else {
+            // Primary Toggle: [Isolated Storage] vs [Shared Storage]
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(42.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(DarkSurfaceElevated)
+                    .padding(3.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Isolated Storage Option
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(
+                            if (config.isIsolated) AccentSky else Color.Transparent
+                        )
+                        .clickable { onToggleStorage(true) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (config.isIsolated) {
+                            Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
                         Text(
-                            text = "Can see shared folders",
+                            text = "Isolated Storage",
                             fontSize = 12.sp,
-                            color = InkSecondary,
-                            fontFamily = JakartaFontFamily
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = JakartaFontFamily,
+                            color = if (config.isIsolated) Color.White else TextMuted
+                        )
+                    }
+                }
+
+                // Shared Storage Option
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(
+                            if (!config.isIsolated) AccentAmber else Color.Transparent
+                        )
+                        .clickable { onToggleStorage(false) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (!config.isIsolated) {
+                            Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+                        Text(
+                            text = "Shared Storage",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = JakartaFontFamily,
+                            color = if (!config.isIsolated) Color.White else TextMuted
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            Switch(
-                checked = appInfo.isIsolated,
-                onCheckedChange = { onToggleIsolation(it) },
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color.White,
-                    checkedTrackColor = ForestPrimary,
-                    uncheckedThumbColor = InkSecondary,
-                    uncheckedTrackColor = WarmSand,
-                    uncheckedBorderColor = WarmStone
-                ),
-                modifier = Modifier.testTag("switch_isolate_${appInfo.packageName.replace('.', '_')}")
-            )
+            // Sub-status row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (config.isIsolated) "Mode: ${config.isolationMode.title}" else "Unrestricted phone storage access",
+                    fontSize = 12.sp,
+                    fontFamily = JakartaFontFamily,
+                    color = if (config.isIsolated) AccentMint else TextMuted
+                )
+
+                if (config.isIsolated) {
+                    Text(
+                        text = "${config.totalFilesRedirected} items protected",
+                        fontSize = 11.sp,
+                        fontFamily = JakartaFontFamily,
+                        color = TextSubtle
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
-fun AppIsolationDetailContent(
-    appInfo: InstalledAppInfo,
-    blockRootPollution: Boolean,
-    whitelistedFolders: String,
-    onUpdateMode: (IsolationMode) -> Unit,
-    onTogglePollution: (Boolean) -> Unit,
-    onUpdateWhitelist: (String) -> Unit,
-    onSimulateIo: (String) -> Unit,
-    onPurgeVault: () -> Unit
+private fun AppDetailPermissionSheet(
+    config: AppIsolationConfig,
+    viewModel: IsoVaultViewModel,
+    onClose: () -> Unit,
+    onOpenExplorer: () -> Unit
 ) {
-    var whitelistText by remember { mutableStateOf(whitelistedFolders) }
-    var testPathText by remember { mutableStateOf("/storage/emulated/0/DCIM/Camera/vacation_photo.jpg") }
+    var selectedMode by remember { mutableStateOf(config.isolationMode) }
+    var blockPollution by remember { mutableStateOf(config.blockRootPollution) }
+    var whitelistInput by remember { mutableStateOf(config.whitelistedFolders) }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp, vertical = 8.dp)
-            .padding(bottom = 28.dp)
+            .padding(24.dp)
     ) {
+        // Sheet Header
         Row(
-            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier.fillMaxWidth()
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column {
                 Text(
-                    text = appInfo.appName,
+                    text = config.appName,
                     fontSize = 22.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = FrauncesFontFamily,
-                    color = InkPrimary
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = JakartaFontFamily,
+                    color = TextWhite
                 )
                 Text(
-                    text = if (appInfo.isIsolated) "Personal files & photos are hidden from this app" else "Standard storage access",
-                    fontSize = 13.sp,
-                    color = InkSecondary,
-                    fontFamily = JakartaFontFamily
+                    text = "Storage & Privacy Settings",
+                    fontSize = 12.sp,
+                    fontFamily = JakartaFontFamily,
+                    color = TextMuted
                 )
             }
-            StatusBadge(
-                text = if (appInfo.isIsolated) "Protected" else "Standard",
-                color = if (appInfo.isIsolated) ForestPrimary else HoneyTertiary
-            )
+
+            IconButton(
+                onClick = onClose,
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(DarkSurfaceCard)
+            ) {
+                Icon(Icons.Default.Close, null, tint = TextMuted)
+            }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
-        HorizontalDivider(color = WarmStone)
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
+        // Mode Selector Pills
         Text(
-            text = "How should ${appInfo.appName} work?",
-            fontSize = 15.sp,
+            text = "Isolation Mode",
+            fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,
-            fontFamily = FrauncesFontFamily,
-            color = InkPrimary
+            fontFamily = JakartaFontFamily,
+            color = TextWhite
         )
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        IsolationMode.values().forEach { mode ->
-            val isSelected = appInfo.isolationMode == mode
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = if (isSelected) SageTint else WarmIvory
-                ),
-                shape = RoundedCornerShape(18.dp),
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    if (isSelected) ForestPrimary else WarmStone
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-                    .clickable { onUpdateMode(mode) }
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(14.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf(
+                IsolationMode.ENCRYPTED_VAULT to "AES-256 Vault",
+                IsolationMode.SANDBOX_REDIRECT to "Sandbox",
+                IsolationMode.READ_ONLY to "Read Only"
+            ).forEach { (mode, label) ->
+                val isSelected = selectedMode == mode
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(38.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (isSelected) AccentSky else DarkSurfaceCard)
+                        .border(1.dp, if (isSelected) AccentSky else DarkBorder, RoundedCornerShape(12.dp))
+                        .clickable {
+                            selectedMode = mode
+                            viewModel.updateAppIsolationMode(config.packageName, mode)
+                        },
+                    contentAlignment = Alignment.Center
                 ) {
-                    RadioButton(
-                        selected = isSelected,
-                        onClick = { onUpdateMode(mode) },
-                        colors = RadioButtonDefaults.colors(
-                            selectedColor = ForestPrimary,
-                            unselectedColor = InkSecondary
-                        )
+                    Text(
+                        text = label,
+                        fontSize = 12.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isSelected) Color.White else TextMuted
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = mode.title,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp,
-                            color = InkPrimary,
-                            fontFamily = JakartaFontFamily
-                        )
-                        Text(
-                            text = mode.description,
-                            fontSize = 12.sp,
-                            color = InkSecondary,
-                            fontFamily = JakartaFontFamily
-                        )
-                    }
                 }
             }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // Privacy Features Toggles
+        Text(
+            text = "Privacy & File System Shields",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            fontFamily = JakartaFontFamily,
+            color = TextWhite
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Block Root Pollution Switch
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(DarkSurfaceCard)
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Block Root Storage Pollution",
+                    color = TextWhite,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "Prevents creation of dirty root folders (.tencent, .baidu, etc.)",
+                    color = TextMuted,
+                    fontSize = 11.sp
+                )
+            }
+
+            Switch(
+                checked = blockPollution,
+                onCheckedChange = {
+                    blockPollution = it
+                    viewModel.updateRootPollution(config.packageName, it)
+                },
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Color.White,
+                    checkedTrackColor = AccentSky,
+                    uncheckedTrackColor = DarkSurfaceElevated
+                )
+            )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Whitelisted Shared Folders
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(DarkSurfaceCard)
+                .padding(14.dp)
+        ) {
+            Text(
+                text = "Whitelisted Folders (Shared with Phone)",
+                color = TextWhite,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = "Folders this app can access directly on phone (e.g. Download)",
+                color = TextMuted,
+                fontSize = 11.sp
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            OutlinedTextField(
+                value = whitelistInput,
+                onValueChange = {
+                    whitelistInput = it
+                    viewModel.updateWhitelistedFolders(config.packageName, it)
+                },
+                placeholder = { Text("e.g. Download, Documents") },
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = AccentSky,
+                    unfocusedBorderColor = DarkBorder,
+                    focusedTextColor = TextWhite,
+                    unfocusedTextColor = TextWhite,
+                    cursorColor = AccentSky
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Keep storage tidy toggle
-        Card(
-            colors = CardDefaults.cardColors(containerColor = WarmSand),
-            shape = RoundedCornerShape(18.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            modifier = Modifier.fillMaxWidth()
+        // Quick Action: Open in MT Manager
+        Button(
+            onClick = onOpenExplorer,
+            colors = ButtonDefaults.buttonColors(containerColor = AccentSky),
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(46.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Keep main folders tidy",
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 14.sp,
-                        color = InkPrimary,
-                        fontFamily = JakartaFontFamily
-                    )
-                    Text(
-                        text = "Prevents hidden clutter or leftover folders on your phone",
-                        fontSize = 12.sp,
-                        color = InkSecondary,
-                        fontFamily = JakartaFontFamily
-                    )
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                Switch(
-                    checked = blockRootPollution,
-                    onCheckedChange = { onTogglePollution(it) },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = ForestPrimary
-                    )
-                )
-            }
+            Icon(Icons.Default.FolderOpen, null, tint = Color.White, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Browse Sandbox in MT Explorer", color = Color.White, fontWeight = FontWeight.Bold)
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        // Allowed folders
-        OutlinedTextField(
-            value = whitelistText,
-            onValueChange = {
-                whitelistText = it
-                onUpdateWhitelist(it)
+        // Purge Sandbox Button
+        TextButton(
+            onClick = {
+                viewModel.purgeVaultForPackage(config.packageName)
+                onClose()
             },
-            label = { Text("Folders this app is allowed to see", fontSize = 12.sp, fontFamily = JakartaFontFamily) },
-            placeholder = { Text("Download, Music", fontSize = 13.sp, fontFamily = JakartaFontFamily) },
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = ForestPrimary,
-                unfocusedBorderColor = WarmStone
-            ),
-            shape = RoundedCornerShape(16.dp),
             modifier = Modifier.fillMaxWidth()
-        )
-
-        Spacer(modifier = Modifier.height(18.dp))
-
-        // Actions
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Button(
-                onClick = { onSimulateIo(testPathText) },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = ForestPrimary,
-                    contentColor = Color.White
-                ),
-                shape = RoundedCornerShape(50),
-                modifier = Modifier.weight(1f)
-            ) {
-                Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Test Protection", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily)
-            }
-
-            OutlinedButton(
-                onClick = onPurgeVault,
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = CoralError),
-                border = androidx.compose.foundation.BorderStroke(1.dp, CoralError.copy(alpha = 0.4f)),
-                shape = RoundedCornerShape(50),
-                modifier = Modifier.weight(1f)
-            ) {
-                Icon(imageVector = Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(15.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Empty Locker", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily)
-            }
+            Icon(Icons.Default.Delete, null, tint = AccentCoral, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Reset & Purge Sandbox Data", color = AccentCoral, fontSize = 13.sp)
         }
+
+        Spacer(modifier = Modifier.height(12.dp))
     }
 }

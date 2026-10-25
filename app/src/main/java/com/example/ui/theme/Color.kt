@@ -2,53 +2,83 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Warm Editorial & Organic Palette (Alabaster, Forest Sage, Terracotta & Soft Sand)
-val ForestPrimary = Color(0xFF1F4E3D)
-val ForestDark = Color(0xFF15382B)
-val SageSoft = Color(0xFFDDF0E6)
-val SageTint = Color(0xFFEBF6F0)
+// Premium Matte Dark Palette (from reference mockup)
+val DarkBackground = Color(0xFF111215)
+val DarkSurface = Color(0xFF17181E)
+val DarkSurfaceCard = Color(0xFF20222A)
+val DarkSurfaceElevated = Color(0xFF282A34)
+val DarkBorder = Color(0xFF2C2F3A)
+val DarkBorderSubtle = Color(0xFF23252E)
 
-val ClaySecondary = Color(0xFFC46446)
-val ClaySoft = Color(0xFFFAE7E1)
+// Keypad Specific Colors (mockup leftmost screen)
+val KeypadButtonBg = Color(0xFF212328)
+val KeypadWhiteCircle = Color(0xFFFFFFFF)
+val KeypadDarkIcon = Color(0xFF121316)
 
-val HoneyTertiary = Color(0xFFB57C1E)
-val HoneySoft = Color(0xFFFDF3DF)
+// Accents (mockup center-right screens)
+val AccentSky = Color(0xFF52B5F8)          // Vibrant sky blue (+ button, checkmark button, active dot)
+val AccentSkySoft = Color(0xFF1E3A52)
+val AccentMint = Color(0xFF4ADE80)         // Success green badge
+val AccentMintSoft = Color(0xFF143823)
+val AccentAmber = Color(0xFFFBBF24)        // Warm standby/warning
+val AccentAmberSoft = Color(0xFF382D12)
+val AccentCoral = Color(0xFFF87171)        // Error / blocked red
+val AccentCoralSoft = Color(0xFF3B1A1A)
+val AccentLavender = Color(0xFFA78BFA)     // Purple accent
+val AccentLavenderSoft = Color(0xFF281E45)
+val AccentPink = Color(0xFFF472B6)
 
-val CoralError = Color(0xFFC94A4A)
-val CoralSoft = Color(0xFFFCE8E8)
+// Typography Colors
+val TextWhite = Color(0xFFFFFFFF)
+val TextMuted = Color(0xFF9A9DA8)
+val TextSubtle = Color(0xFF656875)
 
-val LavenderAccent = Color(0xFF5E548E)
-val LavenderSoft = Color(0xFFEDEAF6)
+// Compatibility aliases mapped to the new matte dark palette
+val ForestPrimary = AccentSky
+val ForestDark = AccentSkySoft
+val SageSoft = DarkSurfaceCard
+val SageTint = DarkSurfaceElevated
 
-// Warm Daylight Surfaces
-val WarmLinen = Color(0xFFF9F6F0)
-val WarmIvory = Color(0xFFFFFFFF)
-val WarmSand = Color(0xFFF2ECE1)
-val WarmStone = Color(0xFFE6DFD3)
+val ClaySecondary = AccentCoral
+val ClaySoft = AccentCoralSoft
 
-// Warm Espresso Ink Typography
-val InkPrimary = Color(0xFF1C1917)
-val InkSecondary = Color(0xFF655E57)
-val InkTertiary = Color(0xFF968E85)
+val HoneyTertiary = AccentAmber
+val HoneySoft = AccentAmberSoft
 
-// Compatibility aliases mapped to the new warm organic palette
-val CyberCyan = ForestPrimary
-val CyberCyanDark = ForestDark
-val CyberEmerald = Color(0xFF2B6E52)
-val CyberEmeraldDark = ForestDark
-val CyberAmber = HoneyTertiary
-val CyberRed = CoralError
-val CyberViolet = LavenderAccent
+val CoralError = AccentCoral
+val CoralSoft = AccentCoralSoft
 
-val DeepObsidian = WarmLinen
-val SurfaceObsidian = WarmIvory
-val SurfaceElevated = WarmSand
-val SurfaceCard = WarmIvory
-val SurfaceBorder = WarmStone
+val LavenderAccent = AccentLavender
+val LavenderSoft = AccentLavenderSoft
 
-val TextPrimary = InkPrimary
-val TextSecondary = InkSecondary
-val TextTertiary = InkTertiary
+// Daylight Surfaces mapped to Dark Mode
+val WarmLinen = DarkBackground
+val WarmIvory = DarkSurfaceCard
+val WarmSand = DarkSurfaceElevated
+val WarmStone = DarkBorder
 
-val TerminalBlack = Color(0xFFF3EFE8)
-val TerminalGreen = ForestPrimary
+// Typography Mappings
+val InkPrimary = TextWhite
+val InkSecondary = TextMuted
+val InkTertiary = TextSubtle
+
+val CyberCyan = AccentSky
+val CyberCyanDark = AccentSkySoft
+val CyberEmerald = AccentMint
+val CyberEmeraldDark = AccentMintSoft
+val CyberAmber = AccentAmber
+val CyberRed = AccentCoral
+val CyberViolet = AccentLavender
+
+val DeepObsidian = DarkBackground
+val SurfaceObsidian = DarkSurfaceCard
+val SurfaceElevated = DarkSurfaceElevated
+val SurfaceCard = DarkSurfaceCard
+val SurfaceBorder = DarkBorder
+
+val TextPrimary = TextWhite
+val TextSecondary = TextMuted
+val TextTertiary = TextSubtle
+
+val TerminalBlack = Color(0xFF14151B)
+val TerminalGreen = AccentMint

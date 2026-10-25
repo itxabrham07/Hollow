@@ -81,9 +81,45 @@ class IsoVaultApp : Application() {
                     encryptMediaOnly = false,
                     blockRootPollution = true,
                     whitelistedFolders = "",
+                    totalFilesRedirected = 24,
+                    totalBytesEncrypted = 3840000L,
+                    lastAccessedTimestamp = System.currentTimeMillis()
+                ),
+                AppIsolationConfig(
+                    packageName = "com.whatsapp",
+                    appName = "WhatsApp",
+                    isIsolated = true,
+                    isolationMode = IsolationMode.SANDBOX_REDIRECT,
+                    encryptMediaOnly = false,
+                    blockRootPollution = true,
+                    whitelistedFolders = "Download",
+                    totalFilesRedirected = 56,
+                    totalBytesEncrypted = 8200000L,
+                    lastAccessedTimestamp = System.currentTimeMillis() - 3600000
+                ),
+                AppIsolationConfig(
+                    packageName = "org.telegram.messenger",
+                    appName = "Telegram",
+                    isIsolated = true,
+                    isolationMode = IsolationMode.ENCRYPTED_VAULT,
+                    encryptMediaOnly = false,
+                    blockRootPollution = true,
+                    whitelistedFolders = "",
+                    totalFilesRedirected = 18,
+                    totalBytesEncrypted = 1920000L,
+                    lastAccessedTimestamp = System.currentTimeMillis() - 7200000
+                ),
+                AppIsolationConfig(
+                    packageName = "com.instagram.android",
+                    appName = "Instagram",
+                    isIsolated = false, // Shared storage by default, toggleable!
+                    isolationMode = IsolationMode.ENCRYPTED_VAULT,
+                    encryptMediaOnly = false,
+                    blockRootPollution = true,
+                    whitelistedFolders = "",
                     totalFilesRedirected = 0,
                     totalBytesEncrypted = 0L,
-                    lastAccessedTimestamp = System.currentTimeMillis()
+                    lastAccessedTimestamp = 0L
                 )
             )
             dao.insertConfigs(initial)

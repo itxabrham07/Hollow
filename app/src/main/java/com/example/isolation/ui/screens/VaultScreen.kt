@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import com.example.isolation.data.entity.VaultFileItem
 import com.example.isolation.ui.components.DecryptedPreviewDialog
 import com.example.isolation.ui.components.StatusBadge
+import com.example.isolation.ui.components.formatBytes
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
 import com.example.ui.theme.ClaySecondary
 import com.example.ui.theme.ForestPrimary

@@ -195,7 +195,7 @@ object IsolationRuleManager {
             }
         }
 
-        val targetBase = baseAppVaultDir?.absolutePath ?: "/storage/emulated/0/Android/media/$packageName/IsoVault_Sandbox"
+        val targetBase = baseAppVaultDir?.absolutePath ?: "/storage/emulated/0/.IsoVault/sandboxes/$packageName"
         val relative = extractRelative(normalized)
 
         return when (rule.mode) {

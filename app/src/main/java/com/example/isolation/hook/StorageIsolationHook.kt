@@ -1,7 +1,6 @@
 package com.example.isolation.hook
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.app.AndroidAppHelper
 import android.app.Instrumentation
 import android.content.ClipData
@@ -70,11 +69,6 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             override fun initialValue(): Boolean = false
         }
 
-        // Temporary bypass guard for user-initiated safe import actions
-        private val isTemporarilyBypassingPicker = object : ThreadLocal<Boolean>() {
-            override fun initialValue(): Boolean = false
-        }
-
         // Background executor for non-blocking audit IPC calls to IsoVault Manager
         private val auditExecutor = Executors.newSingleThreadExecutor()
         private val recentAuditCache = ConcurrentHashMap<String, Long>()
@@ -91,9 +85,8 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
         private val virtualUriMap = ConcurrentHashMap<String, File>()
         private val nextVirtualId = AtomicLong(100_000L)
 
-        // Maps pending safe import request codes to original request codes
-        private val pendingImportMap = ConcurrentHashMap<Int, Int>()
-        private const val SAFE_IMPORT_REQUEST_BASE = 8990
+        // Cache of URIs explicitly selected by the user via file/media pickers
+        private val userAllowedUris = ConcurrentHashMap<String, Boolean>()
 
         private val DEFAULT_MEDIA_COLUMNS = arrayOf(
             "_id",
@@ -670,6 +663,12 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
                         return
                     }
 
+                    // User explicitly picked this URI via a picker/gallery: Allow it!
+                    if (userAllowedUris.containsKey(uriStr)) {
+                        XposedBridge.log("[IsoVault] Allowed user-picked URI read in $pkg: $uriStr")
+                        return
+                    }
+
                     // URI does NOT belong to the sandbox: Block read access to protect phone's real gallery
                     reportAuditToManager(
                         pkg = pkg,
@@ -773,9 +772,11 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
     }
 
     /**
-     * LAYER 3: Isolated Photo & Document Picker Interceptor.
-     * Replaces system pickers with an in-app IsoVault Isolated Picker so apps cannot access
-     * un-isolated phone photos, but CAN pick files from their own isolated sandbox.
+     * LAYER 3: Isolated Photo & Document Picker Storage Binder.
+     * Binds system pickers and document choosers directly to the app's isolated sandbox directory.
+     * In-app galleries (WhatsApp MediaPicker, Snapchat camera roll) run natively without interruption
+     * and query the isolated sandbox via the MediaStore and File hooks.
+     * Any media selected by the user is recorded in [userAllowedUris] so the app can read & send it.
      */
     private fun attachPickerInterceptorHooks(
         lpparam: XC_LoadPackage.LoadPackageParam,
@@ -783,10 +784,10 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
     ) {
         val execStartActivityHook = object : XC_MethodHook() {
             override fun beforeHookedMethod(param: MethodHookParam) {
-                if (isHandlingHook.get() == true || isTemporarilyBypassingPicker.get() == true) return
+                if (isHandlingHook.get() == true) return
 
                 val intent = param.args.firstOrNull { it is Intent } as? Intent ?: return
-                if (!isExternalPickerIntent(intent)) return
+                if (!isExternalPickerIntent(intent, pkg)) return
 
                 isHandlingHook.set(true)
                 try {
@@ -794,21 +795,20 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
                     if (!rule.isIsolated || rule.mode == IsolationMode.READ_ONLY) return
                     if (isGalleryWhitelisted(rule)) return
 
-                    val whoContext = param.args.firstOrNull { it is Context } as? Context
-                    val requestCode = (param.args.filterIsInstance<Int>().firstOrNull()) ?: -1
+                    val sandboxRoot = getOrCreateSandboxRoot(pkg)
+                    val picturesDir = File(sandboxRoot, "Pictures").apply { mkdirs() }
+                    val initialUri = Uri.fromFile(picturesDir)
+                    intent.putExtra("android.provider.extra.INITIAL_URI", initialUri)
 
-                    XposedBridge.log("[IsoVault] Intercepted external system picker in $pkg: ${intent.action}")
+                    XposedBridge.log("[IsoVault] Bound external picker in $pkg to sandbox: ${picturesDir.absolutePath}")
                     reportAuditToManager(
                         pkg = pkg,
-                        requestedPath = "SystemPicker://${intent.action ?: "PICK"}",
-                        resolvedPath = "IsoVault://isolated_picker_sandbox",
+                        requestedPath = "Picker://${intent.action ?: "PICK"}",
+                        resolvedPath = picturesDir.absolutePath,
                         action = AuditAction.REDIRECTED,
-                        operation = "SYSTEM_PICKER_ISOLATED",
-                        details = "Opened IsoVault Isolated Storage Picker instead of system picker"
+                        operation = "PICKER_SANDBOX_BOUND",
+                        details = "Bound file picker initial storage to isolated sandbox"
                     )
-
-                    param.result = null
-                    showIsolatedPickerFeedback(whoContext, pkg, requestCode)
                 } finally {
                     isHandlingHook.set(false)
                 }
@@ -825,9 +825,9 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
                 "startActivityForResult",
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (isHandlingHook.get() == true || isTemporarilyBypassingPicker.get() == true) return
+                        if (isHandlingHook.get() == true) return
                         val intent = param.args.firstOrNull { it is Intent } as? Intent ?: return
-                        if (!isExternalPickerIntent(intent)) return
+                        if (!isExternalPickerIntent(intent, pkg)) return
 
                         isHandlingHook.set(true)
                         try {
@@ -835,11 +835,12 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
                             if (!rule.isIsolated || rule.mode == IsolationMode.READ_ONLY) return
                             if (isGalleryWhitelisted(rule)) return
 
-                            val activity = param.thisObject as? Activity
-                            val requestCode = (param.args.filterIsInstance<Int>().firstOrNull()) ?: -1
+                            val sandboxRoot = getOrCreateSandboxRoot(pkg)
+                            val picturesDir = File(sandboxRoot, "Pictures").apply { mkdirs() }
+                            val initialUri = Uri.fromFile(picturesDir)
+                            intent.putExtra("android.provider.extra.INITIAL_URI", initialUri)
 
-                            param.result = null
-                            showIsolatedPickerFeedback(activity, pkg, requestCode)
+                            XposedBridge.log("[IsoVault] Bound startActivityForResult picker in $pkg to sandbox: ${picturesDir.absolutePath}")
                         } finally {
                             isHandlingHook.set(false)
                         }
@@ -848,51 +849,50 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             )
         } catch (_: Throwable) {}
 
-        // Hook onActivityResult to handle safe import callbacks
+        // Track user-selected URIs in onActivityResult so the app can read & send them seamlessly
         try {
             XposedBridge.hookAllMethods(
                 Activity::class.java,
                 "onActivityResult",
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        val requestCode = param.args.getOrNull(0) as? Int ?: return
                         val resultCode = param.args.getOrNull(1) as? Int ?: return
-                        val data = param.args.getOrNull(2) as? Intent
+                        val data = param.args.getOrNull(2) as? Intent ?: return
+                        val activity = param.thisObject as? Activity
 
-                        val originalReq = pendingImportMap.remove(requestCode) ?: return
-                        val activity = param.thisObject as? Activity ?: return
+                        if (resultCode == Activity.RESULT_OK) {
+                            val pickedUris = mutableListOf<Uri>()
+                            data.data?.let { pickedUris.add(it) }
+                            data.clipData?.let { clip ->
+                                for (i in 0 until clip.itemCount) {
+                                    clip.getItemAt(i).uri?.let { pickedUris.add(it) }
+                                }
+                            }
 
-                        if (resultCode == Activity.RESULT_OK && data?.data != null) {
-                            val sourceUri = data.data ?: return
-                            try {
-                                val sandboxRoot = getOrCreateSandboxRoot(pkg)
-                                val ext = guessExtension(sourceUri)
-                                val importedFile = File(File(sandboxRoot, "Pictures"), "imported_${System.currentTimeMillis()}.$ext")
-                                importedFile.parentFile?.mkdirs()
+                            for (u in pickedUris) {
+                                val uriString = u.toString()
+                                userAllowedUris[uriString] = true
+                                XposedBridge.log("[IsoVault] User picked file in $pkg: $uriString (allowed)")
 
-                                activity.contentResolver.openInputStream(sourceUri)?.use { input ->
-                                    FileOutputStream(importedFile).use { output ->
-                                        input.copyTo(output)
+                                if (activity != null) {
+                                    auditExecutor.execute {
+                                        try {
+                                            val sandboxRoot = getOrCreateSandboxRoot(pkg)
+                                            val ext = guessExtension(u)
+                                            val picturesDir = File(sandboxRoot, "Pictures").apply { mkdirs() }
+                                            val targetFile = File(picturesDir, "picked_${System.currentTimeMillis()}.$ext")
+                                            activity.contentResolver.openInputStream(u)?.use { input ->
+                                                FileOutputStream(targetFile).use { output ->
+                                                    input.copyTo(output)
+                                                }
+                                            }
+                                            registerSandboxMedia(targetFile)
+                                            virtualUriMap[uriString] = targetFile
+                                            XposedBridge.log("[IsoVault] Cached user-picked file in sandbox: ${targetFile.absolutePath}")
+                                        } catch (_: Throwable) {}
                                     }
                                 }
-
-                                val virtualId = registerSandboxMedia(importedFile)
-                                val mediaUri = Uri.parse("content://media/external/images/media/$virtualId")
-                                virtualUriMap[mediaUri.toString()] = importedFile
-
-                                val resultIntent = Intent().apply {
-                                    setDataAndType(mediaUri, getMimeTypeFromExtension(ext))
-                                    clipData = ClipData.newUri(activity.contentResolver, importedFile.name, mediaUri)
-                                    flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                                }
-
-                                dispatchActivityResult(activity, originalReq, Activity.RESULT_OK, resultIntent)
-                                Toast.makeText(activity, "Imported into IsoVault Sandbox", Toast.LENGTH_SHORT).show()
-                            } catch (_: Throwable) {
-                                dispatchCanceledResult(activity, originalReq)
                             }
-                        } else {
-                            dispatchCanceledResult(activity, originalReq)
                         }
                     }
                 }
@@ -900,14 +900,21 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
         } catch (_: Throwable) {}
     }
 
-    private fun isExternalPickerIntent(intent: Intent?): Boolean {
+    private fun isExternalPickerIntent(intent: Intent?, pkg: String): Boolean {
         if (intent == null) return false
-        val action = intent.action ?: ""
 
+        // NEVER intercept in-app activities within the target app itself (e.g. WhatsApp gallery, Snapchat camera roll)
+        val componentPkg = intent.component?.packageName
+        val targetPkg = intent.`package`
+        if (componentPkg == pkg || targetPkg == pkg) {
+            return false
+        }
+
+        val action = intent.action ?: ""
         if (action == Intent.ACTION_CHOOSER) {
             @Suppress("DEPRECATION")
             val target = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
-            if (isExternalPickerIntent(target)) return true
+            if (isExternalPickerIntent(target, pkg)) return true
         }
 
         val pickerActions = setOf(
@@ -928,11 +935,10 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             return true
         }
 
-        val targetPkg = intent.`package`?.lowercase() ?: intent.component?.packageName?.lowercase() ?: ""
-        if (targetPkg.contains("photopicker") ||
-            targetPkg.contains("documentsui") ||
-            targetPkg.contains("providers.media") ||
-            targetPkg.contains("gallery")
+        val targetPkgLower = (targetPkg ?: componentPkg ?: "").lowercase()
+        if (targetPkgLower.contains("photopicker") ||
+            targetPkgLower.contains("documentsui") ||
+            targetPkgLower.contains("providers.media")
         ) {
             return true
         }
@@ -945,123 +951,6 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
         return false
     }
 
-    private fun showIsolatedPickerFeedback(whoContext: Context?, pkg: String, requestCode: Int) {
-        Handler(Looper.getMainLooper()).post {
-            try {
-                val sandboxRoot = getOrCreateSandboxRoot(pkg)
-                val sandboxFiles = sandboxRoot.walkTopDown()
-                    .filter { it.isFile && !it.name.startsWith(".") }
-                    .take(30)
-                    .toList()
-
-                val activity = whoContext as? Activity
-                if (activity != null && !activity.isFinishing && !activity.isDestroyed) {
-                    val items = mutableListOf<String>()
-                    val filesList = mutableListOf<File>()
-
-                    for (file in sandboxFiles) {
-                        val rel = file.relativeToOrSelf(sandboxRoot).path
-                        val sizeKb = file.length() / 1024
-                        items.add("📄 $rel (${sizeKb} KB)")
-                        filesList.add(file)
-                    }
-
-                    items.add("📥 Import Photo from Phone (Safe Copy to Sandbox)")
-
-                    val builder = AlertDialog.Builder(activity)
-                        .setTitle("IsoVault Isolated Storage")
-
-                    if (sandboxFiles.isEmpty()) {
-                        builder.setMessage(
-                            "This app is running in an isolated sandbox.\n\n" +
-                                "Its private storage currently has no photos or documents.\n\n" +
-                                "You can import a photo from your phone safely into this app's sandbox, or cancel."
-                        )
-                            .setPositiveButton("Import from Phone") { dialog, _ ->
-                                launchSafeImportPicker(activity, pkg, requestCode)
-                                dialog.dismiss()
-                            }
-                            .setNegativeButton("Cancel") { dialog, _ ->
-                                dispatchCanceledResult(activity, requestCode)
-                                dialog.dismiss()
-                            }
-                            .setOnCancelListener {
-                                dispatchCanceledResult(activity, requestCode)
-                            }
-                    } else {
-                        builder.setItems(items.toTypedArray()) { dialog, which ->
-                            if (which < filesList.size) {
-                                val chosen = filesList[which]
-                                val virtualId = registerSandboxMedia(chosen)
-                                val mediaUri = Uri.parse("content://media/external/images/media/$virtualId")
-                                virtualUriMap[mediaUri.toString()] = chosen
-                                val resultIntent = Intent().apply {
-                                    setDataAndType(mediaUri, getMimeTypeFromExtension(chosen.extension))
-                                    clipData = ClipData.newUri(activity.contentResolver, chosen.name, mediaUri)
-                                    flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                                }
-                                dispatchActivityResult(activity, requestCode, Activity.RESULT_OK, resultIntent)
-                            } else {
-                                launchSafeImportPicker(activity, pkg, requestCode)
-                            }
-                            dialog.dismiss()
-                        }
-                            .setNegativeButton("Cancel") { dialog, _ ->
-                                dispatchCanceledResult(activity, requestCode)
-                                dialog.dismiss()
-                            }
-                            .setOnCancelListener {
-                                dispatchCanceledResult(activity, requestCode)
-                            }
-                    }
-                    builder.show()
-                } else {
-                    val appCtx = whoContext ?: AndroidAppHelper.currentApplication()
-                    if (appCtx != null) {
-                        Toast.makeText(appCtx, "IsoVault: Isolated storage active for $pkg", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            } catch (_: Throwable) {
-                if (whoContext is Activity && requestCode >= 0) {
-                    dispatchCanceledResult(whoContext, requestCode)
-                }
-            }
-        }
-    }
-
-    private fun launchSafeImportPicker(activity: Activity, pkg: String, originalRequestCode: Int) {
-        val importReq = SAFE_IMPORT_REQUEST_BASE + (originalRequestCode % 500)
-        pendingImportMap[importReq] = originalRequestCode
-        try {
-            isTemporarilyBypassingPicker.set(true)
-            val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
-                type = "*/*"
-                addCategory(Intent.CATEGORY_OPENABLE)
-            }
-            activity.startActivityForResult(intent, importReq)
-        } catch (_: Throwable) {
-            dispatchCanceledResult(activity, originalRequestCode)
-        } finally {
-            isTemporarilyBypassingPicker.set(false)
-        }
-    }
-
-    private fun dispatchCanceledResult(activity: Activity, requestCode: Int) {
-        dispatchActivityResult(activity, requestCode, Activity.RESULT_CANCELED, null)
-    }
-
-    private fun dispatchActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
-        if (requestCode < 0) return
-        try {
-            XposedHelpers.callMethod(
-                activity,
-                "onActivityResult",
-                requestCode,
-                resultCode,
-                data
-            )
-        } catch (_: Throwable) {}
-    }
 
     /**
      * LAYER 4: Java File Redirection & Virtual Directory Listing.
@@ -1414,14 +1303,37 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
     }
 
     private fun getOrCreateSandboxRoot(pkg: String): File {
-        val baseDir = try {
-            val app = AndroidAppHelper.currentApplication()
-            if (app != null) File(app.filesDir, "IsoVault_Sandbox") else null
-        } catch (_: Throwable) { null }
+        // Priority 1: Persistent external vault root in /storage/emulated/0/.IsoVault/sandboxes/$pkg
+        // This ensures photos, videos, and user documents survive even if the hooked app or IsoVault is uninstalled!
+        val persistentExternal = File("/storage/emulated/0/.IsoVault/sandboxes/$pkg")
+        val isPersistentAvailable = try {
+            (persistentExternal.exists() || persistentExternal.mkdirs()) && persistentExternal.canWrite()
+        } catch (_: Throwable) { false }
 
-        val sandbox = baseDir ?: File("/data/user/0/$pkg/files/IsoVault_Sandbox")
-        if (!sandbox.exists()) {
-            sandbox.mkdirs()
+        val sandbox = if (isPersistentAvailable) {
+            try {
+                val nomedia = File("/storage/emulated/0/.IsoVault/.nomedia")
+                if (!nomedia.exists()) nomedia.createNewFile()
+            } catch (_: Throwable) {}
+            persistentExternal
+        } else {
+            // Priority 2: Standard Android media sandbox
+            val mediaSandbox = File("/storage/emulated/0/Android/media/$pkg/IsoVault_Sandbox")
+            val isMediaAvailable = try {
+                (mediaSandbox.exists() || mediaSandbox.mkdirs()) && mediaSandbox.canWrite()
+            } catch (_: Throwable) { false }
+
+            if (isMediaAvailable) {
+                mediaSandbox
+            } else {
+                // Priority 3: Internal app files fallback
+                val internal = try {
+                    val app = AndroidAppHelper.currentApplication()
+                    if (app != null) File(app.filesDir, "IsoVault_Sandbox") else null
+                } catch (_: Throwable) { null } ?: File("/data/user/0/$pkg/files/IsoVault_Sandbox")
+                try { internal.mkdirs() } catch (_: Throwable) {}
+                internal
+            }
         }
 
         // Pre-create standard storage hierarchy so the app finds a real Android filesystem layout
