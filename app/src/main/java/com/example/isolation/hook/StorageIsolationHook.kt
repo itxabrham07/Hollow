@@ -1,13 +1,26 @@
 package com.example.isolation.hook
 
+import android.app.Activity
+import android.app.AlertDialog
 import android.app.AndroidAppHelper
+import android.app.Instrumentation
+import android.content.ContentProviderClient
 import android.content.ContentResolver
-import android.database.Cursor
+import android.content.Context
+import android.content.Intent
+import android.database.CursorWindow
 import android.database.MatrixCursor
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Bundle
-import android.os.CancellationSignal
+import android.os.Handler
+import android.os.Looper
+import android.provider.MediaStore
 import android.util.Log
+import android.widget.Toast
 import com.example.isolation.model.AuditAction
 import com.example.isolation.model.IsolationMode
 import com.example.isolation.model.IsolationRuleManager
@@ -20,6 +33,7 @@ import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 import java.io.File
 import java.io.FileFilter
+import java.io.FileNotFoundException
 import java.io.FilenameFilter
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
@@ -27,7 +41,16 @@ import java.util.concurrent.Executors
 /**
  * IsoVault Official LSPosed & JingMatrix/Vector Hook Implementation.
  * Loaded by Vector/LSPosed via assets/xposed_init.
- * Hooks MediaStore (ContentResolver), java.io.File, Environment, and ContextImpl.
+ *
+ * Comprehensive 5-Layer Isolation Engine:
+ * 1. MediaStore, ContentResolver, ContentProviderClient & IContentProvider Proxy Hook
+ *    (blocks Camera Roll queries, thumbnails & URI opens in Snapchat, WhatsApp, Instagram, etc.)
+ * 2. Snapchat & Local Gallery SQLiteSession CursorWindow Guard
+ *    (hides previously cached camera_roll rows in SQLite while preserving exact table schema & user login)
+ * 3. System Photo Picker & SAF Document Picker Interceptor
+ *    (prevents ACTION_PICK / PICK_IMAGES / GET_CONTENT / OPEN_DOCUMENT from launching the system picker & leaking phone data)
+ * 4. Java File & Directory Listing Redirection (File constructors, list(), listFiles())
+ * 5. Low-level libcore.io (IoBridge / BlockGuardOs) Path Redirection (stat, access, open, lstat, opendir)
  */
 class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
 
@@ -36,7 +59,7 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
         const val MODULE_PKG = "com.aistudio.isovault.xrvf"
         const val PROVIDER_URI = "content://com.aistudio.isovault.xrvf.provider"
 
-        // Re-entrancy guard to prevent infinite recursion inside File/ContentResolver hooks
+        // Re-entrancy guard to prevent infinite recursion inside File/ContentResolver/OS hooks
         private val isHandlingHook = object : ThreadLocal<Boolean>() {
             override fun initialValue(): Boolean = false
         }
@@ -44,6 +67,12 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
         // Background single-thread executor for non-blocking audit IPC calls to IsoVault
         private val auditExecutor = Executors.newSingleThreadExecutor()
         private val recentAuditCache = ConcurrentHashMap<String, Long>()
+
+        // Fast in-memory rule cache (refreshed every 2.5 seconds) so hooks never stall app startup
+        @Volatile
+        private var cachedRule: IsolationRuleManager.AppRule? = null
+        @Volatile
+        private var lastRuleFetchMs: Long = 0L
 
         private val DEFAULT_MEDIA_COLUMNS = arrayOf(
             "_id",
@@ -60,8 +89,48 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             "bucket_id",
             "bucket_display_name",
             "relative_path",
-            "duration"
+            "duration",
+            "media_type",
+            "is_pending",
+            "is_trashed",
+            "is_favorite",
+            "generation_added",
+            "generation_modified",
+            "volume_name",
+            "owner_package_name",
+            "title",
+            "album",
+            "artist",
+            "resolution",
+            "is_drm",
+            "parent",
+            "format",
+            "storage_id"
         )
+    }
+
+    /**
+     * Crash-proof empty MatrixCursor for MediaStore and Camera Roll queries.
+     * Some apps (including Snapchat's Memories Camera Roll scanner) call
+     * cursor.getColumnIndexOrThrow(...) BEFORE checking cursor.moveToFirst().
+     * This cursor guarantees 0 rows while never throwing IllegalArgumentException on any column name.
+     */
+    private class SafeEmptyMatrixCursor(projection: Array<String>) : MatrixCursor(projection, 0) {
+        override fun getCount(): Int = 0
+
+        override fun getColumnIndex(columnName: String?): Int {
+            if (columnName == null) return 0
+            val idx = super.getColumnIndex(columnName)
+            return if (idx >= 0) idx else 0
+        }
+
+        override fun getColumnIndexOrThrow(columnName: String?): Int {
+            if (columnName == null) return 0
+            val idx = super.getColumnIndex(columnName)
+            return if (idx >= 0) idx else 0
+        }
+
+        override fun getExtras(): Bundle = Bundle.EMPTY
     }
 
     private var xSharedPrefs: XSharedPreferences? = null
@@ -79,8 +148,8 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         val pkg = lpparam.packageName ?: return
 
-        // Ignore core system packages unless specifically targeted
-        if (pkg == "android" || pkg.startsWith("com.android.systemui") || pkg.startsWith("com.android.providers.")) {
+        // Ignore core system framework packages
+        if (pkg == "android" || pkg.startsWith("com.android.systemui")) {
             return
         }
 
@@ -105,7 +174,7 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
         }
 
         // 2. Load isolation rule for this target package.
-        // Note: In JingMatrix/Vector and LSPosed, handleLoadPackage is ONLY called for apps
+        // In JingMatrix/Vector and LSPosed, handleLoadPackage is ONLY called for apps
         // that the user enabled in the Module Scope! So we isolate by default unless explicitly disabled.
         val rule = resolveRuleForPackage(pkg)
         if (!rule.isIsolated) {
@@ -113,12 +182,15 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             return
         }
 
-        XposedBridge.log("[IsoVault] >>> ACTIVATING STORAGE & MEDIASTORE ISOLATION FOR: $pkg (Mode: ${rule.mode}) <<<")
-        Log.i(TAG, "[IsoVault] Activating isolation for $pkg (Mode: ${rule.mode})")
+        XposedBridge.log("[IsoVault] >>> ACTIVATING FULL ISOLATION FOR: $pkg (Mode: ${rule.mode}) <<<")
+        Log.i(TAG, "[IsoVault] Activating full isolation for $pkg (Mode: ${rule.mode})")
 
         try {
-            attachMediaStoreHooks(lpparam, pkg, rule)
+            attachMediaStoreAndProviderHooks(lpparam, pkg)
+            attachPickerInterceptorHooks(lpparam, pkg)
+            attachSnapchatAndGallerySqliteHooks(lpparam, pkg)
             attachFileHooks(lpparam, pkg, rule)
+            attachLowLevelOsHooks(lpparam, pkg, rule)
             attachEnvironmentHooks(lpparam, pkg, rule)
         } catch (t: Throwable) {
             XposedBridge.log("[IsoVault] Error attaching hooks to $pkg: ${t.message}")
@@ -127,7 +199,43 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
     }
 
     private fun resolveRuleForPackage(pkg: String): IsolationRuleManager.AppRule {
-        // 1. Try XSharedPreferences (Vector/LSPosed native bridge)
+        val now = System.currentTimeMillis()
+        val existing = cachedRule
+        if (existing != null && existing.packageName == pkg && (now - lastRuleFetchMs) < 2500L) {
+            return existing
+        }
+
+        val resolved = fetchRuleInternal(pkg)
+        cachedRule = resolved
+        lastRuleFetchMs = now
+        return resolved
+    }
+
+    private fun fetchRuleInternal(pkg: String): IsolationRuleManager.AppRule {
+        // 1. Try live IPC call to IsoVaultConfigProvider if Application context is ready
+        try {
+            val app = AndroidAppHelper.currentApplication()
+            if (app != null) {
+                val bundle = app.contentResolver.call(
+                    Uri.parse(PROVIDER_URI),
+                    "check_isolated",
+                    pkg,
+                    null
+                )
+                if (bundle != null && bundle.getBoolean("isConfigured", false)) {
+                    val explicitlyDisabled = bundle.getBoolean("explicitlyDisabled", false)
+                    val isolated = bundle.getBoolean("isIsolated", true) && !explicitlyDisabled
+                    val modeStr = bundle.getString("mode", "ENCRYPTED_VAULT") ?: "ENCRYPTED_VAULT"
+                    val mode = try { IsolationMode.valueOf(modeStr) } catch (_: Exception) { IsolationMode.ENCRYPTED_VAULT }
+                    val pollution = bundle.getBoolean("blockPollution", true)
+                    val whitelistStr = bundle.getString("whitelistedFolders", "") ?: ""
+                    val whitelist = whitelistStr.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+                    return IsolationRuleManager.AppRule(pkg, isolated, mode, pollution, whitelist)
+                }
+            }
+        } catch (_: Throwable) {}
+
+        // 2. Try XSharedPreferences (Vector/LSPosed native bridge)
         try {
             val prefs = xSharedPrefs ?: XSharedPreferences(MODULE_PKG, IsolationRuleManager.PREFS_NAME).also {
                 xSharedPrefs = it
@@ -139,16 +247,16 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
                 val modeStr = prefs.getString("${pkg}_mode", "ENCRYPTED_VAULT") ?: "ENCRYPTED_VAULT"
                 val mode = try { IsolationMode.valueOf(modeStr) } catch (_: Exception) { IsolationMode.ENCRYPTED_VAULT }
                 val pollution = prefs.getBoolean("${pkg}_pollution", true)
-                val whitelistStr = prefs.getString("${pkg}_whitelist", "Download") ?: "Download"
+                val whitelistStr = prefs.getString("${pkg}_whitelist", "") ?: ""
                 val whitelist = whitelistStr.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
                 return IsolationRuleManager.AppRule(pkg, isolated, mode, pollution, whitelist)
             }
         } catch (_: Throwable) {}
 
-        // 2. Try external .IsoVault rule file
+        // 3. Try external .IsoVault rule file
         IsolationRuleManager.readExternalRule(pkg)?.let { return it }
 
-        // 3. Default: Since Vector/LSPosed only invokes handleLoadPackage on scoped apps, isolate with ENCRYPTED_VAULT!
+        // 4. Default: Since Vector/LSPosed only invokes handleLoadPackage on scoped apps, isolate with ENCRYPTED_VAULT!
         return IsolationRuleManager.AppRule(
             packageName = pkg,
             isIsolated = true,
@@ -158,114 +266,479 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
         )
     }
 
+    private fun isGalleryWhitelisted(rule: IsolationRuleManager.AppRule): Boolean {
+        return rule.whitelistedFolders.any {
+            it.equals("DCIM", ignoreCase = true) ||
+                it.equals("Pictures", ignoreCase = true) ||
+                it.equals("Camera", ignoreCase = true) ||
+                it.equals("All", ignoreCase = true)
+        }
+    }
+
+    private fun isMediaOrExternalDocumentUri(uri: Uri?): Boolean {
+        if (uri == null) return false
+        val scheme = uri.scheme?.lowercase() ?: ""
+        if (scheme == "file") {
+            val path = uri.path ?: return false
+            return shouldInterceptPath("", path)
+        }
+        if (scheme != "content") return false
+        val auth = uri.authority?.lowercase() ?: return false
+        return auth == "media" ||
+            auth.contains("media") ||
+            auth.contains("photopicker") ||
+            auth.contains("externalstorage") ||
+            auth.contains("downloads") ||
+            auth.contains("gallery") ||
+            auth.contains("photos")
+    }
+
     /**
-     * Hooks ContentResolver.query so MediaStore scans (used by Snapchat Camera Roll, WhatsApp Gallery,
-     * Instagram, TikTok, etc. on Android 10-16) cannot see the user's private photos & videos.
+     * LAYER 1: Hooks ContentResolver, ContentProviderClient, AND ContentProviderProxy queries,
+     * thumbnail loaders, image decoders, and file descriptor / stream openers.
+     * Fixes Snapchat's in-built Camera Roll (which uses ContentProviderClient.query and
+     * ContentResolver.openTypedAssetFileDescriptor / loadThumbnail) as well as WhatsApp/Instagram/Telegram.
      */
-    private fun attachMediaStoreHooks(
+    private fun attachMediaStoreAndProviderHooks(
         lpparam: XC_LoadPackage.LoadPackageParam,
-        pkg: String,
-        initialRule: IsolationRuleManager.AppRule
+        pkg: String
     ) {
         val mediaQueryHook = object : XC_MethodHook() {
             override fun beforeHookedMethod(param: MethodHookParam) {
                 if (isHandlingHook.get() == true) return
-                val uri = param.args.firstOrNull() as? Uri ?: return
-                val authority = uri.authority ?: return
 
-                if (authority == "media" || authority.contains("media", ignoreCase = true)) {
-                    isHandlingHook.set(true)
-                    try {
-                        val rule = resolveRuleForPackage(pkg)
-                        if (!rule.isIsolated || rule.mode == IsolationMode.READ_ONLY) return
+                // Find the Uri argument index (index 0 for ContentResolver/ContentProviderClient, 1 or 2 for IContentProvider)
+                val uriIndex = param.args.indexOfFirst { it is Uri }
+                if (uriIndex < 0) return
+                val uri = param.args[uriIndex] as? Uri ?: return
+                if (!isMediaOrExternalDocumentUri(uri)) return
 
-                        // Check if user explicitly whitelisted DCIM or Pictures or Camera
-                        val allowsGallery = rule.whitelistedFolders.any {
-                            it.equals("DCIM", ignoreCase = true) ||
-                                    it.equals("Pictures", ignoreCase = true) ||
-                                    it.equals("Camera", ignoreCase = true) ||
-                                    it.equals("All", ignoreCase = true)
-                        }
-                        if (allowsGallery) return
+                isHandlingHook.set(true)
+                try {
+                    val rule = resolveRuleForPackage(pkg)
+                    if (!rule.isIsolated || rule.mode == IsolationMode.READ_ONLY) return
+                    if (isGalleryWhitelisted(rule)) return
 
-                        val projection = (param.args.getOrNull(1) as? Array<*>)
-                            ?.filterIsInstance<String>()
-                            ?.toTypedArray()
-                            ?.takeIf { it.isNotEmpty() }
-                            ?: DEFAULT_MEDIA_COLUMNS
-
-                        // Return a clean empty MatrixCursor so the app's Camera Roll / Gallery is isolated
-                        val emptyCursor: Cursor = MatrixCursor(projection)
-                        param.result = emptyCursor
-
-                        val action = if (rule.mode == IsolationMode.ENCRYPTED_VAULT) AuditAction.ENCRYPTED else AuditAction.SPOOFED_EMPTY
-                        XposedBridge.log("[IsoVault] Isolated MediaStore scan in $pkg: $uri")
-                        reportAuditToManager(
-                            pkg = pkg,
-                            requestedPath = uri.toString(),
-                            resolvedPath = "IsoVault://empty_mediastore_cursor",
-                            action = action,
-                            operation = "MEDIASTORE_QUERY",
-                            details = "Isolated MediaStore gallery scan (${rule.mode.badge})"
-                        )
-                    } finally {
-                        isHandlingHook.set(false)
+                    // In all query overloads, projection is immediately after Uri (uriIndex + 1)
+                    val requestedProjection = param.args.getOrNull(uriIndex + 1) as? Array<*>
+                    val mergedColumns = LinkedHashSet<String>()
+                    requestedProjection?.forEach { col ->
+                        if (col is String && col.isNotBlank()) mergedColumns.add(col)
                     }
+                    DEFAULT_MEDIA_COLUMNS.forEach { mergedColumns.add(it) }
+
+                    param.result = SafeEmptyMatrixCursor(mergedColumns.toTypedArray())
+
+                    val action = if (rule.mode == IsolationMode.ENCRYPTED_VAULT) AuditAction.ENCRYPTED else AuditAction.SPOOFED_EMPTY
+                    XposedBridge.log("[IsoVault] Isolated MediaStore/Provider query in $pkg: $uri")
+                    reportAuditToManager(
+                        pkg = pkg,
+                        requestedPath = uri.toString(),
+                        resolvedPath = "IsoVault://empty_camera_roll",
+                        action = action,
+                        operation = "CAMERA_ROLL_QUERY",
+                        details = "Hidden camera roll & media scan (${rule.mode.badge})"
+                    )
+                } finally {
+                    isHandlingHook.set(false)
                 }
             }
         }
 
-        // Overload 1: query(Uri, String[], String, String[], String)
+        // Hook ALL overloads of ContentResolver.query AND ContentProviderClient.query
         try {
-            XposedHelpers.findAndHookMethod(
-                ContentResolver::class.java,
-                "query",
-                Uri::class.java,
-                Array<String>::class.java,
-                String::class.java,
-                Array<String>::class.java,
-                String::class.java,
-                mediaQueryHook
-            )
+            XposedBridge.hookAllMethods(ContentResolver::class.java, "query", mediaQueryHook)
         } catch (t: Throwable) {
-            Log.w(TAG, "ContentResolver.query(5) hook: ${t.message}")
+            Log.w(TAG, "ContentResolver.query hookAllMethods: ${t.message}")
         }
 
-        // Overload 2: query(Uri, String[], String, String[], String, CancellationSignal)
         try {
-            XposedHelpers.findAndHookMethod(
-                ContentResolver::class.java,
-                "query",
-                Uri::class.java,
-                Array<String>::class.java,
-                String::class.java,
-                Array<String>::class.java,
-                String::class.java,
-                CancellationSignal::class.java,
-                mediaQueryHook
-            )
+            XposedBridge.hookAllMethods(ContentProviderClient::class.java, "query", mediaQueryHook)
         } catch (t: Throwable) {
-            Log.w(TAG, "ContentResolver.query(6) hook: ${t.message}")
+            Log.w(TAG, "ContentProviderClient.query hookAllMethods: ${t.message}")
         }
 
-        // Overload 3 (Android 10-16 primary API): query(Uri, String[], Bundle, CancellationSignal)
+        // Also hook low-level android.content.ContentProviderProxy.query if present
         try {
-            XposedHelpers.findAndHookMethod(
-                ContentResolver::class.java,
-                "query",
-                Uri::class.java,
-                Array<String>::class.java,
-                Bundle::class.java,
-                CancellationSignal::class.java,
-                mediaQueryHook
-            )
-        } catch (t: Throwable) {
-            Log.w(TAG, "ContentResolver.query(4) hook: ${t.message}")
+            val proxyClass = XposedHelpers.findClass("android.content.ContentProviderProxy", null)
+            XposedBridge.hookAllMethods(proxyClass, "query", mediaQueryHook)
+        } catch (_: Throwable) {}
+
+        // Block opening media URIs or cached thumbnails (openInputStream, openFileDescriptor,
+        // openAssetFileDescriptor, openTypedAssetFileDescriptor, loadThumbnail)
+        val mediaOpenBlockerHook = object : XC_MethodHook() {
+            override fun beforeHookedMethod(param: MethodHookParam) {
+                if (isHandlingHook.get() == true) return
+                val uri = param.args.firstOrNull { it is Uri } as? Uri ?: return
+                if (!isMediaOrExternalDocumentUri(uri)) return
+
+                // Allow URIs that explicitly point inside our own IsoVault_Sandbox
+                val uriStr = uri.toString()
+                if (uriStr.contains("IsoVault_Sandbox") || uriStr.contains(MODULE_PKG)) return
+
+                isHandlingHook.set(true)
+                try {
+                    val rule = resolveRuleForPackage(pkg)
+                    if (!rule.isIsolated || rule.mode == IsolationMode.READ_ONLY) return
+                    if (isGalleryWhitelisted(rule)) return
+
+                    reportAuditToManager(
+                        pkg = pkg,
+                        requestedPath = uriStr,
+                        resolvedPath = "IsoVault://blocked_media_uri",
+                        action = AuditAction.BLOCKED,
+                        operation = "MEDIA_URI_OPEN",
+                        details = "Blocked direct media/thumbnail read (${param.method.name})"
+                    )
+                    param.throwable = FileNotFoundException("Protected by IsoVault: media URI isolated")
+                } finally {
+                    isHandlingHook.set(false)
+                }
+            }
         }
+
+        val resolverOpenMethods = listOf(
+            "openInputStream",
+            "openFileDescriptor",
+            "openAssetFileDescriptor",
+            "openTypedAssetFileDescriptor",
+            "loadThumbnail"
+        )
+        for (methodName in resolverOpenMethods) {
+            try {
+                XposedBridge.hookAllMethods(ContentResolver::class.java, methodName, mediaOpenBlockerHook)
+            } catch (_: Throwable) {}
+        }
+
+        val clientOpenMethods = listOf(
+            "openFile",
+            "openAssetFile",
+            "openTypedAssetFile"
+        )
+        for (methodName in clientOpenMethods) {
+            try {
+                XposedBridge.hookAllMethods(ContentProviderClient::class.java, methodName, mediaOpenBlockerHook)
+            } catch (_: Throwable) {}
+        }
+
+        // Hook ImageDecoder.createSource(ContentResolver, Uri) & MediaMetadataRetriever.setDataSource(Context, Uri)
+        try {
+            XposedBridge.hookAllMethods(ImageDecoder::class.java, "createSource", mediaOpenBlockerHook)
+        } catch (_: Throwable) {}
+
+        try {
+            XposedBridge.hookAllMethods(MediaMetadataRetriever::class.java, "setDataSource", mediaOpenBlockerHook)
+        } catch (_: Throwable) {}
+
+        // Legacy MediaStore.Images.Thumbnails & Video.Thumbnails
+        try {
+            XposedBridge.hookAllMethods(
+                MediaStore.Images.Thumbnails::class.java,
+                "getThumbnail",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val rule = resolveRuleForPackage(pkg)
+                        if (rule.isIsolated && !isGalleryWhitelisted(rule)) {
+                            param.result = null as Bitmap?
+                        }
+                    }
+                }
+            )
+            XposedBridge.hookAllMethods(
+                MediaStore.Video.Thumbnails::class.java,
+                "getThumbnail",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val rule = resolveRuleForPackage(pkg)
+                        if (rule.isIsolated && !isGalleryWhitelisted(rule)) {
+                            param.result = null as Bitmap?
+                        }
+                    }
+                }
+            )
+        } catch (_: Throwable) {}
     }
 
     /**
-     * Hooks java.io.File constructors and directory listing methods.
+     * LAYER 2: Snapchat & Local Gallery SQLiteSession CursorWindow Guard.
+     * Snapchat caches the user's Camera Roll rows in its own internal SQLite DB (tables named
+     * `camera_roll*` / `memories_camera_roll*`) before IsoVault is enabled.
+     * By hooking SQLiteSession.executeForCursorWindow when a SELECT query targets `camera_roll`
+     * or `/storage/emulated/0/dcim`, we clear the CursorWindow and return 0 rows while preserving
+     * the exact SQLite table column schema and keeping the user's Snapchat login intact!
+     */
+    private fun attachSnapchatAndGallerySqliteHooks(
+        lpparam: XC_LoadPackage.LoadPackageParam,
+        pkg: String
+    ) {
+        try {
+            val sqliteSessionClass = XposedHelpers.findClass("android.database.sqlite.SQLiteSession", null)
+            XposedBridge.hookAllMethods(
+                sqliteSessionClass,
+                "executeForCursorWindow",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (isHandlingHook.get() == true) return
+                        val sql = param.args.firstOrNull() as? String ?: return
+                        val lower = sql.trimStart().lowercase()
+                        if (!lower.startsWith("select")) return
+
+                        if (lower.contains("camera_roll") ||
+                            lower.contains("cameraroll") ||
+                            lower.contains("local_media_reference") ||
+                            lower.contains("/storage/emulated/0/dcim") ||
+                            lower.contains("/storage/emulated/0/pictures")
+                        ) {
+                            isHandlingHook.set(true)
+                            try {
+                                val rule = resolveRuleForPackage(pkg)
+                                if (!rule.isIsolated || rule.mode == IsolationMode.READ_ONLY) return
+                                if (isGalleryWhitelisted(rule)) return
+
+                                val window = param.args.firstOrNull { it is CursorWindow } as? CursorWindow
+                                window?.clear()
+                                param.result = 0
+                                XposedBridge.log("[IsoVault] Cleared cached Camera Roll SQLite CursorWindow in $pkg")
+                            } finally {
+                                isHandlingHook.set(false)
+                            }
+                        }
+                    }
+                }
+            )
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * LAYER 3: System Photo Picker & Document Picker Interceptor.
+     * When the user clicks the external Gallery / Document Picker inside WhatsApp, Snapchat,
+     * Instagram, or Telegram, the app fires Intent.ACTION_PICK, MediaStore.ACTION_PICK_IMAGES,
+     * Intent.ACTION_GET_CONTENT, or Intent.ACTION_OPEN_DOCUMENT, which would normally launch
+     * the un-isolated system PhotoPicker / DocumentsUI process and expose the phone's real data.
+     *
+     * This hook intercepts those picker intents right inside the target app and shows an
+     * isolated IsoVault Private Locker dialog instead, returning RESULT_CANCELED to the app
+     * so real phone photos and files are never exposed!
+     */
+    private fun attachPickerInterceptorHooks(
+        lpparam: XC_LoadPackage.LoadPackageParam,
+        pkg: String
+    ) {
+        val execStartActivityHook = object : XC_MethodHook() {
+            override fun beforeHookedMethod(param: MethodHookParam) {
+                if (isHandlingHook.get() == true) return
+
+                val intent = param.args.firstOrNull { it is Intent } as? Intent ?: return
+                if (!isExternalPickerIntent(intent)) return
+
+                isHandlingHook.set(true)
+                try {
+                    val rule = resolveRuleForPackage(pkg)
+                    if (!rule.isIsolated || rule.mode == IsolationMode.READ_ONLY) return
+                    if (isGalleryWhitelisted(rule)) return
+
+                    val whoContext = param.args.firstOrNull { it is Context } as? Context
+                    val requestCode = (param.args.filterIsInstance<Int>().firstOrNull()) ?: -1
+
+                    XposedBridge.log("[IsoVault] Intercepted external system picker in $pkg: ${intent.action}")
+                    reportAuditToManager(
+                        pkg = pkg,
+                        requestedPath = "SystemPicker://${intent.action ?: "PICK"}",
+                        resolvedPath = "IsoVault://isolated_picker_sandbox",
+                        action = AuditAction.BLOCKED,
+                        operation = "SYSTEM_PICKER_BLOCKED",
+                        details = "Prevented system Photo/Document Picker from exposing phone files"
+                    )
+
+                    // Suppress launching the external system PhotoPicker / DocumentsUI process
+                    param.result = null
+
+                    // Show isolated vault feedback & deliver clean RESULT_CANCELED to calling Activity
+                    showIsolatedPickerFeedback(whoContext, pkg, requestCode)
+                } finally {
+                    isHandlingHook.set(false)
+                }
+            }
+        }
+
+        try {
+            XposedBridge.hookAllMethods(Instrumentation::class.java, "execStartActivity", execStartActivityHook)
+        } catch (t: Throwable) {
+            Log.w(TAG, "Instrumentation.execStartActivity hook error: ${t.message}")
+        }
+
+        // Also hook Activity.startActivityForResult directly as a secondary safeguard
+        try {
+            XposedBridge.hookAllMethods(
+                Activity::class.java,
+                "startActivityForResult",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (isHandlingHook.get() == true) return
+                        val intent = param.args.firstOrNull { it is Intent } as? Intent ?: return
+                        if (!isExternalPickerIntent(intent)) return
+
+                        isHandlingHook.set(true)
+                        try {
+                            val rule = resolveRuleForPackage(pkg)
+                            if (!rule.isIsolated || rule.mode == IsolationMode.READ_ONLY) return
+                            if (isGalleryWhitelisted(rule)) return
+
+                            val activity = param.thisObject as? Activity
+                            val requestCode = (param.args.filterIsInstance<Int>().firstOrNull()) ?: -1
+
+                            reportAuditToManager(
+                                pkg = pkg,
+                                requestedPath = "SystemPicker://${intent.action ?: "PICK"}",
+                                resolvedPath = "IsoVault://isolated_picker_sandbox",
+                                action = AuditAction.BLOCKED,
+                                operation = "SYSTEM_PICKER_BLOCKED",
+                                details = "Prevented system Photo/Document Picker from exposing phone files"
+                            )
+
+                            param.result = null
+                            showIsolatedPickerFeedback(activity, pkg, requestCode)
+                        } finally {
+                            isHandlingHook.set(false)
+                        }
+                    }
+                }
+            )
+        } catch (_: Throwable) {}
+    }
+
+    private fun isExternalPickerIntent(intent: Intent?): Boolean {
+        if (intent == null) return false
+        val action = intent.action ?: ""
+
+        // Unwrap Intent.ACTION_CHOOSER if wrapped
+        if (action == Intent.ACTION_CHOOSER) {
+            @Suppress("DEPRECATION")
+            val target = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
+            if (isExternalPickerIntent(target)) return true
+        }
+
+        val pickerActions = setOf(
+            Intent.ACTION_PICK,
+            Intent.ACTION_GET_CONTENT,
+            Intent.ACTION_OPEN_DOCUMENT,
+            Intent.ACTION_OPEN_DOCUMENT_TREE,
+            "android.provider.action.PICK_IMAGES",
+            "com.google.android.gms.provider.action.PICK_IMAGES",
+            "androidx.activity.result.contract.action.PICK_IMAGES"
+        )
+        if (action in pickerActions) return true
+
+        val type = intent.type?.lowercase() ?: ""
+        if ((action.contains("PICK", ignoreCase = true) || action.contains("CONTENT", ignoreCase = true)) &&
+            (type.startsWith("image/") || type.startsWith("video/") || type.startsWith("audio/") || type == "*/*")
+        ) {
+            return true
+        }
+
+        val targetPkg = intent.`package`?.lowercase() ?: intent.component?.packageName?.lowercase() ?: ""
+        if (targetPkg.contains("photopicker") ||
+            targetPkg.contains("documentsui") ||
+            targetPkg.contains("providers.media") ||
+            targetPkg.contains("gallery")
+        ) {
+            return true
+        }
+
+        val dataUri = intent.data
+        if (dataUri != null && isMediaOrExternalDocumentUri(dataUri)) {
+            return true
+        }
+
+        return false
+    }
+
+    private fun showIsolatedPickerFeedback(whoContext: Context?, pkg: String, requestCode: Int) {
+        Handler(Looper.getMainLooper()).post {
+            try {
+                val sandboxRoot = getOrCreateSandboxRoot(pkg)
+                val sandboxFiles = sandboxRoot.walkTopDown()
+                    .filter { it.isFile && !it.name.startsWith(".") }
+                    .take(20)
+                    .toList()
+
+                val activity = whoContext as? Activity
+                if (activity != null && !activity.isFinishing && !activity.isDestroyed) {
+                    if (sandboxFiles.isEmpty()) {
+                        AlertDialog.Builder(activity)
+                            .setTitle("Protected by IsoVault")
+                            .setMessage(
+                                "This app is isolated in its own private space.\n\n" +
+                                    "IsoVault blocked the system file & photo picker so this app cannot view your phone's real gallery or documents.\n\n" +
+                                    "(This app's private locker currently has 0 files.)"
+                            )
+                            .setPositiveButton("OK") { dialog, _ ->
+                                dialog.dismiss()
+                            }
+                            .setOnDismissListener {
+                                dispatchCanceledResult(activity, requestCode)
+                            }
+                            .show()
+                    } else {
+                        val fileNames = sandboxFiles.map { it.name }.toTypedArray()
+                        AlertDialog.Builder(activity)
+                            .setTitle("IsoVault Private Locker (${sandboxFiles.size} files)")
+                            .setItems(fileNames) { dialog, which ->
+                                val chosen = sandboxFiles[which]
+                                val resultIntent = Intent().apply {
+                                    data = Uri.fromFile(chosen)
+                                }
+                                dispatchActivityResult(activity, requestCode, Activity.RESULT_OK, resultIntent)
+                                dialog.dismiss()
+                            }
+                            .setNegativeButton("Cancel") { dialog, _ ->
+                                dispatchCanceledResult(activity, requestCode)
+                                dialog.dismiss()
+                            }
+                            .setOnCancelListener {
+                                dispatchCanceledResult(activity, requestCode)
+                            }
+                            .show()
+                    }
+                } else {
+                    val appCtx = whoContext ?: AndroidAppHelper.currentApplication()
+                    if (appCtx != null) {
+                        Toast.makeText(
+                            appCtx,
+                            "IsoVault: System gallery & file picker blocked to protect your private data",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            } catch (_: Throwable) {
+                try {
+                    if (whoContext is Activity && requestCode >= 0) {
+                        dispatchCanceledResult(whoContext, requestCode)
+                    }
+                } catch (_: Throwable) {}
+            }
+        }
+    }
+
+    private fun dispatchCanceledResult(activity: Activity, requestCode: Int) {
+        dispatchActivityResult(activity, requestCode, Activity.RESULT_CANCELED, null)
+    }
+
+    private fun dispatchActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode < 0) return
+        try {
+            XposedHelpers.callMethod(
+                activity,
+                "onActivityResult",
+                requestCode,
+                resultCode,
+                data
+            )
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * LAYER 4: Hooks java.io.File constructors, BitmapFactory.decodeFile, and directory listing methods (list AND listFiles).
      */
     private fun attachFileHooks(
         lpparam: XC_LoadPackage.LoadPackageParam,
@@ -361,7 +834,35 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             Log.w(TAG, "File(File, String) hook error: ${t.message}")
         }
 
-        // 4. File.listFiles() and File.list() protection against directory scanning
+        // 4a. File.list() and File.list(FilenameFilter) protection against directory scanning
+        val emptyListStringsHook = object : XC_MethodHook() {
+            override fun beforeHookedMethod(param: MethodHookParam) {
+                if (isHandlingHook.get() == true) return
+                val file = param.thisObject as? File ?: return
+                isHandlingHook.set(true)
+                try {
+                    val path = file.path
+                    if (shouldInterceptPath(pkg, path)) {
+                        val rule = resolveRuleForPackage(pkg)
+                        if (rule.isIsolated && !isWhitelisted(path, rule.whitelistedFolders)) {
+                            param.result = emptyArray<String>()
+                            reportAuditToManager(
+                                pkg = pkg,
+                                requestedPath = path,
+                                resolvedPath = "IsoVault://empty_dir_listing",
+                                action = AuditAction.SPOOFED_EMPTY,
+                                operation = "LIST_DIR",
+                                details = "Blocked folder scan on $path"
+                            )
+                        }
+                    }
+                } finally {
+                    isHandlingHook.set(false)
+                }
+            }
+        }
+
+        // 4b. File.listFiles() protection against directory scanning
         val emptyListFilesHook = object : XC_MethodHook() {
             override fun beforeHookedMethod(param: MethodHookParam) {
                 if (isHandlingHook.get() == true) return
@@ -390,9 +891,77 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
         }
 
         try {
+            XposedHelpers.findAndHookMethod(File::class.java, "list", emptyListStringsHook)
+            XposedHelpers.findAndHookMethod(File::class.java, "list", FilenameFilter::class.java, emptyListStringsHook)
             XposedHelpers.findAndHookMethod(File::class.java, "listFiles", emptyListFilesHook)
             XposedHelpers.findAndHookMethod(File::class.java, "listFiles", FilenameFilter::class.java, emptyListFilesHook)
             XposedHelpers.findAndHookMethod(File::class.java, "listFiles", FileFilter::class.java, emptyListFilesHook)
+        } catch (_: Throwable) {}
+
+        // 5. BitmapFactory.decodeFile protection
+        try {
+            XposedBridge.hookAllMethods(
+                BitmapFactory::class.java,
+                "decodeFile",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (isHandlingHook.get() == true) return
+                        val path = param.args.firstOrNull() as? String ?: return
+                        if (shouldInterceptPath(pkg, path)) {
+                            isHandlingHook.set(true)
+                            try {
+                                val redirected = redirectPathForApp(pkg, path, initialRule)
+                                if (redirected != path) {
+                                    param.args[0] = redirected
+                                }
+                            } finally {
+                                isHandlingHook.set(false)
+                            }
+                        }
+                    }
+                }
+            )
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * LAYER 5: Low-Level OS / libcore.io Bridge Hooks (IoBridge.open & BlockGuardOs).
+     * Catches direct path opens, stat(), lstat(), access(), and opendir() calls that bypass
+     * File(String) constructors (e.g. NIO Files, File(URI), or cached path strings).
+     */
+    private fun attachLowLevelOsHooks(
+        lpparam: XC_LoadPackage.LoadPackageParam,
+        pkg: String,
+        initialRule: IsolationRuleManager.AppRule
+    ) {
+        val osPathRedirectHook = object : XC_MethodHook() {
+            override fun beforeHookedMethod(param: MethodHookParam) {
+                if (isHandlingHook.get() == true) return
+                val path = param.args.firstOrNull() as? String ?: return
+                if (shouldInterceptPath(pkg, path)) {
+                    isHandlingHook.set(true)
+                    try {
+                        val redirected = redirectPathForApp(pkg, path, initialRule)
+                        if (redirected != path) {
+                            param.args[0] = redirected
+                        }
+                    } finally {
+                        isHandlingHook.set(false)
+                    }
+                }
+            }
+        }
+
+        try {
+            val ioBridgeClass = XposedHelpers.findClass("libcore.io.IoBridge", null)
+            XposedBridge.hookAllMethods(ioBridgeClass, "open", osPathRedirectHook)
+        } catch (_: Throwable) {}
+
+        try {
+            val blockGuardOsClass = XposedHelpers.findClass("libcore.io.BlockGuardOs", null)
+            for (method in listOf("open", "stat", "lstat", "access", "opendir")) {
+                XposedBridge.hookAllMethods(blockGuardOsClass, method, osPathRedirectHook)
+            }
         } catch (_: Throwable) {}
     }
 
@@ -474,14 +1043,15 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
         val norm = path.replace("\\", "/")
         if (!norm.startsWith("/storage/emulated/0") &&
             !norm.startsWith("/sdcard") &&
-            !norm.startsWith("/mnt/sdcard")
+            !norm.startsWith("/mnt/sdcard") &&
+            !norm.startsWith("/storage/self/primary")
         ) {
             return false
         }
         // Do not re-intercept paths already inside our sandbox or app-private Android/data
         if (norm.contains("/IsoVault_Sandbox") ||
             norm.contains("/.IsoVault/") ||
-            norm.contains("/Android/data/$pkg")
+            (pkg.isNotBlank() && norm.contains("/Android/data/$pkg"))
         ) {
             return false
         }
@@ -490,7 +1060,7 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
 
     private fun isWhitelisted(path: String, whitelistedFolders: Set<String>): Boolean {
         for (wf in whitelistedFolders) {
-            if (wf.isNotBlank() && path.contains(wf, ignoreCase = true)) {
+            if (wf.isNotBlank() && path.contains("/$wf", ignoreCase = true)) {
                 return true
             }
         }
@@ -498,7 +1068,6 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
     }
 
     private fun getOrCreateSandboxRoot(pkg: String): File {
-        // Try app-specific external files dir first (always writable by the target app without permissions)
         try {
             val app = AndroidAppHelper.currentApplication()
             if (app != null) {
@@ -580,7 +1149,6 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
         val key = "$pkg|$operation|$requestedPath"
         val now = System.currentTimeMillis()
         val lastTime = recentAuditCache[key] ?: 0L
-        // Throttle identical path logs to once every 4 seconds per path
         if (now - lastTime < 4000L) return
         recentAuditCache[key] = now
 
@@ -600,9 +1168,7 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
                     pkg,
                     extras
                 )
-            } catch (_: Throwable) {
-                // Ignore if provider not reachable yet during early process startup
-            }
+            } catch (_: Throwable) {}
         }
     }
 }

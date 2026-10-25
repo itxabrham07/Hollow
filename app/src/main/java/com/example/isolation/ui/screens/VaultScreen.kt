@@ -1,8 +1,6 @@
 package com.example.isolation.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,7 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Visibility
@@ -34,10 +32,8 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -51,7 +47,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -60,15 +55,17 @@ import com.example.isolation.data.entity.VaultFileItem
 import com.example.isolation.ui.components.DecryptedPreviewDialog
 import com.example.isolation.ui.components.StatusBadge
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
-import com.example.ui.theme.CyberAmber
-import com.example.ui.theme.CyberCyan
-import com.example.ui.theme.CyberEmerald
-import com.example.ui.theme.CyberRed
-import com.example.ui.theme.SurfaceBorder
-import com.example.ui.theme.SurfaceCard
-import com.example.ui.theme.SurfaceElevated
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
+import com.example.ui.theme.ClaySecondary
+import com.example.ui.theme.ForestPrimary
+import com.example.ui.theme.FrauncesFontFamily
+import com.example.ui.theme.InkPrimary
+import com.example.ui.theme.InkSecondary
+import com.example.ui.theme.JakartaFontFamily
+import com.example.ui.theme.SageSoft
+import com.example.ui.theme.SageTint
+import com.example.ui.theme.WarmIvory
+import com.example.ui.theme.WarmSand
+import com.example.ui.theme.WarmStone
 
 @Composable
 fun VaultScreen(
@@ -81,7 +78,6 @@ fun VaultScreen(
     var selectedPkgFilter by remember { mutableStateOf("ALL") }
     var showCreateDialog by remember { mutableStateOf(false) }
 
-    // Unique packages with files
     val packages = listOf("ALL") + vaultFiles.map { it.packageName }.distinct()
 
     val filteredFiles = if (selectedPkgFilter == "ALL") {
@@ -98,59 +94,73 @@ fun VaultScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = 20.dp)
         ) {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
-            // Vault Header Banner
+            Text(
+                text = "Private Locker",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = FrauncesFontFamily,
+                color = InkPrimary
+            )
+            Text(
+                text = "Files saved by protected apps are kept safely inside their own locker.",
+                fontSize = 13.sp,
+                color = InkSecondary,
+                fontFamily = JakartaFontFamily
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Locker Summary Card
             Card(
-                colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-                shape = RoundedCornerShape(14.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, CyberCyan.copy(alpha = 0.3f)),
+                colors = CardDefaults.cardColors(containerColor = SageTint),
+                shape = RoundedCornerShape(22.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, ForestPrimary.copy(alpha = 0.2f)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(14.dp)
+                    modifier = Modifier.padding(18.dp)
                 ) {
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .size(46.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(CyberCyan.copy(alpha = 0.15f))
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(SageSoft)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Lock,
                             contentDescription = null,
-                            tint = CyberCyan,
-                            modifier = Modifier.size(26.dp)
+                            tint = ForestPrimary,
+                            modifier = Modifier.size(22.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.width(14.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "AES-256-GCM Secure Vault",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            color = TextPrimary
+                            text = "${vaultFiles.size} Saved Items • ${formatBytes(totalBytes)}",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 16.sp,
+                            fontFamily = FrauncesFontFamily,
+                            color = InkPrimary
                         )
+                        Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "${vaultFiles.size} Files Encrypted • ${formatBytes(totalBytes)}",
+                            text = "Kept separate from your main gallery and other apps.",
                             fontSize = 12.sp,
-                            color = CyberEmerald,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = "Per-app cryptographic containers isolated from unauthorized apps.",
-                            fontSize = 11.sp,
-                            color = TextSecondary
+                            color = InkSecondary,
+                            fontFamily = JakartaFontFamily
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             // App Filter Chips
             if (packages.size > 2) {
@@ -160,19 +170,28 @@ fun VaultScreen(
                 ) {
                     items(packages) { pkg ->
                         val isSelected = selectedPkgFilter == pkg
-                        val label = if (pkg == "ALL") "All Apps" else pkg.substringAfterLast('.')
+                        val label = if (pkg == "ALL") "All Items" else pkg.substringAfterLast('.').replaceFirstChar { it.uppercase() }
                         FilterChip(
                             selected = isSelected,
                             onClick = { selectedPkgFilter = pkg },
-                            label = { Text(label) },
+                            label = { Text(label, fontFamily = JakartaFontFamily) },
+                            shape = RoundedCornerShape(50),
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = CyberCyan.copy(alpha = 0.2f),
-                                selectedLabelColor = CyberCyan
+                                selectedContainerColor = ForestPrimary,
+                                selectedLabelColor = Color.White,
+                                containerColor = WarmIvory,
+                                labelColor = InkSecondary
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = isSelected,
+                                borderColor = WarmStone,
+                                selectedBorderColor = ForestPrimary
                             )
                         )
                     }
                 }
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
             }
 
             // Files list
@@ -183,24 +202,38 @@ fun VaultScreen(
                         .fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            imageVector = Icons.Default.Folder,
-                            contentDescription = null,
-                            tint = TextSecondary,
-                            modifier = Modifier.size(48.dp)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(horizontal = 24.dp)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clip(CircleShape)
+                                .background(WarmSand)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Folder,
+                                contentDescription = null,
+                                tint = InkSecondary,
+                                modifier = Modifier.size(30.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(14.dp))
                         Text(
-                            text = "No encrypted files in this vault yet.",
-                            color = TextSecondary,
-                            fontSize = 14.sp
+                            text = "Your locker is empty",
+                            color = InkPrimary,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = FrauncesFontFamily
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Tap the + button to create a test encrypted file or run an I/O test.",
-                            color = TextSecondary,
-                            fontSize = 12.sp
+                            text = "Tap 'Add Note' below to save a private note or test how files are locked.",
+                            color = InkSecondary,
+                            fontSize = 13.sp,
+                            fontFamily = JakartaFontFamily
                         )
                     }
                 }
@@ -217,35 +250,34 @@ fun VaultScreen(
                     }
 
                     item {
-                        Spacer(modifier = Modifier.height(72.dp))
+                        Spacer(modifier = Modifier.height(84.dp))
                     }
                 }
             }
         }
 
-        // FAB to test write encrypted file
+        // FAB to add private file
         FloatingActionButton(
             onClick = { showCreateDialog = true },
-            containerColor = CyberCyan,
-            contentColor = Color(0xFF00363F),
-            shape = RoundedCornerShape(16.dp),
+            containerColor = ForestPrimary,
+            contentColor = Color.White,
+            shape = RoundedCornerShape(50),
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(16.dp)
+                .padding(20.dp)
                 .testTag("fab_create_vault_file")
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(horizontal = 14.dp)
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp)
             ) {
                 Icon(imageVector = Icons.Default.Add, contentDescription = "Add")
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("New File", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text("Add Note", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, fontFamily = JakartaFontFamily)
             }
         }
     }
 
-    // Decrypted Preview Dialog
     previewItem?.let { (title, content) ->
         DecryptedPreviewDialog(
             title = title,
@@ -254,14 +286,13 @@ fun VaultScreen(
         )
     }
 
-    // Create New File Dialog
     if (showCreateDialog) {
         CreateTestFileDialog(
             onDismiss = { showCreateDialog = false },
             onCreate = { pkg, path, content ->
                 viewModel.testSimulateAppIo(
                     packageName = pkg,
-                    appName = pkg.substringAfterLast('.'),
+                    appName = pkg.substringAfterLast('.').replaceFirstChar { it.uppercase() },
                     testPath = path,
                     fileContent = content
                 )
@@ -277,60 +308,54 @@ fun VaultFileCard(
     onPreview: () -> Unit
 ) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-        shape = RoundedCornerShape(12.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceBorder),
+        colors = CardDefaults.cardColors(containerColor = WarmIvory),
+        shape = RoundedCornerShape(20.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, WarmStone),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = Modifier
             .fillMaxWidth()
             .testTag("vault_file_${fileItem.id}")
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(12.dp)
+            modifier = Modifier.padding(16.dp)
         ) {
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(38.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(CyberEmerald.copy(alpha = 0.15f))
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(SageSoft)
             ) {
                 Icon(
-                    imageVector = Icons.Default.Lock,
+                    imageVector = Icons.Default.Description,
                     contentDescription = null,
-                    tint = CyberEmerald,
+                    tint = ForestPrimary,
                     modifier = Modifier.size(20.dp)
                 )
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(14.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = fileItem.relativePath.substringAfterLast('/'),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    color = TextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                    color = InkPrimary,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = fileItem.packageName,
-                    fontSize = 11.sp,
-                    color = TextSecondary,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    fontFamily = JakartaFontFamily
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    StatusBadge(text = fileItem.algorithm, color = CyberCyan)
-                    Spacer(modifier = Modifier.width(6.dp))
+                    StatusBadge(text = "Private", color = ForestPrimary)
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "${formatBytes(fileItem.encryptedSizeBytes)} enc",
-                        fontSize = 11.sp,
-                        color = TextSecondary,
-                        fontFamily = FontFamily.Monospace
+                        text = formatBytes(fileItem.encryptedSizeBytes),
+                        fontSize = 12.sp,
+                        color = InkSecondary,
+                        fontFamily = JakartaFontFamily
                     )
                 }
             }
@@ -338,15 +363,15 @@ fun VaultFileCard(
             Button(
                 onClick = onPreview,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = CyberCyan.copy(alpha = 0.2f),
-                    contentColor = CyberCyan
+                    containerColor = WarmSand,
+                    contentColor = InkPrimary
                 ),
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(50),
                 modifier = Modifier.testTag("btn_preview_${fileItem.id}")
             ) {
-                Icon(imageVector = Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(14.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Decrypt", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Icon(imageVector = Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(15.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Open", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily)
             }
         }
     }
@@ -357,35 +382,32 @@ fun CreateTestFileDialog(
     onDismiss: () -> Unit,
     onCreate: (packageName: String, path: String, content: String) -> Unit
 ) {
-    var packageName by remember { mutableStateOf("com.tencent.mm") }
-    var path by remember { mutableStateOf("/storage/emulated/0/DCIM/SecretDocument.txt") }
-    var content by remember { mutableStateOf("Classified test record containing personal identification tokens.\nEncrypted transparently by IsoVault AES-256 kernel hook.") }
+    var packageName by remember { mutableStateOf("com.snapchat.android") }
+    var path by remember { mutableStateOf("/storage/emulated/0/DCIM/PrivateNote.txt") }
+    var content by remember { mutableStateOf("Personal note saved inside your private locker.") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(24.dp),
+        containerColor = WarmIvory,
         title = {
-            Text("Create Test Encrypted File", fontWeight = FontWeight.Bold, color = TextPrimary)
+            Text(
+                "New Private Note",
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = FrauncesFontFamily,
+                color = InkPrimary
+            )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = packageName,
-                    onValueChange = { packageName = it },
-                    label = { Text("App Package Name", fontSize = 12.sp) },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = CyberCyan,
-                        unfocusedBorderColor = SurfaceBorder
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
                     value = path,
                     onValueChange = { path = it },
-                    label = { Text("Target Storage Path", fontSize = 12.sp) },
+                    label = { Text("File Name / Folder", fontSize = 12.sp, fontFamily = JakartaFontFamily) },
+                    shape = RoundedCornerShape(14.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = CyberCyan,
-                        unfocusedBorderColor = SurfaceBorder
+                        focusedBorderColor = ForestPrimary,
+                        unfocusedBorderColor = WarmStone
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -393,11 +415,12 @@ fun CreateTestFileDialog(
                 OutlinedTextField(
                     value = content,
                     onValueChange = { content = it },
-                    label = { Text("Plaintext Content to Encrypt", fontSize = 12.sp) },
+                    label = { Text("Note Content", fontSize = 12.sp, fontFamily = JakartaFontFamily) },
                     maxLines = 4,
+                    shape = RoundedCornerShape(14.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = CyberCyan,
-                        unfocusedBorderColor = SurfaceBorder
+                        focusedBorderColor = ForestPrimary,
+                        unfocusedBorderColor = WarmStone
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -406,16 +429,16 @@ fun CreateTestFileDialog(
         confirmButton = {
             Button(
                 onClick = { onCreate(packageName, path, content) },
-                colors = ButtonDefaults.buttonColors(containerColor = CyberCyan, contentColor = Color(0xFF00363F))
+                colors = ButtonDefaults.buttonColors(containerColor = ForestPrimary, contentColor = Color.White),
+                shape = RoundedCornerShape(50)
             ) {
-                Text("Encrypt & Save")
+                Text("Save to Locker", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text("Cancel", color = InkSecondary, fontFamily = JakartaFontFamily)
             }
-        },
-        containerColor = SurfaceElevated
+        }
     )
 }

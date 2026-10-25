@@ -38,7 +38,7 @@ object IsolationRuleManager {
             isIsolated = true,
             mode = IsolationMode.ENCRYPTED_VAULT,
             blockRootPollution = true,
-            whitelistedFolders = setOf("Download")
+            whitelistedFolders = emptySet()
         )
     }
 
@@ -74,7 +74,7 @@ object IsolationRuleManager {
         packageName: String,
         mode: IsolationMode,
         blockRootPollution: Boolean = true,
-        whitelistedFolders: Set<String> = setOf("Download")
+        whitelistedFolders: Set<String> = emptySet()
     ) {
         val cleanWhitelist = whitelistedFolders.map { it.trim() }.filter { it.isNotBlank() }.toSet()
         localRules[packageName] = AppRule(
@@ -100,14 +100,14 @@ object IsolationRuleManager {
             isIsolated = false,
             mode = existing?.mode ?: IsolationMode.ENCRYPTED_VAULT,
             blockRootPollution = existing?.blockRootPollution ?: true,
-            whitelistedFolders = existing?.whitelistedFolders ?: setOf("Download")
+            whitelistedFolders = existing?.whitelistedFolders ?: emptySet()
         )
         syncRuleToSharedPrefsAndDisk(
             pkg = packageName,
             isolated = false,
             mode = existing?.mode ?: IsolationMode.ENCRYPTED_VAULT,
             blockRootPollution = existing?.blockRootPollution ?: true,
-            whitelist = (existing?.whitelistedFolders ?: setOf("Download")).joinToString(",")
+            whitelist = (existing?.whitelistedFolders ?: emptySet()).joinToString(",")
         )
     }
 

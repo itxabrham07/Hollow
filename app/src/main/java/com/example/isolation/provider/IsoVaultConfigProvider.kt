@@ -84,7 +84,7 @@ class IsoVaultConfigProvider : ContentProvider() {
         val isIsolated = if (isConfigured) (prefs?.getBoolean("${pkg}_isolated", true) ?: true) else true
         val explicitlyDisabled = prefs?.getBoolean("${pkg}_explicitly_disabled", false) ?: false
         val mode = prefs?.getString("${pkg}_mode", "ENCRYPTED_VAULT") ?: "ENCRYPTED_VAULT"
-        val whitelist = prefs?.getString("${pkg}_whitelist", "Download") ?: "Download"
+        val whitelist = prefs?.getString("${pkg}_whitelist", "") ?: ""
         val pollution = prefs?.getBoolean("${pkg}_pollution", true) ?: true
 
         cursor.addRow(
@@ -116,7 +116,7 @@ class IsoVaultConfigProvider : ContentProvider() {
             val explicitlyDisabled = if (config != null) !config.isIsolated else (prefs?.getBoolean("${pkg}_explicitly_disabled", false) ?: false)
             val isIsolated = config?.isIsolated ?: if (isConfigured) (prefs?.getBoolean("${pkg}_isolated", true) ?: true) else true
             val mode = config?.isolationMode?.name ?: (prefs?.getString("${pkg}_mode", "ENCRYPTED_VAULT") ?: "ENCRYPTED_VAULT")
-            val whitelist = config?.whitelistedFolders ?: (prefs?.getString("${pkg}_whitelist", "Download") ?: "Download")
+            val whitelist = config?.whitelistedFolders ?: (prefs?.getString("${pkg}_whitelist", "") ?: "")
             val blockPollution = config?.blockRootPollution ?: (prefs?.getBoolean("${pkg}_pollution", true) ?: true)
 
             bundle.putBoolean("isConfigured", isConfigured)
@@ -149,7 +149,7 @@ class IsoVaultConfigProvider : ContentProvider() {
                                 isIsolated = true,
                                 isolationMode = IsolationMode.ENCRYPTED_VAULT,
                                 blockRootPollution = true,
-                                whitelistedFolders = "Download",
+                                whitelistedFolders = "",
                                 totalFilesRedirected = 1,
                                 lastAccessedTimestamp = System.currentTimeMillis()
                             )

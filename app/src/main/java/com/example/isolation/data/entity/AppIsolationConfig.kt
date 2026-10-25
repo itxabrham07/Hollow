@@ -13,7 +13,7 @@ data class AppIsolationConfig(
     val isolationMode: IsolationMode = IsolationMode.ENCRYPTED_VAULT,
     val encryptMediaOnly: Boolean = false,
     val blockRootPollution: Boolean = true,
-    val whitelistedFolders: String = "Download", // comma-separated
+    val whitelistedFolders: String = "", // comma-separated
     val customMountPath: String = "",
     val totalFilesRedirected: Long = 0,
     val totalBytesEncrypted: Long = 0,

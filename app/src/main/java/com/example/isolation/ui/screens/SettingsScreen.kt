@@ -1,7 +1,7 @@
 package com.example.isolation.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,13 +14,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -29,8 +29,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -42,148 +40,164 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.isolation.crypto.AesVaultCipher
-import com.example.isolation.model.IsolationRuleManager
-import com.example.isolation.ui.components.StatusBadge
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
-import com.example.ui.theme.CyberAmber
-import com.example.ui.theme.CyberCyan
-import com.example.ui.theme.CyberEmerald
-import com.example.ui.theme.SurfaceBorder
-import com.example.ui.theme.SurfaceCard
-import com.example.ui.theme.SurfaceElevated
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
+import com.example.ui.theme.ForestPrimary
+import com.example.ui.theme.FrauncesFontFamily
+import com.example.ui.theme.InkPrimary
+import com.example.ui.theme.InkSecondary
+import com.example.ui.theme.JakartaFontFamily
+import com.example.ui.theme.SageSoft
+import com.example.ui.theme.SageTint
+import com.example.ui.theme.WarmIvory
+import com.example.ui.theme.WarmSand
+import com.example.ui.theme.WarmStone
 
 @Composable
 fun SettingsScreen(
-    viewModel: IsoVaultViewModel
+    viewModel: IsoVaultViewModel,
+    onOpenDiagnostics: () -> Unit = {}
 ) {
     val isLsposedActive by viewModel.isLsposedActive.collectAsState()
     var masterKey by remember { mutableStateOf(AesVaultCipher.activeMasterPassphrase) }
     var keySavedMessage by remember { mutableStateOf(false) }
-    val clipboard = LocalClipboardManager.current
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = 20.dp)
             .testTag("settings_screen"),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "LSPosed & Encryption Settings",
-                fontWeight = FontWeight.Bold,
-                fontSize = 18.sp,
-                color = TextPrimary
+                text = "Settings & Setup",
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 24.sp,
+                fontFamily = FrauncesFontFamily,
+                color = InkPrimary
             )
             Text(
-                text = "Configure module integration, cryptographic cipher, and Android 15 compatibility.",
-                fontSize = 12.sp,
-                color = TextSecondary
+                text = "How to turn on gallery protection and manage your locker key.",
+                fontSize = 13.sp,
+                color = InkSecondary,
+                fontFamily = JakartaFontFamily
             )
         }
 
-        // LSPosed Setup Guide Card
+        // Friendly Setup Guide Card
         item {
             Card(
-                colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-                shape = RoundedCornerShape(14.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, CyberCyan.copy(alpha = 0.3f)),
+                colors = CardDefaults.cardColors(containerColor = WarmIvory),
+                shape = RoundedCornerShape(22.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, WarmStone),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(14.dp)) {
+                Column(modifier = Modifier.padding(20.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Shield,
-                            contentDescription = null,
-                            tint = CyberCyan,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "LSPosed Module Guide (Android 15+)",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            color = TextPrimary
-                        )
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(SageSoft)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Shield,
+                                contentDescription = null,
+                                tint = ForestPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "Quick Setup Guide",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 17.sp,
+                                fontFamily = FrauncesFontFamily,
+                                color = InkPrimary
+                            )
+                            Text(
+                                text = if (isLsposedActive) "Protection is currently active" else "3 simple steps to activate",
+                                fontSize = 12.sp,
+                                color = InkSecondary,
+                                fontFamily = JakartaFontFamily
+                            )
+                        }
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "To activate filesystem-level hooking and isolation on device:",
-                        fontSize = 12.sp,
-                        color = TextSecondary
-                    )
-
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
                     SetupStep(
                         step = "1",
-                        title = "Install LSPosed / Zygisk",
-                        desc = "Flash LSPosed (Zygisk release) in Magisk, KernelSU, or APatch manager."
+                        title = "Enable IsoVault in Vector or LSPosed",
+                        desc = "Open your module manager app and switch on IsoVault."
                     )
                     SetupStep(
                         step = "2",
-                        title = "Enable IsoVault Module",
-                        desc = "Open LSPosed Manager app -> Modules -> Turn on 'IsoVault'."
+                        title = "Check the apps you want to isolate",
+                        desc = "Tick Snapchat, WhatsApp, or any app you want to keep separate."
                     )
                     SetupStep(
                         step = "3",
-                        title = "Assign Target App Scope",
-                        desc = "Select target apps (e.g. TikTok, WeChat) and System Framework in the module scope."
-                    )
-                    SetupStep(
-                        step = "4",
-                        title = "Reboot or Restart Process",
-                        desc = "Android 15 will apply the new mount namespace and hook storage I/O."
+                        title = "Force-stop and reopen the app",
+                        desc = "When you reopen Snapchat or WhatsApp, its gallery will be clean and private."
                     )
                 }
             }
         }
 
-        // Master Encryption Passphrase Card
+        // Locker Secret Key Card
         item {
             Card(
-                colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-                shape = RoundedCornerShape(14.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceBorder),
+                colors = CardDefaults.cardColors(containerColor = WarmIvory),
+                shape = RoundedCornerShape(22.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, WarmStone),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(14.dp)) {
+                Column(modifier = Modifier.padding(20.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = null,
-                            tint = CyberEmerald,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "AES-256 Vault Master Passphrase",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            color = TextPrimary
-                        )
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(WarmSand)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = null,
+                                tint = ForestPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "Locker Passphrase",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 17.sp,
+                                fontFamily = FrauncesFontFamily,
+                                color = InkPrimary
+                            )
+                            Text(
+                                text = "Protects notes and files saved inside your Private Locker.",
+                                fontSize = 12.sp,
+                                color = InkSecondary,
+                                fontFamily = JakartaFontFamily
+                            )
+                        }
                     }
 
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Used to derive 256-bit AES-GCM encryption keys using PBKDF2 (10,000 rounds).",
-                        fontSize = 12.sp,
-                        color = TextSecondary
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
                     OutlinedTextField(
                         value = masterKey,
@@ -191,16 +205,16 @@ fun SettingsScreen(
                             masterKey = it
                             keySavedMessage = false
                         },
-                        label = { Text("Master Passphrase", fontSize = 12.sp) },
+                        label = { Text("Secret Passphrase", fontSize = 12.sp, fontFamily = JakartaFontFamily) },
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = CyberCyan,
-                            unfocusedBorderColor = SurfaceBorder
+                            focusedBorderColor = ForestPrimary,
+                            unfocusedBorderColor = WarmStone
                         ),
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(16.dp),
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     Button(
                         onClick = {
@@ -208,83 +222,134 @@ fun SettingsScreen(
                             keySavedMessage = true
                         },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = CyberEmerald,
-                            contentColor = Color(0xFF003913)
+                            containerColor = ForestPrimary,
+                            contentColor = Color.White
                         ),
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(50),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Apply Master Key", fontWeight = FontWeight.Bold)
+                        Text("Save Passphrase", fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily)
                     }
 
                     if (keySavedMessage) {
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "✓ Master encryption passphrase applied.",
-                            color = CyberEmerald,
+                            text = "Passphrase updated.",
+                            color = ForestPrimary,
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = JakartaFontFamily
                         )
                     }
                 }
             }
         }
 
-        // Android 15 & System Diagnostics
+        // About & Advanced Diagnostics Link
         item {
             Card(
-                colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-                shape = RoundedCornerShape(14.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceBorder),
+                colors = CardDefaults.cardColors(containerColor = WarmIvory),
+                shape = RoundedCornerShape(22.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, WarmStone),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(14.dp)) {
+                Column(modifier = Modifier.padding(20.dp)) {
                     Text(
-                        text = "PLATFORM CAPABILITIES",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextSecondary,
-                        letterSpacing = 0.8.sp
+                        text = "How Protection Works",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = FrauncesFontFamily,
+                        color = InkPrimary
                     )
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    FeatureRow(title = "Target OS Support", value = "Android 15 (API 35/36)")
-                    FeatureRow(title = "Mount Namespace Mode", value = "CLONE_NEWNS (Isolated)")
-                    FeatureRow(title = "Cipher Engine", value = "AES-256-GCM Authenticated")
-                    FeatureRow(title = "Hook Framework", value = IsolationRuleManager.HOOK_VERSION)
-                    FeatureRow(title = "Root Pollution Blocker", value = "Active (.tencent, .baidu, .pdd)")
+                    FeatureRow(title = "Photo & Video Gallery", value = "Hidden from selected apps")
+                    FeatureRow(title = "App Downloads & Saves", value = "Kept in private app folder")
+                    FeatureRow(title = "Phone Storage Clutter", value = "Automatically blocked")
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    HorizontalDivider(color = WarmStone)
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpenDiagnostics() }
+                            .padding(vertical = 4.dp)
+                            .testTag("nav_mounts")
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Tune,
+                                contentDescription = null,
+                                tint = InkSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Advanced System Details",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = InkPrimary,
+                                fontFamily = JakartaFontFamily
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = InkSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
         }
 
         item {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(20.dp))
         }
     }
 }
 
 @Composable
 fun SetupStep(step: String, title: String, desc: String) {
-    Row(modifier = Modifier.padding(vertical = 4.dp)) {
+    Row(
+        verticalAlignment = Alignment.Top,
+        modifier = Modifier.padding(vertical = 6.dp)
+    ) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .size(20.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .background(CyberCyan.copy(alpha = 0.2f))
+                .size(26.dp)
+                .clip(CircleShape)
+                .background(SageSoft)
         ) {
             Text(
                 text = step,
-                color = CyberCyan,
-                fontSize = 11.sp,
+                color = ForestPrimary,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace
+                fontFamily = JakartaFontFamily
             )
         }
-        Spacer(modifier = Modifier.width(8.dp))
+        Spacer(modifier = Modifier.width(12.dp))
         Column {
-            Text(text = title, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-            Text(text = desc, fontSize = 11.sp, color = TextSecondary)
+            Text(
+                text = title,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = InkPrimary,
+                fontFamily = JakartaFontFamily
+            )
+            Text(
+                text = desc,
+                fontSize = 12.sp,
+                color = InkSecondary,
+                fontFamily = JakartaFontFamily
+            )
         }
     }
 }
@@ -296,9 +361,9 @@ fun FeatureRow(title: String, value: String) {
         horizontalArrangement = Arrangement.SpaceBetween,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
+            .padding(vertical = 5.dp)
     ) {
-        Text(text = title, fontSize = 12.sp, color = TextSecondary)
-        Text(text = value, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+        Text(text = title, fontSize = 13.sp, color = InkSecondary, fontFamily = JakartaFontFamily)
+        Text(text = value, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = InkPrimary, fontFamily = JakartaFontFamily)
     }
 }

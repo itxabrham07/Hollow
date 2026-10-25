@@ -1,72 +1,90 @@
 package com.example.ui.theme
 
-import android.os.Build
+import android.app.Activity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 
-private val IsoVaultDarkColorScheme = darkColorScheme(
-    primary = CyberCyan,
-    onPrimary = Color(0xFF00363F),
-    primaryContainer = Color(0xFF004D5A),
-    onPrimaryContainer = Color(0xFF9CF4FF),
+private val IsoVaultWarmLightScheme = lightColorScheme(
+    primary = ForestPrimary,
+    onPrimary = Color.White,
+    primaryContainer = SageSoft,
+    onPrimaryContainer = ForestDark,
 
-    secondary = CyberEmerald,
-    onSecondary = Color(0xFF003913),
-    secondaryContainer = Color(0xFF00531D),
-    onSecondaryContainer = Color(0xFFA6FFB8),
+    secondary = ClaySecondary,
+    onSecondary = Color.White,
+    secondaryContainer = ClaySoft,
+    onSecondaryContainer = Color(0xFF4A1D10),
 
-    tertiary = CyberAmber,
-    onTertiary = Color(0xFF452B00),
-    tertiaryContainer = Color(0xFF623E00),
-    onTertiaryContainer = Color(0xFFFFDDB3),
+    tertiary = HoneyTertiary,
+    onTertiary = Color.White,
+    tertiaryContainer = HoneySoft,
+    onTertiaryContainer = Color(0xFF3E2700),
 
-    background = DeepObsidian,
-    onBackground = TextPrimary,
-    surface = SurfaceObsidian,
-    onSurface = TextPrimary,
-    surfaceVariant = SurfaceElevated,
-    onSurfaceVariant = TextSecondary,
-    outline = SurfaceBorder,
-    outlineVariant = Color(0xFF1E2D47),
+    background = WarmLinen,
+    onBackground = InkPrimary,
+    surface = WarmIvory,
+    onSurface = InkPrimary,
+    surfaceVariant = WarmSand,
+    onSurfaceVariant = InkSecondary,
+    outline = WarmStone,
+    outlineVariant = Color(0xFFEDE7DC),
 
-    error = CyberRed,
+    error = CoralError,
     onError = Color.White
 )
 
-private val IsoVaultLightColorScheme = lightColorScheme(
-    primary = Color(0xFF007A8C),
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFC3F3FA),
-    onPrimaryContainer = Color(0xFF001F25),
+private val IsoVaultWarmDarkScheme = darkColorScheme(
+    primary = Color(0xFF8CD4B5),
+    onPrimary = Color(0xFF0B3324),
+    primaryContainer = Color(0xFF1B4B39),
+    onPrimaryContainer = Color(0xFFDDF0E6),
 
-    secondary = Color(0xFF00833C),
-    onSecondary = Color.White,
-    secondaryContainer = Color(0xFFC0F8CF),
-    onSecondaryContainer = Color(0xFF00210A),
+    secondary = Color(0xFFE89980),
+    onSecondary = Color(0xFF4A1D10),
+    secondaryContainer = Color(0xFF692E1D),
+    onSecondaryContainer = Color(0xFFFAE7E1),
 
-    tertiary = Color(0xFF8A5800),
-    onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFFFE0B8),
-    onTertiaryContainer = Color(0xFF2B1700),
+    tertiary = Color(0xFFE9BA67),
+    onTertiary = Color(0xFF3E2700),
+    tertiaryContainer = Color(0xFF593A00),
+    onTertiaryContainer = Color(0xFFFDF3DF),
 
-    background = Color(0xFFF3F6FB),
-    onBackground = Color(0xFF101826),
-    surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF101826),
-    surfaceVariant = Color(0xFFE2E9F4),
-    onSurfaceVariant = Color(0xFF47566C),
-    outline = Color(0xFFB5C4D8)
+    background = Color(0xFF181614),
+    onBackground = Color(0xFFF5F1EB),
+    surface = Color(0xFF221F1C),
+    onSurface = Color(0xFFF5F1EB),
+    surfaceVariant = Color(0xFF2D2925),
+    onSurfaceVariant = Color(0xFFBDB5AC),
+    outline = Color(0xFF3E3934),
+    outlineVariant = Color(0xFF2D2925),
+
+    error = Color(0xFFF28B82),
+    onError = Color(0xFF601410)
 )
 
 @Composable
 fun IsoVaultTheme(
-    darkTheme: Boolean = true, // Default to sleek cybersecurity dark mode
+    darkTheme: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = if (darkTheme) IsoVaultDarkColorScheme else IsoVaultLightColorScheme
+    val colorScheme = if (darkTheme) IsoVaultWarmDarkScheme else IsoVaultWarmLightScheme
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = (view.context as? Activity)?.window
+            if (window != null) {
+                val controller = WindowCompat.getInsetsController(window, view)
+                controller.isAppearanceLightStatusBars = !darkTheme
+                controller.isAppearanceLightNavigationBars = !darkTheme
+            }
+        }
+    }
 
     MaterialTheme(
         colorScheme = colorScheme,
@@ -75,10 +93,9 @@ fun IsoVaultTheme(
     )
 }
 
-// Backward compatibility alias for template
 @Composable
 fun MyApplicationTheme(
-    darkTheme: Boolean = true,
+    darkTheme: Boolean = false,
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) = IsoVaultTheme(darkTheme = darkTheme, content = content)

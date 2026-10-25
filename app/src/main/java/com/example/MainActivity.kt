@@ -15,16 +15,21 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.Dashboard
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.outlined.Apps
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -45,9 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -60,29 +63,32 @@ import com.example.isolation.ui.screens.MountTerminalScreen
 import com.example.isolation.ui.screens.SettingsScreen
 import com.example.isolation.ui.screens.VaultScreen
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
-import com.example.ui.theme.CyberCyan
-import com.example.ui.theme.CyberEmerald
-import com.example.ui.theme.DeepObsidian
+import com.example.ui.theme.ForestPrimary
+import com.example.ui.theme.FrauncesFontFamily
+import com.example.ui.theme.HoneyTertiary
+import com.example.ui.theme.InkPrimary
+import com.example.ui.theme.InkSecondary
 import com.example.ui.theme.IsoVaultTheme
-import com.example.ui.theme.SurfaceBorder
-import com.example.ui.theme.SurfaceElevated
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
+import com.example.ui.theme.JakartaFontFamily
+import com.example.ui.theme.SageSoft
+import com.example.ui.theme.WarmIvory
+import com.example.ui.theme.WarmLinen
+import com.example.ui.theme.WarmStone
 
 enum class NavDestination(val label: String) {
-    DASHBOARD("Overview"),
+    DASHBOARD("Home"),
     APPS("Apps"),
-    VAULT("Vault"),
-    MOUNTS("Mounts"),
-    AUDIT("Audit"),
-    SETTINGS("Settings")
+    VAULT("Locker"),
+    AUDIT("Activity"),
+    SETTINGS("Settings"),
+    MOUNTS("System")
 }
 
 class MainActivity : ComponentActivity() {
     companion object {
         @JvmStatic
         fun isLsposedModuleActiveReal(): Boolean {
-            return false // Hooked by StorageIsolationHook when LSPosed is active
+            return false // Hooked by StorageIsolationHook when Vector / LSPosed is active
         }
     }
 
@@ -90,7 +96,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            IsoVaultTheme(darkTheme = true) {
+            IsoVaultTheme(darkTheme = false) {
                 MainAppContainer()
             }
         }
@@ -112,148 +118,209 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
         }
     }
 
-    // Hardware back button navigation
     BackHandler(enabled = currentScreen != NavDestination.DASHBOARD) {
         currentScreen = NavDestination.DASHBOARD
     }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = DeepObsidian,
+        containerColor = WarmLinen,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(CyberCyan.copy(alpha = 0.2f))
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Shield,
-                                contentDescription = null,
-                                tint = CyberCyan,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "IsoVault",
-                                    fontSize = 17.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = TextPrimary
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                StatusBadge(
-                                    text = "v2.5",
-                                    color = CyberCyan
+            Column(modifier = Modifier.background(WarmLinen)) {
+                TopAppBar(
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(SageSoft)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Shield,
+                                    contentDescription = null,
+                                    tint = ForestPrimary,
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
-                            Text(
-                                text = "LSPosed Storage Isolation • Android 15",
-                                fontSize = 10.sp,
-                                color = TextSecondary,
-                                fontFamily = FontFamily.Monospace
-                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "IsoVault",
+                                    fontSize = 21.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = FrauncesFontFamily,
+                                    color = InkPrimary
+                                )
+                                Text(
+                                    text = "Personal photo & folder privacy",
+                                    fontSize = 12.sp,
+                                    color = InkSecondary,
+                                    fontFamily = JakartaFontFamily
+                                )
+                            }
                         }
-                    }
-                },
-                actions = {
-                    StatusBadge(
-                        text = if (isLsposedActive) "ACTIVE" else "STANDBY",
-                        color = if (isLsposedActive) CyberEmerald else Color(0xFFFFB300),
-                        modifier = Modifier.padding(end = 12.dp)
+                    },
+                    actions = {
+                        StatusBadge(
+                            text = if (isLsposedActive) "Protected" else "Standby",
+                            color = if (isLsposedActive) ForestPrimary else HoneyTertiary,
+                            modifier = Modifier.padding(end = 16.dp)
+                        )
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = WarmLinen,
+                        titleContentColor = InkPrimary
                     )
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = DeepObsidian,
-                    titleContentColor = TextPrimary
                 )
-            )
+            }
         },
         bottomBar = {
-            NavigationBar(
-                containerColor = SurfaceElevated,
-                contentColor = TextPrimary,
-                modifier = Modifier.testTag("bottom_nav_bar")
-            ) {
-                NavigationBarItem(
-                    selected = currentScreen == NavDestination.DASHBOARD,
-                    onClick = { currentScreen = NavDestination.DASHBOARD },
-                    icon = { Icon(Icons.Default.Dashboard, contentDescription = "Dashboard") },
-                    label = { Text(NavDestination.DASHBOARD.label, fontSize = 10.sp) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = CyberCyan,
-                        selectedTextColor = CyberCyan,
-                        indicatorColor = CyberCyan.copy(alpha = 0.15f)
-                    ),
-                    modifier = Modifier.testTag("nav_dashboard")
-                )
-                NavigationBarItem(
-                    selected = currentScreen == NavDestination.APPS,
-                    onClick = { currentScreen = NavDestination.APPS },
-                    icon = { Icon(Icons.Default.Apps, contentDescription = "Apps") },
-                    label = { Text(NavDestination.APPS.label, fontSize = 10.sp) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = CyberCyan,
-                        selectedTextColor = CyberCyan,
-                        indicatorColor = CyberCyan.copy(alpha = 0.15f)
-                    ),
-                    modifier = Modifier.testTag("nav_apps")
-                )
-                NavigationBarItem(
-                    selected = currentScreen == NavDestination.VAULT,
-                    onClick = { currentScreen = NavDestination.VAULT },
-                    icon = { Icon(Icons.Default.Lock, contentDescription = "Vault") },
-                    label = { Text(NavDestination.VAULT.label, fontSize = 10.sp) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = CyberCyan,
-                        selectedTextColor = CyberCyan,
-                        indicatorColor = CyberCyan.copy(alpha = 0.15f)
-                    ),
-                    modifier = Modifier.testTag("nav_vault")
-                )
-                NavigationBarItem(
-                    selected = currentScreen == NavDestination.MOUNTS,
-                    onClick = { currentScreen = NavDestination.MOUNTS },
-                    icon = { Icon(Icons.Default.Terminal, contentDescription = "Mounts") },
-                    label = { Text(NavDestination.MOUNTS.label, fontSize = 10.sp) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = CyberCyan,
-                        selectedTextColor = CyberCyan,
-                        indicatorColor = CyberCyan.copy(alpha = 0.15f)
-                    ),
-                    modifier = Modifier.testTag("nav_mounts")
-                )
-                NavigationBarItem(
-                    selected = currentScreen == NavDestination.AUDIT,
-                    onClick = { currentScreen = NavDestination.AUDIT },
-                    icon = { Icon(Icons.Default.Security, contentDescription = "Audit") },
-                    label = { Text(NavDestination.AUDIT.label, fontSize = 10.sp) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = CyberCyan,
-                        selectedTextColor = CyberCyan,
-                        indicatorColor = CyberCyan.copy(alpha = 0.15f)
-                    ),
-                    modifier = Modifier.testTag("nav_audit")
-                )
-                NavigationBarItem(
-                    selected = currentScreen == NavDestination.SETTINGS,
-                    onClick = { currentScreen = NavDestination.SETTINGS },
-                    icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
-                    label = { Text(NavDestination.SETTINGS.label, fontSize = 10.sp) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = CyberCyan,
-                        selectedTextColor = CyberCyan,
-                        indicatorColor = CyberCyan.copy(alpha = 0.15f)
-                    ),
-                    modifier = Modifier.testTag("nav_settings")
-                )
+            Column {
+                HorizontalDivider(color = WarmStone, thickness = 1.dp)
+                NavigationBar(
+                    containerColor = WarmIvory,
+                    contentColor = InkPrimary,
+                    tonalElevation = 0.dp,
+                    modifier = Modifier.testTag("bottom_nav_bar")
+                ) {
+                    NavigationBarItem(
+                        selected = currentScreen == NavDestination.DASHBOARD,
+                        onClick = { currentScreen = NavDestination.DASHBOARD },
+                        icon = {
+                            Icon(
+                                imageVector = if (currentScreen == NavDestination.DASHBOARD) Icons.Filled.Home else Icons.Outlined.Home,
+                                contentDescription = "Home"
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = NavDestination.DASHBOARD.label,
+                                fontSize = 11.sp,
+                                fontFamily = JakartaFontFamily,
+                                fontWeight = if (currentScreen == NavDestination.DASHBOARD) FontWeight.SemiBold else FontWeight.Normal
+                            )
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = ForestPrimary,
+                            selectedTextColor = ForestPrimary,
+                            unselectedIconColor = InkSecondary,
+                            unselectedTextColor = InkSecondary,
+                            indicatorColor = SageSoft
+                        ),
+                        modifier = Modifier.testTag("nav_dashboard")
+                    )
+
+                    NavigationBarItem(
+                        selected = currentScreen == NavDestination.APPS,
+                        onClick = { currentScreen = NavDestination.APPS },
+                        icon = {
+                            Icon(
+                                imageVector = if (currentScreen == NavDestination.APPS) Icons.Filled.Apps else Icons.Outlined.Apps,
+                                contentDescription = "Apps"
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = NavDestination.APPS.label,
+                                fontSize = 11.sp,
+                                fontFamily = JakartaFontFamily,
+                                fontWeight = if (currentScreen == NavDestination.APPS) FontWeight.SemiBold else FontWeight.Normal
+                            )
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = ForestPrimary,
+                            selectedTextColor = ForestPrimary,
+                            unselectedIconColor = InkSecondary,
+                            unselectedTextColor = InkSecondary,
+                            indicatorColor = SageSoft
+                        ),
+                        modifier = Modifier.testTag("nav_apps")
+                    )
+
+                    NavigationBarItem(
+                        selected = currentScreen == NavDestination.VAULT,
+                        onClick = { currentScreen = NavDestination.VAULT },
+                        icon = {
+                            Icon(
+                                imageVector = if (currentScreen == NavDestination.VAULT) Icons.Filled.Folder else Icons.Outlined.Folder,
+                                contentDescription = "Locker"
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = NavDestination.VAULT.label,
+                                fontSize = 11.sp,
+                                fontFamily = JakartaFontFamily,
+                                fontWeight = if (currentScreen == NavDestination.VAULT) FontWeight.SemiBold else FontWeight.Normal
+                            )
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = ForestPrimary,
+                            selectedTextColor = ForestPrimary,
+                            unselectedIconColor = InkSecondary,
+                            unselectedTextColor = InkSecondary,
+                            indicatorColor = SageSoft
+                        ),
+                        modifier = Modifier.testTag("nav_vault")
+                    )
+
+                    NavigationBarItem(
+                        selected = currentScreen == NavDestination.AUDIT,
+                        onClick = { currentScreen = NavDestination.AUDIT },
+                        icon = {
+                            Icon(
+                                imageVector = if (currentScreen == NavDestination.AUDIT) Icons.Filled.History else Icons.Outlined.History,
+                                contentDescription = "Activity"
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = NavDestination.AUDIT.label,
+                                fontSize = 11.sp,
+                                fontFamily = JakartaFontFamily,
+                                fontWeight = if (currentScreen == NavDestination.AUDIT) FontWeight.SemiBold else FontWeight.Normal
+                            )
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = ForestPrimary,
+                            selectedTextColor = ForestPrimary,
+                            unselectedIconColor = InkSecondary,
+                            unselectedTextColor = InkSecondary,
+                            indicatorColor = SageSoft
+                        ),
+                        modifier = Modifier.testTag("nav_audit")
+                    )
+
+                    NavigationBarItem(
+                        selected = currentScreen == NavDestination.SETTINGS || currentScreen == NavDestination.MOUNTS,
+                        onClick = { currentScreen = NavDestination.SETTINGS },
+                        icon = {
+                            Icon(
+                                imageVector = if (currentScreen == NavDestination.SETTINGS || currentScreen == NavDestination.MOUNTS) Icons.Filled.Settings else Icons.Outlined.Settings,
+                                contentDescription = "Settings"
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = NavDestination.SETTINGS.label,
+                                fontSize = 11.sp,
+                                fontFamily = JakartaFontFamily,
+                                fontWeight = if (currentScreen == NavDestination.SETTINGS) FontWeight.SemiBold else FontWeight.Normal
+                            )
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = ForestPrimary,
+                            selectedTextColor = ForestPrimary,
+                            unselectedIconColor = InkSecondary,
+                            unselectedTextColor = InkSecondary,
+                            indicatorColor = SageSoft
+                        ),
+                        modifier = Modifier.testTag("nav_settings")
+                    )
+                }
             }
         }
     ) { innerPadding ->
@@ -274,7 +341,10 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                 NavDestination.VAULT -> VaultScreen(viewModel = viewModel)
                 NavDestination.MOUNTS -> MountTerminalScreen(viewModel = viewModel)
                 NavDestination.AUDIT -> AuditLogsScreen(viewModel = viewModel)
-                NavDestination.SETTINGS -> SettingsScreen(viewModel = viewModel)
+                NavDestination.SETTINGS -> SettingsScreen(
+                    viewModel = viewModel,
+                    onOpenDiagnostics = { currentScreen = NavDestination.MOUNTS }
+                )
             }
         }
     }

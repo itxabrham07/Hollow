@@ -80,7 +80,7 @@ class IsoVaultApp : Application() {
                     isolationMode = IsolationMode.ENCRYPTED_VAULT,
                     encryptMediaOnly = false,
                     blockRootPollution = true,
-                    whitelistedFolders = "Download",
+                    whitelistedFolders = "",
                     totalFilesRedirected = 0,
                     totalBytesEncrypted = 0L,
                     lastAccessedTimestamp = System.currentTimeMillis()

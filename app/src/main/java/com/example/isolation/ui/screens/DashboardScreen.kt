@@ -19,20 +19,20 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.FolderZip
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -42,7 +42,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -50,17 +49,19 @@ import androidx.compose.ui.unit.sp
 import com.example.isolation.ui.components.AuditActionBadge
 import com.example.isolation.ui.components.CyberStatCard
 import com.example.isolation.ui.components.LsposedStatusBanner
-import com.example.isolation.ui.components.StatusBadge
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
-import com.example.ui.theme.CyberAmber
-import com.example.ui.theme.CyberCyan
-import com.example.ui.theme.CyberEmerald
-import com.example.ui.theme.CyberRed
-import com.example.ui.theme.SurfaceBorder
-import com.example.ui.theme.SurfaceCard
-import com.example.ui.theme.SurfaceElevated
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
+import com.example.ui.theme.ClaySecondary
+import com.example.ui.theme.ForestPrimary
+import com.example.ui.theme.FrauncesFontFamily
+import com.example.ui.theme.HoneyTertiary
+import com.example.ui.theme.InkPrimary
+import com.example.ui.theme.InkSecondary
+import com.example.ui.theme.JakartaFontFamily
+import com.example.ui.theme.LavenderAccent
+import com.example.ui.theme.SageSoft
+import com.example.ui.theme.WarmIvory
+import com.example.ui.theme.WarmSand
+import com.example.ui.theme.WarmStone
 
 @Composable
 fun DashboardScreen(
@@ -74,47 +75,50 @@ fun DashboardScreen(
     val isolatedCount by viewModel.isolatedCount.collectAsState()
     val recentLogs by viewModel.recentAuditLogs.collectAsState()
     val totalBytesEncrypted by viewModel.totalEncryptedBytes.collectAsState()
-    val selinuxStatus by viewModel.selinuxStatus.collectAsState()
 
     val formattedEncrypted = formatBytes(totalBytesEncrypted)
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = 20.dp)
             .testTag("dashboard_screen"),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
             LsposedStatusBanner(
                 isActive = isLsposedActive,
                 onToggle = { viewModel.toggleLsposedStatus() }
             )
         }
 
-        // Metrics 2x2 Grid
+        // Summary Grid
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 CyberStatCard(
-                    title = "Isolated Apps",
+                    title = "Protected Apps",
                     value = "$isolatedCount",
-                    subtitle = "Encrypted / Sandboxed",
+                    subtitle = "Kept in private space",
                     icon = Icons.Default.Apps,
-                    accentColor = CyberEmerald,
-                    modifier = Modifier.weight(1f),
+                    accentColor = ForestPrimary,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onNavigateToApps() },
                     testTag = "stat_isolated_apps"
                 )
                 CyberStatCard(
-                    title = "Vault Storage",
+                    title = "Private Locker",
                     value = formattedEncrypted,
-                    subtitle = "AES-256-GCM Secure",
+                    subtitle = "Locked away safely",
                     icon = Icons.Default.Lock,
-                    accentColor = CyberCyan,
-                    modifier = Modifier.weight(1f),
+                    accentColor = ClaySecondary,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onNavigateToVault() },
                     testTag = "stat_vault_size"
                 )
             }
@@ -126,142 +130,188 @@ fun DashboardScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 CyberStatCard(
-                    title = "Interceptions",
+                    title = "Requests Handled",
                     value = "${recentLogs.size}",
-                    subtitle = "Storage I/O Inspected",
-                    icon = Icons.Default.Security,
-                    accentColor = CyberAmber,
-                    modifier = Modifier.weight(1f),
+                    subtitle = "Gallery & folder checks",
+                    icon = Icons.Default.VisibilityOff,
+                    accentColor = HoneyTertiary,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onNavigateToAudit() },
                     testTag = "stat_interceptions"
                 )
                 CyberStatCard(
-                    title = "SELinux Mode",
-                    value = if (selinuxStatus.contains("Enforcing")) "ENFORCE" else "PERMISSIVE",
-                    subtitle = "Android 15 Kernel",
-                    icon = Icons.Default.Terminal,
-                    accentColor = Color(0xFFB388FF),
-                    modifier = Modifier.weight(1f),
+                    title = "Gallery Guard",
+                    value = if (isLsposedActive) "On" else "Ready",
+                    subtitle = "Camera roll hidden",
+                    icon = Icons.Default.Shield,
+                    accentColor = LavenderAccent,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onNavigateToApps() },
                     testTag = "stat_selinux"
                 )
             }
         }
 
-        // Quick Actions Row
+        // Everyday Actions Card
         item {
             Card(
-                colors = CardDefaults.cardColors(containerColor = SurfaceElevated),
-                shape = RoundedCornerShape(14.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceBorder),
+                colors = CardDefaults.cardColors(containerColor = WarmIvory),
+                shape = RoundedCornerShape(22.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, WarmStone),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(14.dp)) {
+                Column(modifier = Modifier.padding(18.dp)) {
                     Text(
-                        text = "QUICK ACTIONS",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextSecondary,
-                        letterSpacing = 0.8.sp
+                        text = "Quick Check",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = FrauncesFontFamily,
+                        color = InkPrimary
                     )
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Manage which apps have their own private folder or test how photo protection works.",
+                        fontSize = 13.sp,
+                        color = InkSecondary,
+                        fontFamily = JakartaFontFamily
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Button(
+                            onClick = onNavigateToApps,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = ForestPrimary,
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier.weight(1.1f)
+                        ) {
+                            Icon(imageVector = Icons.Default.Apps, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Choose Apps", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily)
+                        }
+
+                        OutlinedButton(
                             onClick = {
                                 viewModel.testSimulateAppIo(
-                                    packageName = "com.zhiliaoapp.musically",
-                                    appName = "TikTok",
-                                    testPath = "/storage/emulated/0/DCIM/Camera/user_photo.jpg",
-                                    fileContent = "Simulated confidential camera photo byte sequence."
+                                    packageName = "com.snapchat.android",
+                                    appName = "Snapchat",
+                                    testPath = "/storage/emulated/0/DCIM/Camera/vacation_photo.jpg",
+                                    fileContent = "Sample private photo protected by IsoVault."
                                 )
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = CyberCyan.copy(alpha = 0.2f), contentColor = CyberCyan),
-                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = ForestPrimary),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, WarmStone),
+                            shape = RoundedCornerShape(50),
                             modifier = Modifier
                                 .weight(1f)
                                 .testTag("btn_test_io")
                         ) {
                             Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Test I/O", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Try Sample", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily)
                         }
 
                         OutlinedButton(
                             onClick = { viewModel.refreshDiagnostics() },
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("btn_resync")
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = InkSecondary),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, WarmStone),
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier.testTag("btn_resync")
                         ) {
-                            Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Re-sync", fontSize = 12.sp)
-                        }
-
-                        OutlinedButton(
-                            onClick = onNavigateToTerminal,
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = CyberEmerald),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("btn_terminal")
-                        ) {
-                            Icon(imageVector = Icons.Default.Terminal, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Mounts", fontSize = 12.sp)
+                            Icon(imageVector = Icons.Default.Refresh, contentDescription = "Refresh", modifier = Modifier.size(16.dp))
                         }
                     }
                 }
             }
         }
 
-        // Live Interception Audit Ticker Header
+        // Recent Privacy Activity Header
         item {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(CyberEmerald)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Recent Activity",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FrauncesFontFamily,
+                    color = InkPrimary
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable { onNavigateToAudit() }
+                ) {
                     Text(
-                        text = "LIVE INTERCEPTIONS & ACCESS AUDIT",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary,
-                        letterSpacing = 0.8.sp
+                        text = "See all",
+                        fontSize = 13.sp,
+                        color = ForestPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = JakartaFontFamily
+                    )
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = ForestPrimary,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
-                Text(
-                    text = "View All",
-                    fontSize = 12.sp,
-                    color = CyberCyan,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.clickable { onNavigateToAudit() }
-                )
             }
         }
 
         if (recentLogs.isEmpty()) {
             item {
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = WarmIvory),
+                    shape = RoundedCornerShape(22.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, WarmStone),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Box(modifier = Modifier.padding(24.dp), contentAlignment = Alignment.Center) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(28.dp)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(SageSoft)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = ForestPrimary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "No storage access interceptions recorded yet. Run a test I/O or select apps to isolate.",
-                            color = TextSecondary,
-                            fontSize = 13.sp
+                            text = "All quiet right now",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = FrauncesFontFamily,
+                            color = InkPrimary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "When a protected app checks your gallery or saves a file, you'll see a summary here.",
+                            color = InkSecondary,
+                            fontSize = 13.sp,
+                            fontFamily = JakartaFontFamily
                         )
                     }
                 }
@@ -269,56 +319,54 @@ fun DashboardScreen(
         } else {
             items(recentLogs.take(5)) { log ->
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-                    shape = RoundedCornerShape(12.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceBorder),
+                    colors = CardDefaults.cardColors(containerColor = WarmIvory),
+                    shape = RoundedCornerShape(20.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, WarmStone),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(CircleShape)
+                                .background(WarmSand)
                         ) {
-                            Text(
-                                text = log.appName,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                color = TextPrimary
+                            Icon(
+                                imageVector = Icons.Default.Folder,
+                                contentDescription = null,
+                                tint = ForestPrimary,
+                                modifier = Modifier.size(20.dp)
                             )
-                            AuditActionBadge(action = log.action)
                         }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = log.requestedPath,
-                            fontSize = 12.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = TextSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = log.appName,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 15.sp,
+                                    color = InkPrimary,
+                                    fontFamily = JakartaFontFamily
+                                )
+                                AuditActionBadge(action = log.action)
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "→ ${log.targetResolvedPath}",
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = CyberCyan,
+                                text = friendlyPathSummary(log.requestedPath),
+                                fontSize = 13.sp,
+                                color = InkSecondary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = log.operation,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextSecondary,
-                                fontFamily = FontFamily.Monospace
+                                fontFamily = JakartaFontFamily
                             )
                         }
                     }
@@ -327,8 +375,22 @@ fun DashboardScreen(
         }
 
         item {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(20.dp))
         }
+    }
+}
+
+fun friendlyPathSummary(path: String): String {
+    return when {
+        path.startsWith("content://media/external/images") -> "Checked your Photo Gallery"
+        path.startsWith("content://media/external/video") -> "Checked your Video Gallery"
+        path.startsWith("content://media") -> "Checked your Media Library"
+        path.contains("/DCIM/Camera", ignoreCase = true) -> "Camera Roll • ${path.substringAfterLast('/')}"
+        path.contains("/DCIM", ignoreCase = true) -> "Photos Folder • ${path.substringAfterLast('/')}"
+        path.contains("/Pictures", ignoreCase = true) -> "Pictures • ${path.substringAfterLast('/')}"
+        path.contains("/Download", ignoreCase = true) -> "Downloads • ${path.substringAfterLast('/')}"
+        path.contains("/WhatsApp", ignoreCase = true) -> "WhatsApp Media • ${path.substringAfterLast('/')}"
+        else -> path.removePrefix("/storage/emulated/0/").ifBlank { "Phone Storage" }
     }
 }
 
