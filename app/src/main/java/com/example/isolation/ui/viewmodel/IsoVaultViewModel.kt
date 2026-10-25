@@ -67,14 +67,17 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
     private val _selinuxStatus = MutableStateFlow("Enforcing (Android 15)")
     val selinuxStatus = _selinuxStatus.asStateFlow()
 
-    private val _isLsposedActive = MutableStateFlow(com.example.MainActivity.isLsposedModuleActiveReal())
+    private val _isLsposedActive = MutableStateFlow(
+        com.example.MainActivity.isLsposedModuleActiveReal() ||
+                IsolationRuleManager.isXSharedPrefsHooked(app)
+    )
     val isLsposedActive = _isLsposedActive.asStateFlow()
 
     private val _terminalLogs = MutableStateFlow<List<String>>(
         listOf(
             "[IsoVault Kernel] Initialized on Android 15 (Linux 6.6+)",
-            "[IsoVault LSPosed] Module hooked into zygote64 namespace",
-            "[IsoVault Mount] FUSE overlay and bind-mount engine ready.",
+            "[IsoVault LSPosed] Module hooked into zygote64 namespace (Vector/LSPosed API 82)",
+            "[IsoVault Mount] FUSE overlay, MediaStore ContentResolver & File I/O hooks ready.",
             "[IsoVault Crypto] AES-256-GCM hardware acceleration enabled."
         )
     )
@@ -155,9 +158,19 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch(Dispatchers.IO) {
             _systemMounts.value = MountManager.readSystemMounts()
             _selinuxStatus.value = MountManager.getSelinuxStatus()
-            val isReal = com.example.MainActivity.isLsposedModuleActiveReal()
+            val isReal = com.example.MainActivity.isLsposedModuleActiveReal() ||
+                    IsolationRuleManager.isXSharedPrefsHooked(app)
             _isLsposedActive.value = if (isReal) true else IsolationRuleManager.isSimulatedHookActive
         }
+    }
+
+    private fun notifyConfigChanged() {
+        try {
+            app.contentResolver.notifyChange(
+                com.example.isolation.provider.IsoVaultConfigProvider.CONTENT_URI,
+                null
+            )
+        } catch (_: Throwable) {}
     }
 
     fun toggleAppIsolation(appInfo: InstalledAppInfo, enable: Boolean) {
@@ -176,16 +189,17 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                     packageName = updated.packageName,
                     mode = updated.isolationMode,
                     blockRootPollution = updated.blockRootPollution,
-                    whitelistedFolders = updated.whitelistedFolders.split(',').map { it.trim() }.toSet()
+                    whitelistedFolders = updated.whitelistedFolders.split(',').map { it.trim() }.filter { it.isNotBlank() }.toSet()
                 )
                 appendTerminalLog("[IsoVault] Isolation ENABLED for ${appInfo.appName} (${updated.isolationMode.badge})")
-                _statusMessage.value = "${appInfo.appName} is now isolated with ${updated.isolationMode.title}."
+                _statusMessage.value = "${appInfo.appName} is now isolated (${updated.isolationMode.title}). Force-stop ${appInfo.appName} to apply hooks immediately."
             } else {
                 IsolationRuleManager.removeRule(updated.packageName)
                 appendTerminalLog("[IsoVault] Isolation DISABLED for ${appInfo.appName}")
                 _statusMessage.value = "Storage isolation disabled for ${appInfo.appName}."
             }
 
+            notifyConfigChanged()
             loadInstalledApps()
         }
     }
@@ -200,8 +214,9 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                     packageName = updated.packageName,
                     mode = updated.isolationMode,
                     blockRootPollution = updated.blockRootPollution,
-                    whitelistedFolders = updated.whitelistedFolders.split(',').map { it.trim() }.toSet()
+                    whitelistedFolders = updated.whitelistedFolders.split(',').map { it.trim() }.filter { it.isNotBlank() }.toSet()
                 )
+                notifyConfigChanged()
                 appendTerminalLog("[IsoVault] Updated mode for $packageName to ${newMode.name}")
                 _statusMessage.value = "Updated to ${newMode.title}."
             }
@@ -218,8 +233,9 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                     packageName = updated.packageName,
                     mode = updated.isolationMode,
                     blockRootPollution = block,
-                    whitelistedFolders = updated.whitelistedFolders.split(',').map { it.trim() }.toSet()
+                    whitelistedFolders = updated.whitelistedFolders.split(',').map { it.trim() }.filter { it.isNotBlank() }.toSet()
                 )
+                notifyConfigChanged()
             }
         }
     }
@@ -236,6 +252,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                     blockRootPollution = updated.blockRootPollution,
                     whitelistedFolders = folders.split(',').map { it.trim() }.filter { it.isNotBlank() }.toSet()
                 )
+                notifyConfigChanged()
                 _statusMessage.value = "Whitelisted folders updated."
             }
         }

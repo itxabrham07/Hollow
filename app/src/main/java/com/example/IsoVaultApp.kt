@@ -100,7 +100,7 @@ class IsoVaultApp : Application() {
                 }
             }
         } else {
-            // Re-sync active rules to rule manager
+            // Re-sync active and disabled rules to rule manager
             for (cfg in existingConfigs) {
                 if (cfg.isIsolated) {
                     IsolationRuleManager.updateRule(
@@ -109,6 +109,8 @@ class IsoVaultApp : Application() {
                         blockRootPollution = cfg.blockRootPollution,
                         whitelistedFolders = cfg.whitelistedFolders.split(',').map { it.trim() }.toSet()
                     )
+                } else {
+                    IsolationRuleManager.removeRule(cfg.packageName)
                 }
             }
         }
@@ -117,5 +119,7 @@ class IsoVaultApp : Application() {
     companion object {
         lateinit var instance: IsoVaultApp
             private set
+
+        fun instanceOrNull(): IsoVaultApp? = if (::instance.isInitialized) instance else null
     }
 }
