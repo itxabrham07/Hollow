@@ -76,6 +76,6 @@ interface IsolationDao {
     @Query("SELECT COUNT(*) FROM access_audit_logs")
     fun getTotalAuditCount(): Flow<Int>
 
-    @Query("SELECT COALESCE(SUM(totalBytesEncrypted), 0) FROM app_isolation_configs")
+    @Query("SELECT COALESCE(SUM(encryptedSizeBytes), 0) FROM vault_files WHERE isEncrypted = 1")
     fun getTotalEncryptedBytes(): Flow<Long>
 }

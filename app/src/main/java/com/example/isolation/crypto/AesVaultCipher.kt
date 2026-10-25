@@ -1,142 +1,322 @@
 package com.example.isolation.crypto
 
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.DataInputStream
+import java.io.DataOutputStream
+import java.io.EOFException
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
+import java.security.GeneralSecurityException
+import java.security.KeyStore
 import java.security.SecureRandom
 import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
-import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
-object AesVaultCipher {
-    private const val ALGORITHM = "AES"
-    private const val CIPHER_TRANSFORMATION = "AES/GCM/NoPadding"
-    private const val KEY_DERIVATION_ALGO = "PBKDF2WithHmacSHA256"
-    private const val KEY_SIZE_BITS = 256
-    private const val ITERATION_COUNT = 10_000
-    private const val GCM_TAG_LENGTH_BITS = 128
-    private const val IV_LENGTH_BYTES = 12
-    private const val SALT_LENGTH_BYTES = 16
+/**
+ * Wraps and unwraps the random per-file data keys. Production uses the Android Keystore, so the
+ * key that protects every file never leaves secure hardware / the Keystore daemon.
+ */
+interface MasterKeyProvider {
+    fun wrap(fileKey: ByteArray): ByteArray
+    fun unwrap(wrapped: ByteArray): ByteArray
+}
 
-    // Magic container header: "ISOV" + version 1
-    private val MAGIC_HEADER = byteArrayOf(0x49, 0x53, 0x4F, 0x56, 0x01)
+class KeystoreMasterKeyProvider(private val alias: String = DEFAULT_ALIAS) : MasterKeyProvider {
+
+    companion object {
+        const val DEFAULT_ALIAS = "isovault_master_v1"
+        private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+        private const val TRANSFORMATION = "AES/GCM/NoPadding"
+        private const val IV_LENGTH = 12
+        private const val TAG_BITS = 128
+    }
+
+    private fun masterKey(): SecretKey {
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        (keyStore.getKey(alias, null) as? SecretKey)?.let { return it }
+
+        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
+        generator.init(
+            KeyGenParameterSpec.Builder(
+                alias,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setKeySize(256)
+                .build()
+        )
+        return generator.generateKey()
+    }
+
+    override fun wrap(fileKey: ByteArray): ByteArray {
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, masterKey())
+        val iv = cipher.iv
+        return iv + cipher.doFinal(fileKey)
+    }
+
+    override fun unwrap(wrapped: ByteArray): ByteArray {
+        if (wrapped.size <= IV_LENGTH) throw GeneralSecurityException("Wrapped key is too short")
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(
+            Cipher.DECRYPT_MODE,
+            masterKey(),
+            GCMParameterSpec(TAG_BITS, wrapped.copyOfRange(0, IV_LENGTH))
+        )
+        return cipher.doFinal(wrapped, IV_LENGTH, wrapped.size - IV_LENGTH)
+    }
+}
+
+/**
+ * Streaming AES-256-GCM file encryption with envelope keys.
+ *
+ * Container layout (version 2):
+ *
+ *   "ISOV" 0x02 | wrappedKeyLength (u16) | wrappedKey | noncePrefix (8 bytes) | chunk*
+ *
+ * Each plaintext chunk (64 KiB, the last one may be shorter or empty) is sealed independently
+ * with nonce = noncePrefix || chunkIndex (u32) and a one byte AAD that marks the final chunk.
+ * Reordering, dropping or truncating chunks makes authentication fail, and memory use is
+ * bounded by the chunk size, not by the file size.
+ */
+object AesVaultCipher {
+    private const val TRANSFORMATION = "AES/GCM/NoPadding"
+    private const val KEY_BYTES = 32
+    private const val TAG_BYTES = 16
+    private const val TAG_BITS = TAG_BYTES * 8
+    private const val NONCE_PREFIX_BYTES = 8
+    private const val CHUNK_BYTES = 64 * 1024
+    private const val MAX_WRAPPED_KEY_BYTES = 512
+
+    private val MAGIC_PREFIX = byteArrayOf(0x49, 0x53, 0x4F, 0x56) // "ISOV"
+    private const val VERSION: Byte = 0x02
+    private const val HEADER_BYTES = 5
 
     private val secureRandom = SecureRandom()
 
-    // Default system master passkey (can be overridden by user in settings)
-    var activeMasterPassphrase: String = "IsoVault#Android15#SecureIsolationKey"
+    @Volatile
+    private var provider: MasterKeyProvider? = null
 
-    /**
-     * Derives a 256-bit AES key from a passphrase and salt using PBKDF2
-     */
-    fun deriveKey(passphrase: String, salt: ByteArray): SecretKey {
-        val spec = PBEKeySpec(passphrase.toCharArray(), salt, ITERATION_COUNT, KEY_SIZE_BITS)
-        val factory = SecretKeyFactory.getInstance(KEY_DERIVATION_ALGO)
-        val keyBytes = factory.generateSecret(spec).encoded
-        return SecretKeySpec(keyBytes, ALGORITHM)
+    /** Replaces the key provider. Intended for tests, where the Android Keystore is unavailable. */
+    fun setKeyProvider(newProvider: MasterKeyProvider?) {
+        provider = newProvider
     }
 
-    /**
-     * Encrypts plaintext bytes using AES-256-GCM.
-     * Output format: [MAGIC_HEADER(5)] [SALT(16)] [IV(12)] [CIPHERTEXT + TAG]
-     */
-    fun encrypt(plaintext: ByteArray, passphrase: String = activeMasterPassphrase): ByteArray {
-        val salt = ByteArray(SALT_LENGTH_BYTES).also { secureRandom.nextBytes(it) }
-        val iv = ByteArray(IV_LENGTH_BYTES).also { secureRandom.nextBytes(it) }
-
-        val secretKey = deriveKey(passphrase, salt)
-        val cipher = Cipher.getInstance(CIPHER_TRANSFORMATION)
-        val parameterSpec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
-        cipher.init(Cipher.ENCRYPT_MODE, secretKey, parameterSpec)
-
-        val ciphertext = cipher.doFinal(plaintext)
-
-        val output = ByteArrayOutputStream(MAGIC_HEADER.size + salt.size + iv.size + ciphertext.size)
-        output.write(MAGIC_HEADER)
-        output.write(salt)
-        output.write(iv)
-        output.write(ciphertext)
-        return output.toByteArray()
-    }
-
-    /**
-     * Decrypts encrypted container bytes using AES-256-GCM.
-     */
-    fun decrypt(encryptedData: ByteArray, passphrase: String = activeMasterPassphrase): ByteArray {
-        if (encryptedData.size < MAGIC_HEADER.size + SALT_LENGTH_BYTES + IV_LENGTH_BYTES) {
-            throw IllegalArgumentException("Data is too short to be a valid IsoVault encrypted container.")
+    private fun keyProvider(): MasterKeyProvider {
+        provider?.let { return it }
+        return synchronized(this) {
+            provider ?: KeystoreMasterKeyProvider().also { provider = it }
         }
+    }
 
-        // Verify magic header
-        for (i in MAGIC_HEADER.indices) {
-            if (encryptedData[i] != MAGIC_HEADER[i]) {
-                throw IllegalArgumentException("Invalid magic header: not an IsoVault file.")
+    fun encrypt(plaintext: ByteArray): ByteArray {
+        val out = ByteArrayOutputStream(plaintext.size + 128)
+        encryptStream(ByteArrayInputStream(plaintext), out)
+        return out.toByteArray()
+    }
+
+    fun decrypt(encrypted: ByteArray): ByteArray {
+        val out = ByteArrayOutputStream(encrypted.size)
+        decryptStream(ByteArrayInputStream(encrypted), out)
+        return out.toByteArray()
+    }
+
+    /** Encrypts [input] into [output]. Neither stream is closed. Returns the plaintext length. */
+    fun encryptStream(input: InputStream, output: OutputStream): Long {
+        val fileKey = ByteArray(KEY_BYTES).also { secureRandom.nextBytes(it) }
+        try {
+            val wrapped = keyProvider().wrap(fileKey)
+            if (wrapped.size > MAX_WRAPPED_KEY_BYTES) throw IOException("Wrapped key too large")
+            val noncePrefix = ByteArray(NONCE_PREFIX_BYTES).also { secureRandom.nextBytes(it) }
+
+            val data = DataOutputStream(output)
+            data.write(MAGIC_PREFIX)
+            data.writeByte(VERSION.toInt())
+            data.writeShort(wrapped.size)
+            data.write(wrapped)
+            data.write(noncePrefix)
+
+            val key = SecretKeySpec(fileKey, "AES")
+            var current = ByteArray(CHUNK_BYTES)
+            var currentLen = readFully(input, current)
+            var next = ByteArray(CHUNK_BYTES)
+            var index = 0L
+            var total = 0L
+
+            while (true) {
+                val nextLen = if (currentLen == CHUNK_BYTES) readFully(input, next) else 0
+                val isFinal = nextLen == 0
+                data.write(sealChunk(key, noncePrefix, index, isFinal, current, currentLen))
+                total += currentLen
+                if (isFinal) break
+                val swap = current
+                current = next
+                next = swap
+                currentLen = nextLen
+                index++
             }
-        }
-
-        val input = ByteArrayInputStream(encryptedData)
-        input.skip(MAGIC_HEADER.size.toLong())
-
-        val salt = ByteArray(SALT_LENGTH_BYTES)
-        input.read(salt)
-
-        val iv = ByteArray(IV_LENGTH_BYTES)
-        input.read(iv)
-
-        val ciphertext = input.readBytes()
-
-        val secretKey = deriveKey(passphrase, salt)
-        val cipher = Cipher.getInstance(CIPHER_TRANSFORMATION)
-        val parameterSpec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
-        cipher.init(Cipher.DECRYPT_MODE, secretKey, parameterSpec)
-
-        return cipher.doFinal(ciphertext)
-    }
-
-    /**
-     * Encrypts a source file into a destination vault file.
-     */
-    fun encryptFile(sourceFile: File, destinationFile: File, passphrase: String = activeMasterPassphrase) {
-        val plainBytes = sourceFile.readBytes()
-        val encryptedBytes = encrypt(plainBytes, passphrase)
-        destinationFile.parentFile?.mkdirs()
-        FileOutputStream(destinationFile).use { fos ->
-            fos.write(encryptedBytes)
-            fos.flush()
+            data.flush()
+            return total
+        } catch (e: GeneralSecurityException) {
+            throw IOException("Encryption failed: ${e.message}", e)
+        } finally {
+            fileKey.fill(0)
         }
     }
 
-    /**
-     * Decrypts a vault file into a destination plain file.
-     */
-    fun decryptFile(sourceEncryptedFile: File, destinationPlainFile: File, passphrase: String = activeMasterPassphrase) {
-        val encryptedBytes = sourceEncryptedFile.readBytes()
-        val decryptedBytes = decrypt(encryptedBytes, passphrase)
-        destinationPlainFile.parentFile?.mkdirs()
-        FileOutputStream(destinationPlainFile).use { fos ->
-            fos.write(decryptedBytes)
-            fos.flush()
+    /** Decrypts [input] into [output]. Neither stream is closed. Returns the plaintext length. */
+    fun decryptStream(input: InputStream, output: OutputStream): Long {
+        val data = DataInputStream(input)
+        var fileKey: ByteArray? = null
+        try {
+            val header = ByteArray(HEADER_BYTES)
+            data.readFully(header)
+            for (i in MAGIC_PREFIX.indices) {
+                if (header[i] != MAGIC_PREFIX[i]) throw IOException("Not an IsoVault file")
+            }
+            if (header[4] != VERSION) {
+                throw IOException("Unsupported IsoVault container version ${header[4]}")
+            }
+
+            val wrappedLen = data.readUnsignedShort()
+            if (wrappedLen == 0 || wrappedLen > MAX_WRAPPED_KEY_BYTES) throw IOException("Corrupt key header")
+            val wrapped = ByteArray(wrappedLen).also { data.readFully(it) }
+            val noncePrefix = ByteArray(NONCE_PREFIX_BYTES).also { data.readFully(it) }
+
+            fileKey = keyProvider().unwrap(wrapped)
+            val key = SecretKeySpec(fileKey, "AES")
+
+            var current = ByteArray(CHUNK_BYTES + TAG_BYTES)
+            var currentLen = readFully(data, current)
+            if (currentLen < TAG_BYTES) throw IOException("Truncated IsoVault file")
+            var next = ByteArray(CHUNK_BYTES + TAG_BYTES)
+            var index = 0L
+            var total = 0L
+
+            while (true) {
+                val nextLen = if (currentLen == CHUNK_BYTES + TAG_BYTES) readFully(data, next) else 0
+                val isFinal = nextLen == 0
+                val plain = openChunk(key, noncePrefix, index, isFinal, current, currentLen)
+                output.write(plain)
+                total += plain.size
+                if (isFinal) break
+                if (nextLen < TAG_BYTES) throw IOException("Truncated IsoVault file")
+                val swap = current
+                current = next
+                next = swap
+                currentLen = nextLen
+                index++
+            }
+            output.flush()
+            return total
+        } catch (e: EOFException) {
+            throw IOException("Truncated IsoVault file", e)
+        } catch (e: GeneralSecurityException) {
+            throw IOException("Decryption failed: file is corrupt, was modified, or the key is gone", e)
+        } finally {
+            fileKey?.fill(0)
         }
     }
 
-    /**
-     * Checks if a byte array or file starts with the IsoVault magic header.
-     */
+    /** Encrypts [source] to [destination] atomically; a failure never leaves a partial file. */
+    fun encryptFile(source: File, destination: File) {
+        FileInputStream(source).use { input -> writeAtomically(destination) { encryptStream(input, it) } }
+    }
+
+    /** Decrypts [source] to [destination] atomically; a failure never leaves a partial file. */
+    fun decryptFile(source: File, destination: File) {
+        FileInputStream(source).use { input -> writeAtomically(destination) { decryptStream(input, it) } }
+    }
+
     fun isEncryptedIsoVaultFile(file: File): Boolean {
-        if (!file.exists() || file.length() < MAGIC_HEADER.size) return false
+        if (!file.isFile || file.length() < HEADER_BYTES) return false
         return try {
             FileInputStream(file).use { fis ->
-                val header = ByteArray(MAGIC_HEADER.size)
-                val read = fis.read(header)
-                read == MAGIC_HEADER.size && header.contentEquals(MAGIC_HEADER)
+                val header = ByteArray(HEADER_BYTES)
+                fis.read(header) == HEADER_BYTES &&
+                    header.copyOfRange(0, MAGIC_PREFIX.size).contentEquals(MAGIC_PREFIX) &&
+                    header[4] == VERSION
             }
-        } catch (_: Exception) {
+        } catch (_: IOException) {
             false
         }
+    }
+
+    private fun writeAtomically(destination: File, block: (OutputStream) -> Unit) {
+        destination.absoluteFile.parentFile?.mkdirs()
+        val temp = File(destination.absoluteFile.parentFile, ".${destination.name}.part")
+        try {
+            FileOutputStream(temp).use { out ->
+                block(out)
+                out.fd.sync()
+            }
+            if (!temp.renameTo(destination)) {
+                throw IOException("Could not move ${temp.name} into place")
+            }
+        } catch (t: Throwable) {
+            temp.delete()
+            throw t
+        }
+    }
+
+    private fun sealChunk(
+        key: SecretKey,
+        noncePrefix: ByteArray,
+        index: Long,
+        isFinal: Boolean,
+        buffer: ByteArray,
+        length: Int
+    ): ByteArray {
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(TAG_BITS, nonce(noncePrefix, index)))
+        cipher.updateAAD(byteArrayOf(if (isFinal) 1 else 0))
+        return cipher.doFinal(buffer, 0, length)
+    }
+
+    private fun openChunk(
+        key: SecretKey,
+        noncePrefix: ByteArray,
+        index: Long,
+        isFinal: Boolean,
+        buffer: ByteArray,
+        length: Int
+    ): ByteArray {
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(TAG_BITS, nonce(noncePrefix, index)))
+        cipher.updateAAD(byteArrayOf(if (isFinal) 1 else 0))
+        return cipher.doFinal(buffer, 0, length)
+    }
+
+    private fun nonce(prefix: ByteArray, index: Long): ByteArray {
+        if (index < 0 || index > 0xFFFF_FFFFL) throw GeneralSecurityException("File too large")
+        val nonce = ByteArray(NONCE_PREFIX_BYTES + 4)
+        System.arraycopy(prefix, 0, nonce, 0, NONCE_PREFIX_BYTES)
+        nonce[8] = (index shr 24).toByte()
+        nonce[9] = (index shr 16).toByte()
+        nonce[10] = (index shr 8).toByte()
+        nonce[11] = index.toByte()
+        return nonce
+    }
+
+    /** Reads until [buffer] is full or the stream ends. Returns the number of bytes read. */
+    private fun readFully(input: InputStream, buffer: ByteArray): Int {
+        var offset = 0
+        while (offset < buffer.size) {
+            val n = input.read(buffer, offset, buffer.size - offset)
+            if (n < 0) break
+            offset += n
+        }
+        return offset
     }
 }

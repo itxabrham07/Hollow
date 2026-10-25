@@ -137,7 +137,7 @@ fun MountTerminalScreen(
             Tab(
                 selected = activeTab == 1,
                 onClick = { activeTab = 1 },
-                text = { Text("Boot Script", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily) }
+                text = { Text("Boot Service", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily) }
             )
             Tab(
                 selected = activeTab == 2,
@@ -180,7 +180,7 @@ fun MountTerminalScreen(
                 ) {
                     Button(
                         onClick = {
-                            viewModel.executeMount("com.snapchat.android", IsolationMode.ENCRYPTED_VAULT)
+                            viewModel.runRootCheck()
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = ForestPrimary, contentColor = Color.White),
                         shape = RoundedCornerShape(50),
@@ -190,7 +190,7 @@ fun MountTerminalScreen(
                     ) {
                         Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Run Check", fontSize = 13.sp, fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
+                        Text("Check Root", fontSize = 13.sp, fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
                     }
 
                     OutlinedButton(
@@ -211,7 +211,7 @@ fun MountTerminalScreen(
             }
 
             1 -> {
-                val script = viewModel.generateMagiskExport()
+                val script = viewModel.generateBootScript()
 
                 Column(modifier = Modifier.weight(1f)) {
                     Box(
