@@ -2,83 +2,83 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Premium Matte Dark Palette (from reference mockup)
-val DarkBackground = Color(0xFF111215)
-val DarkSurface = Color(0xFF17181E)
-val DarkSurfaceCard = Color(0xFF20222A)
-val DarkSurfaceElevated = Color(0xFF282A34)
-val DarkBorder = Color(0xFF2C2F3A)
-val DarkBorderSubtle = Color(0xFF23252E)
+// Clean, Minimal Near-Black & Slate Dark Palette
+val DarkBackground = Color(0xFF0C0E12)
+val DarkSurface = Color(0xFF13161C)
+val DarkSurfaceCard = Color(0xFF191D25)
+val DarkSurfaceElevated = Color(0xFF222731)
+val DarkBorder = Color(0xFF2B313E)
+val DarkBorderSubtle = Color(0xFF202530)
 
-// Keypad Specific Colors (mockup leftmost screen)
-val KeypadButtonBg = Color(0xFF212328)
+// Clean, Minimal Daylight / Light Palette
+val LightBackground = Color(0xFFF6F8FB)
+val LightSurface = Color(0xFFFFFFFF)
+val LightSurfaceCard = Color(0xFFFFFFFF)
+val LightSurfaceElevated = Color(0xFFEEF2F7)
+val LightBorder = Color(0xFFDCE3EC)
+val LightBorderSubtle = Color(0xFFE6ECF3)
+val LightTextPrimary = Color(0xFF0F172A)
+val LightTextSecondary = Color(0xFF475569)
+val LightTextTertiary = Color(0xFF94A3B8)
+
+// Keypad Specific Colors
+val KeypadButtonBg = Color(0xFF1C2028)
 val KeypadWhiteCircle = Color(0xFFFFFFFF)
-val KeypadDarkIcon = Color(0xFF121316)
+val KeypadDarkIcon = Color(0xFF0C0E12)
 
-// Accents (mockup center-right screens)
-val AccentSky = Color(0xFF52B5F8)          // Vibrant sky blue (+ button, checkmark button, active dot)
-val AccentSkySoft = Color(0xFF1E3A52)
-val AccentMint = Color(0xFF4ADE80)         // Success green badge
-val AccentMintSoft = Color(0xFF143823)
-val AccentAmber = Color(0xFFFBBF24)        // Warm standby/warning
-val AccentAmberSoft = Color(0xFF382D12)
-val AccentCoral = Color(0xFFF87171)        // Error / blocked red
-val AccentCoralSoft = Color(0xFF3B1A1A)
-val AccentLavender = Color(0xFFA78BFA)     // Purple accent
-val AccentLavenderSoft = Color(0xFF281E45)
-val AccentPink = Color(0xFFF472B6)
+// Primary Single Electric Blue Accent + Semantic Status Colors
+val AccentSky = Color(0xFF0EA5E9)          // Electric Blue primary accent
+val AccentSkyBright = Color(0xFF38BDF8)
+val AccentSkySoft = Color(0xFF132D42)
+val AccentMint = Color(0xFF10B981)         // Active / Hook status dot
+val AccentMintSoft = Color(0xFF0F2E24)
+val AccentAmber = Color(0xFFF59E0B)
+val AccentAmberSoft = Color(0xFF33260F)
+val AccentCoral = Color(0xFFEF4444)        // Destructive / Lockout
+val AccentCoralSoft = Color(0xFF361717)
+val AccentLavender = Color(0xFF38BDF8)     // Mapped to single electric blue family
+val AccentLavenderSoft = Color(0xFF132D42)
+val AccentPink = Color(0xFF38BDF8)
 
-// Typography Colors
-val TextWhite = Color(0xFFFFFFFF)
-val TextMuted = Color(0xFF9A9DA8)
-val TextSubtle = Color(0xFF656875)
+// Dark Mode Typography Colors
+val TextWhite = Color(0xFFF8FAFC)
+val TextMuted = Color(0xFF94A3B8)
+val TextSubtle = Color(0xFF64748B)
 
-// Compatibility aliases mapped to the new matte dark palette
+// Legacy Compatibility Aliases
 val ForestPrimary = AccentSky
 val ForestDark = AccentSkySoft
 val SageSoft = DarkSurfaceCard
 val SageTint = DarkSurfaceElevated
-
 val ClaySecondary = AccentCoral
 val ClaySoft = AccentCoralSoft
-
 val HoneyTertiary = AccentAmber
 val HoneySoft = AccentAmberSoft
-
 val CoralError = AccentCoral
 val CoralSoft = AccentCoralSoft
-
-val LavenderAccent = AccentLavender
-val LavenderSoft = AccentLavenderSoft
-
-// Daylight Surfaces mapped to Dark Mode
+val LavenderAccent = AccentSky
+val LavenderSoft = AccentSkySoft
 val WarmLinen = DarkBackground
 val WarmIvory = DarkSurfaceCard
 val WarmSand = DarkSurfaceElevated
 val WarmStone = DarkBorder
-
-// Typography Mappings
 val InkPrimary = TextWhite
 val InkSecondary = TextMuted
 val InkTertiary = TextSubtle
-
 val CyberCyan = AccentSky
 val CyberCyanDark = AccentSkySoft
 val CyberEmerald = AccentMint
 val CyberEmeraldDark = AccentMintSoft
 val CyberAmber = AccentAmber
 val CyberRed = AccentCoral
-val CyberViolet = AccentLavender
-
+val CyberViolet = AccentSky
 val DeepObsidian = DarkBackground
 val SurfaceObsidian = DarkSurfaceCard
 val SurfaceElevated = DarkSurfaceElevated
 val SurfaceCard = DarkSurfaceCard
 val SurfaceBorder = DarkBorder
-
 val TextPrimary = TextWhite
 val TextSecondary = TextMuted
 val TextTertiary = TextSubtle
-
-val TerminalBlack = Color(0xFF14151B)
+val TerminalBlack = DarkSurface
 val TerminalGreen = AccentMint

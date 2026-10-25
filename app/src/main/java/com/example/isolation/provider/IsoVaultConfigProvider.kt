@@ -2,44 +2,111 @@ package com.example.isolation.provider
 
 import android.content.ContentProvider
 import android.content.ContentValues
-import android.content.Context
+import android.content.UriMatcher
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
+import android.os.Binder
 import android.os.Bundle
-import android.util.Log
+import android.os.Process
 import com.example.IsoVaultApp
+import com.example.isolation.data.IsoVaultDatabase
 import com.example.isolation.data.entity.AccessAuditLog
-import com.example.isolation.data.entity.AppIsolationConfig
 import com.example.isolation.model.AuditAction
-import com.example.isolation.model.IsolationMode
 import com.example.isolation.model.IsolationRuleManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 /**
- * World-accessible ContentProvider enabling hooked target apps (e.g. Snapchat, WhatsApp)
- * to query their isolation rules and report real-time interceptions back to IsoVault.
+ * Hardened Cross-Process Configuration & Audit ContentProvider for LSPosed Hooked Apps.
+ *
+ * Security invariants:
+ * - Provides CONFIGURATION ONLY — `openFile()` is completely disabled/removed.
+ * - Verifies caller identity via `Binder.getCallingUid()` and `packageManager.getPackagesForUid(callingUid)`.
+ * - Only responds to callers that match the requested package AND have an active rule configured in IsoVault
+ *   (or the IsoVault manager process itself).
+ * - Sanitizes and rate-limits `record_audit` calls per UID to prevent log flooding or injection.
  */
 class IsoVaultConfigProvider : ContentProvider() {
 
     companion object {
         const val AUTHORITY = "com.aistudio.isovault.xrvf.provider"
         val CONTENT_URI: Uri = Uri.parse("content://$AUTHORITY/rules")
-        private const val TAG = "IsoVaultProvider"
 
-        fun notifyRuleChanged(context: Context, packageName: String) {
-            try {
-                val uri = Uri.withAppendedPath(CONTENT_URI, packageName)
-                context.contentResolver.notifyChange(uri, null)
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to notify provider change: ${e.message}")
-            }
+        private const val CODE_ALL_RULES = 1
+        private const val CODE_PACKAGE_RULE = 2
+
+        private const val MAX_AUDIT_CALLS_PER_WINDOW = 20
+        private const val AUDIT_RATE_WINDOW_MS = 10_000L
+        private const val MAX_SANITIZED_LENGTH = 240
+
+        private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH).apply {
+            addURI(AUTHORITY, "rules", CODE_ALL_RULES)
+            addURI(AUTHORITY, "rules/*", CODE_PACKAGE_RULE)
         }
     }
 
-    override fun onCreate(): Boolean {
-        return true
+    private data class RateBucket(var windowStartMs: Long, var count: Int)
+    private val auditRateLimiter = ConcurrentHashMap<Int, RateBucket>()
+
+    override fun onCreate(): Boolean = true
+
+    /**
+     * Verifies that `Binder.getCallingUid()` owns `targetPackage` (or is the Vault manager process itself).
+     */
+    private fun isCallerAuthorizedForPackage(callingUid: Int, targetPackage: String): Boolean {
+        if (callingUid == Process.myUid() || callingUid == Process.SYSTEM_UID || callingUid == 0) {
+            return true
+        }
+        val ctx = context ?: return false
+        val packagesForUid = try {
+            ctx.packageManager.getPackagesForUid(callingUid)?.toSet() ?: emptySet()
+        } catch (_: Throwable) {
+            emptySet()
+        }
+        return targetPackage in packagesForUid
+    }
+
+    private fun getCallerPackages(callingUid: Int): Set<String> {
+        val ctx = context ?: return emptySet()
+        if (callingUid == Process.myUid()) return setOf(ctx.packageName)
+        return try {
+            ctx.packageManager.getPackagesForUid(callingUid)?.toSet() ?: emptySet()
+        } catch (_: Throwable) {
+            emptySet()
+        }
+    }
+
+    private fun checkRateLimit(callingUid: Int): Boolean {
+        val now = System.currentTimeMillis()
+        val bucket = auditRateLimiter.compute(callingUid) { _, existing ->
+            if (existing == null || now - existing.windowStartMs > AUDIT_RATE_WINDOW_MS) {
+                RateBucket(now, 1)
+            } else {
+                existing.count += 1
+                existing
+            }
+        }
+        return (bucket?.count ?: 0) <= MAX_AUDIT_CALLS_PER_WINDOW
+    }
+
+    private fun sanitizeInput(raw: String?, maxLen: Int = MAX_SANITIZED_LENGTH): String {
+        if (raw.isNullOrBlank()) return ""
+        return raw
+            .replace(Regex("[\\p{Cntrl}]"), "")
+            .trim()
+            .take(maxLen)
+    }
+
+    private fun resolveVaultRoot(ctx: android.content.Context): File {
+        val ext = ctx.getExternalFilesDir(null) ?: ctx.filesDir
+        val root = File(ext, "IsoVault")
+        if (!root.exists()) root.mkdirs()
+        return root
     }
 
     override fun query(
@@ -49,154 +116,166 @@ class IsoVaultConfigProvider : ContentProvider() {
         selectionArgs: Array<out String>?,
         sortOrder: String?
     ): Cursor {
-        val cursor = MatrixCursor(arrayOf("packageName", "isIsolated", "mode", "whitelistedFolders", "blockPollution", "explicitlyDisabled"))
-        val pkg = uri.lastPathSegment ?: selectionArgs?.firstOrNull() ?: ""
+        val cursor = MatrixCursor(
+            arrayOf(
+                "packageName",
+                "isIsolated",
+                "isolationMode",
+                "blockRootPollution",
+                "whitelistedFolders",
+                "useSharedSpace",
+                "volumeQuotaMb",
+                "sandboxPath",
+                "sharedPath"
+            )
+        )
+        val ctx = context ?: return cursor
+        val callingUid = Binder.getCallingUid()
+        val isSelf = (callingUid == Process.myUid())
+        val db = IsoVaultDatabase.getDatabase(ctx)
+        val vaultRoot = resolveVaultRoot(ctx)
+        val sharedDir = File(vaultRoot, "sandboxes/${IsolationRuleManager.SHARED_VOLUME_ID}")
 
-        if (pkg.isNotBlank()) {
-            try {
-                val app = context?.applicationContext as? IsoVaultApp
-                if (app != null) {
-                    val config = runBlocking {
-                        app.database.isolationDao().getConfigForPackage(pkg)
-                    }
-                    if (config != null) {
-                        val row: Array<Any> = arrayOf(
-                            config.packageName,
-                            if (config.isIsolated) 1 else 0,
-                            config.isolationMode.name,
-                            config.whitelistedFolders,
-                            if (config.blockRootPollution) 1 else 0,
-                            if (!config.isIsolated) 1 else 0
-                        )
-                        cursor.addRow(row)
-                        return cursor
+        runBlocking(Dispatchers.IO) {
+            when (uriMatcher.match(uri)) {
+                CODE_ALL_RULES -> {
+                    // Only the Vault app itself can list all rules; hooked apps only receive their own rule
+                    val configs = db.isolationDao().getAllConfigs().first()
+                    val callerPkgs = getCallerPackages(callingUid)
+                    for (cfg in configs) {
+                        if (isSelf || (cfg.packageName in callerPkgs && cfg.isIsolated)) {
+                            val sandboxDir = File(vaultRoot, "sandboxes/${cfg.packageName}")
+                            cursor.addRow(
+                                arrayOf<Any>(
+                                    cfg.packageName,
+                                    if (cfg.isIsolated) 1 else 0,
+                                    cfg.isolationMode.name,
+                                    if (cfg.blockRootPollution) 1 else 0,
+                                    cfg.whitelistedFolders,
+                                    if (cfg.useSharedSpace) 1 else 0,
+                                    cfg.volumeQuotaMb,
+                                    sandboxDir.absolutePath,
+                                    if (cfg.useSharedSpace) sharedDir.absolutePath else ""
+                                )
+                            )
+                        }
                     }
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Query error: ${e.message}")
+                CODE_PACKAGE_RULE -> {
+                    val requestedPkg = sanitizeInput(uri.lastPathSegment, 128)
+                    if (requestedPkg.isNotEmpty() && isCallerAuthorizedForPackage(callingUid, requestedPkg)) {
+                        val cfg = db.isolationDao().getConfigForPackage(requestedPkg)
+                        // Only answer apps that have an active rule configured
+                        if (cfg != null && (isSelf || cfg.isIsolated)) {
+                            val sandboxDir = File(vaultRoot, "sandboxes/${cfg.packageName}")
+                            cursor.addRow(
+                                arrayOf<Any>(
+                                    cfg.packageName,
+                                    if (cfg.isIsolated) 1 else 0,
+                                    cfg.isolationMode.name,
+                                    if (cfg.blockRootPollution) 1 else 0,
+                                    cfg.whitelistedFolders,
+                                    if (cfg.useSharedSpace) 1 else 0,
+                                    cfg.volumeQuotaMb,
+                                    sandboxDir.absolutePath,
+                                    if (cfg.useSharedSpace) sharedDir.absolutePath else ""
+                                )
+                            )
+                        }
+                    }
+                }
             }
         }
-
-        val ctx = context
-        val prefs = if (ctx != null) IsolationRuleManager.getReadableSharedPrefs(ctx) else null
-        val isConfigured: Boolean = prefs?.getBoolean("${pkg}_configured", false) ?: false
-        val isIsolated: Boolean = if (isConfigured) (prefs?.getBoolean("${pkg}_isolated", true) ?: true) else true
-        val explicitlyDisabled: Boolean = prefs?.getBoolean("${pkg}_explicitly_disabled", false) ?: false
-        val mode: String = prefs?.getString("${pkg}_mode", "ENCRYPTED_VAULT") ?: "ENCRYPTED_VAULT"
-        val whitelist: String = prefs?.getString("${pkg}_whitelist", "") ?: ""
-        val pollution: Boolean = prefs?.getBoolean("${pkg}_pollution", true) ?: true
-
-        val defaultRow: Array<Any> = arrayOf(
-            pkg,
-            if (isIsolated) 1 else 0,
-            mode,
-            whitelist,
-            if (pollution) 1 else 0,
-            if (explicitlyDisabled) 1 else 0
-        )
-        cursor.addRow(defaultRow)
         return cursor
     }
 
-    override fun call(method: String, arg: String?, extras: Bundle?): Bundle {
-        val bundle = Bundle()
-        val pkg = arg ?: ""
+    /**
+     * Handles cross-process RPC calls from hooked apps with strict UID verification and rate limiting.
+     * Provides configuration only; never provides raw file access.
+     */
+    override fun call(method: String, arg: String?, extras: Bundle?): Bundle? {
+        val ctx = context ?: return null
+        val callingUid = Binder.getCallingUid()
+        val db = IsoVaultDatabase.getDatabase(ctx)
+        val vaultRoot = resolveVaultRoot(ctx)
+        val sharedDir = File(vaultRoot, "sandboxes/${IsolationRuleManager.SHARED_VOLUME_ID}")
 
-        if (method == "check_isolated" && pkg.isNotBlank()) {
-            val app = context?.applicationContext as? IsoVaultApp
-            val config = if (app != null) {
-                runBlocking { app.database.isolationDao().getConfigForPackage(pkg) }
-            } else null
+        return when (method) {
+            "get_rule" -> {
+                val pkg = sanitizeInput(arg, 128)
+                if (pkg.isEmpty() || !isCallerAuthorizedForPackage(callingUid, pkg)) {
+                    return null
+                }
+                val cfg = runBlocking(Dispatchers.IO) {
+                    db.isolationDao().getConfigForPackage(pkg)
+                }
+                // Only answer apps that have a rule configured
+                if (cfg == null) return null
 
-            val ctx = context
-            val prefs = if (ctx != null) IsolationRuleManager.getReadableSharedPrefs(ctx) else null
-            val isConfigured = config != null || (prefs?.getBoolean("${pkg}_configured", false) ?: false)
-            val explicitlyDisabled = if (config != null) !config.isIsolated else (prefs?.getBoolean("${pkg}_explicitly_disabled", false) ?: false)
-            val isIsolated = config?.isIsolated ?: if (isConfigured) (prefs?.getBoolean("${pkg}_isolated", true) ?: true) else true
-            val mode = config?.isolationMode?.name ?: (prefs?.getString("${pkg}_mode", "ENCRYPTED_VAULT") ?: "ENCRYPTED_VAULT")
-            val whitelist = config?.whitelistedFolders ?: (prefs?.getString("${pkg}_whitelist", "") ?: "")
-            val blockPollution = config?.blockRootPollution ?: (prefs?.getBoolean("${pkg}_pollution", true) ?: true)
+                val sandboxDir = File(vaultRoot, "sandboxes/${cfg.packageName}")
+                IsolationRuleManager.ensureStandardVolumeFolders(sandboxDir)
+                if (cfg.useSharedSpace) {
+                    IsolationRuleManager.ensureStandardVolumeFolders(sharedDir)
+                }
 
-            bundle.putBoolean("isConfigured", isConfigured)
-            bundle.putBoolean("isIsolated", isIsolated)
-            bundle.putBoolean("explicitlyDisabled", explicitlyDisabled)
-            bundle.putString("mode", mode)
-            bundle.putString("whitelistedFolders", whitelist)
-            bundle.putBoolean("blockPollution", blockPollution)
-            return bundle
-        }
+                Bundle().apply {
+                    putBoolean("isolated", cfg.isIsolated)
+                    putString("mode", cfg.isolationMode.name)
+                    putBoolean("blockRoot", cfg.blockRootPollution)
+                    putString("whitelist", cfg.whitelistedFolders)
+                    putBoolean("useSharedSpace", cfg.useSharedSpace)
+                    putInt("volumeQuotaMb", cfg.volumeQuotaMb)
+                    putString("sandboxPath", sandboxDir.absolutePath)
+                    putString("sharedPath", if (cfg.useSharedSpace) sharedDir.absolutePath else "")
+                }
+            }
 
-        if (method == "record_audit" && pkg.isNotBlank() && extras != null) {
-            val app = context?.applicationContext as? IsoVaultApp
-            if (app != null) {
-                val requestedPath = extras.getString("requestedPath") ?: ""
-                val resolvedPath = extras.getString("resolvedPath") ?: ""
-                val actionStr = extras.getString("action") ?: "REDIRECTED"
-                val operation = extras.getString("operation") ?: "REDIRECT"
-                val details = extras.getString("details") ?: ""
-                val action = try { AuditAction.valueOf(actionStr) } catch (_: Exception) { AuditAction.REDIRECTED }
+            "record_audit" -> {
+                if (extras == null || !checkRateLimit(callingUid)) return null
+                val pkg = sanitizeInput(extras.getString("pkg"), 128)
+                if (pkg.isEmpty() || !isCallerAuthorizedForPackage(callingUid, pkg)) {
+                    return null
+                }
 
-                app.applicationScope.launch {
+                val path = sanitizeInput(extras.getString("path"), MAX_SANITIZED_LENGTH)
+                val resolved = sanitizeInput(extras.getString("resolved"), MAX_SANITIZED_LENGTH)
+                val actionStr = sanitizeInput(extras.getString("action"), 32).ifEmpty { "REDIRECTED" }
+                val details = sanitizeInput(extras.getString("details"), MAX_SANITIZED_LENGTH)
+                val bytes = extras.getLong("bytes", 0L).coerceIn(0L, 10L * 1024L * 1024L * 1024L)
+
+                val app = IsoVaultApp.instanceOrNull()
+                app?.applicationScope?.launch {
                     try {
-                        val dao = app.database.isolationDao()
-                        var cfg = dao.getConfigForPackage(pkg)
-                        if (cfg == null) {
-                            cfg = AppIsolationConfig(
-                                packageName = pkg,
-                                appName = pkg.substringAfterLast('.').replaceFirstChar { it.uppercase() },
-                                isIsolated = true,
-                                isolationMode = IsolationMode.ENCRYPTED_VAULT,
-                                blockRootPollution = true,
-                                whitelistedFolders = "",
-                                totalFilesRedirected = 1,
-                                lastAccessedTimestamp = System.currentTimeMillis()
-                            )
-                            dao.insertOrUpdateConfig(cfg)
-                        } else {
-                            dao.incrementRedirectCount(pkg, System.currentTimeMillis())
-                        }
-
-                        dao.insertAuditLog(
+                        val cfg = db.isolationDao().getConfigForPackage(pkg)
+                        // Only record audits for configured apps
+                        if (cfg == null) return@launch
+                        val appName = cfg.appName
+                        val action = AuditAction.entries.find { it.name == actionStr } ?: AuditAction.REDIRECTED
+                        db.isolationDao().insertAuditLog(
                             AccessAuditLog(
                                 packageName = pkg,
-                                appName = cfg.appName,
-                                requestedPath = requestedPath,
-                                targetResolvedPath = resolvedPath,
+                                appName = appName,
+                                requestedPath = path,
+                                targetResolvedPath = resolved,
                                 action = action,
-                                operation = operation,
+                                operation = "LSP_HOOK_${action.name}",
                                 details = details
                             )
                         )
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to record audit log: ${e.message}")
-                    }
+                        db.isolationDao().incrementRedirectCount(pkg, System.currentTimeMillis())
+                        if (bytes > 0L) {
+                            db.isolationDao().addEncryptedBytes(pkg, bytes)
+                        }
+                    } catch (_: Exception) {}
                 }
-                bundle.putBoolean("recorded", true)
+                Bundle().apply { putBoolean("ok", true) }
             }
-            return bundle
-        }
 
-        return bundle
+            else -> null
+        }
     }
 
-    override fun openFile(uri: Uri, mode: String): android.os.ParcelFileDescriptor? {
-        val path = uri.path ?: return null
-        if (uri.pathSegments.firstOrNull() == "isolated_file") {
-            val targetPath = uri.pathSegments.drop(1).joinToString("/")
-            val file = java.io.File(targetPath)
-            if (file.exists()) {
-                val fileMode = if (mode.contains("w")) {
-                    android.os.ParcelFileDescriptor.MODE_READ_WRITE or android.os.ParcelFileDescriptor.MODE_CREATE
-                } else {
-                    android.os.ParcelFileDescriptor.MODE_READ_ONLY
-                }
-                return android.os.ParcelFileDescriptor.open(file, fileMode)
-            }
-        }
-        return super.openFile(uri, mode)
-    }
-
-    override fun getType(uri: Uri): String = "vnd.android.cursor.item/vnd.$AUTHORITY.rule"
+    override fun getType(uri: Uri): String? = null
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
     override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int = 0
     override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?): Int = 0
