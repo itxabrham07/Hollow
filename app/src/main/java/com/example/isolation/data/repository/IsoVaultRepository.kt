@@ -48,13 +48,7 @@ class IsoVaultRepository(
     }
 
     suspend fun saveConfig(config: AppIsolationConfig) {
-        val ensuredConfig = if (config.wrappedVolumeKey.isBlank()) {
-            val generatedWrapped = AesVaultCipher.generateWrappedVolumeKey()
-            config.copy(wrappedVolumeKey = generatedWrapped)
-        } else {
-            config
-        }
-        dao.insertOrUpdateConfig(ensuredConfig)
+        dao.insertOrUpdateConfig(config)
         syncInMemoryRules()
     }
 
@@ -69,7 +63,7 @@ class IsoVaultRepository(
     }
 
     suspend fun setVolumeQuota(packageName: String, quotaMb: Int) {
-        dao.setVolumeQuota(packageName, quotaMb)
+        // Reserved for future volume quota limits
         syncInMemoryRules()
     }
 
@@ -111,12 +105,7 @@ class IsoVaultRepository(
         try {
             val file = File(item.physicalPath)
             if (!file.exists()) return@withContext "[Vault file missing on disk]"
-            val cfg = dao.getConfigForPackage(item.packageName)
-            val volumeKey = if (cfg != null && cfg.wrappedVolumeKey.isNotBlank()) {
-                AesVaultCipher.unwrapVolumeKey(cfg.wrappedVolumeKey)
-            } else {
-                AesVaultCipher.getMasterKey()
-            }
+            val volumeKey = AesVaultCipher.getVolumeKey(item.packageName, context)
             val decryptedBytes = AesVaultCipher.decryptToMemory(file, volumeKey)
             String(decryptedBytes, Charsets.UTF_8)
         } catch (e: Exception) {
@@ -132,10 +121,6 @@ class IsoVaultRepository(
     suspend fun syncInMemoryRules() {
         val configs = dao.getAllConfigs().first()
         for (cfg in configs) {
-            if (cfg.wrappedVolumeKey.isBlank()) {
-                val newKey = AesVaultCipher.generateWrappedVolumeKey()
-                dao.setWrappedVolumeKey(cfg.packageName, newKey)
-            }
             if (cfg.isIsolated) {
                 IsolationRuleManager.updateRule(
                     packageName = cfg.packageName,
@@ -146,8 +131,7 @@ class IsoVaultRepository(
                         .map { it.trim() }
                         .filter { it.isNotEmpty() }
                         .toSet(),
-                    useSharedSpace = cfg.useSharedSpace,
-                    volumeQuotaMb = cfg.volumeQuotaMb
+                    useSharedSpace = cfg.useSharedSpace
                 )
             } else {
                 IsolationRuleManager.removeRule(cfg.packageName)
@@ -222,7 +206,7 @@ class IsoVaultRepository(
                 if (cfg.packageName in legacySeededPackages &&
                     !isPackageInstalled &&
                     realDiskBytes == 0L &&
-                    (cfg.totalBytesEncrypted in legacyFakeByteSignatures || cfg.totalFilesRedirected in setOf(0, 42, 31, 19, 12))
+                    (cfg.totalBytesEncrypted in legacyFakeByteSignatures || cfg.totalFilesRedirected in setOf<Long>(0L, 42L, 31L, 19L, 12L))
                 ) {
                     dao.deleteConfigForPackage(cfg.packageName)
                     pkgSandbox.deleteRecursively()

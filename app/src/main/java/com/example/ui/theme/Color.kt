@@ -18,9 +18,20 @@ val KeypadDarkIcon = Color(0xFF121316)
 // Electric Blue Accent (clean modern contrast)
 val ElectricBlue = Color(0xFF0066FF)
 val AccentSky = ElectricBlue
+val AccentSkyBright = Color(0xFF388BFF)
 val AccentSkySoft = Color(0xFF0D254C)
 val AccentMint = Color(0xFF4ADE80)         // Success green badge
 val AccentMintSoft = Color(0xFF143823)
+
+// Light Theme Palette
+val LightBackground = Color(0xFFF8FAFC)
+val LightSurface = Color(0xFFFFFFFF)
+val LightSurfaceCard = Color(0xFFF1F5F9)
+val LightSurfaceElevated = Color(0xFFE2E8F0)
+val LightBorder = Color(0xFFCBD5E1)
+val LightBorderSubtle = Color(0xFFE2E8F0)
+val LightTextPrimary = Color(0xFF0F172A)
+val LightTextSecondary = Color(0xFF64748B)
 val AccentAmber = Color(0xFFFBBF24)        // Warm standby/warning
 val AccentAmberSoft = Color(0xFF382D12)
 val AccentCoral = Color(0xFFF87171)        // Error / blocked red

@@ -43,6 +43,12 @@ interface IsolationDao {
     @Query("UPDATE app_isolation_configs SET useSharedSpace = :enabled WHERE packageName = :pkg")
     suspend fun setUseSharedSpace(pkg: String, enabled: Boolean)
 
+    @Query("UPDATE app_isolation_configs SET useSharedSpace = :enabled WHERE packageName = :pkg")
+    suspend fun setSharedSpaceStatus(pkg: String, enabled: Boolean)
+
+    @Query("DELETE FROM app_isolation_configs WHERE packageName = :pkg")
+    suspend fun deleteConfigForPackage(pkg: String)
+
     // Audit Logs
     @Query("SELECT * FROM access_audit_logs ORDER BY timestamp DESC LIMIT :limit")
     fun getRecentAuditLogs(limit: Int = 100): Flow<List<AccessAuditLog>>

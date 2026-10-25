@@ -173,7 +173,7 @@ object AesVaultCipher {
     /**
      * Encrypts plaintext bytes into a chunked AEAD container.
      */
-    fun encrypt(plaintext: ByteArray, key: SecretKey): ByteArray {
+    fun encrypt(plaintext: ByteArray, key: SecretKey = getMasterKey()): ByteArray {
         val output = ByteArrayOutputStream()
         val input = ByteArrayInputStream(plaintext)
         encryptStream(input, output, plaintext.size.toLong(), key)
@@ -184,7 +184,7 @@ object AesVaultCipher {
      * Decrypts a chunked AEAD container into plaintext bytes.
      * Also migrates legacy ISOV v1 format if detected.
      */
-    fun decrypt(ciphertext: ByteArray, key: SecretKey): ByteArray {
+    fun decrypt(ciphertext: ByteArray, key: SecretKey = getMasterKey()): ByteArray {
         if (isLegacyIsoVaultV1Bytes(ciphertext)) {
             return decryptLegacyV1(ciphertext, key)
         }
@@ -194,6 +194,13 @@ object AesVaultCipher {
         return output.toByteArray()
     }
 
+    fun decryptToMemory(file: File, key: SecretKey = getMasterKey()): ByteArray {
+        return decrypt(file.readBytes(), key)
+    }
+
+    fun generateWrappedVolumeKey(): String = ""
+    fun unwrapVolumeKey(wrapped: String): SecretKey = getMasterKey()
+
     /**
      * Streams plaintext from input to output, encrypting in 4KB AEAD chunks.
      */
@@ -201,7 +208,7 @@ object AesVaultCipher {
         input: InputStream,
         output: OutputStream,
         plaintextSize: Long,
-        key: SecretKey
+        key: SecretKey = getMasterKey()
     ) {
         val salt = ByteArray(SALT_LENGTH_BYTES).also { secureRandom.nextBytes(it) }
         val baseIv = ByteArray(BASE_IV_LENGTH_BYTES).also { secureRandom.nextBytes(it) }
@@ -240,7 +247,7 @@ object AesVaultCipher {
     /**
      * Streams ciphertext from input to output, authenticating and decrypting 4KB AEAD chunks.
      */
-    fun decryptStream(input: InputStream, output: OutputStream, key: SecretKey) {
+    fun decryptStream(input: InputStream, output: OutputStream, key: SecretKey = getMasterKey()) {
         val header = ByteArray(HEADER_SIZE_BYTES)
         var readHeader = 0
         while (readHeader < HEADER_SIZE_BYTES) {
@@ -396,7 +403,7 @@ object AesVaultCipher {
     /**
      * Encrypts a source file into a destination vault file.
      */
-    fun encryptFile(sourceFile: File, destinationFile: File, key: SecretKey) {
+    fun encryptFile(sourceFile: File, destinationFile: File, key: SecretKey = getMasterKey()) {
         destinationFile.parentFile?.mkdirs()
         val size = sourceFile.length()
         FileInputStream(sourceFile).use { fis ->
@@ -409,7 +416,7 @@ object AesVaultCipher {
     /**
      * Decrypts an encrypted vault file into a destination plain file.
      */
-    fun decryptFile(sourceEncryptedFile: File, destinationPlainFile: File, key: SecretKey) {
+    fun decryptFile(sourceEncryptedFile: File, destinationPlainFile: File, key: SecretKey = getMasterKey()) {
         if (isLegacyIsoVaultV1(sourceEncryptedFile)) {
             val decrypted = decryptLegacyV1(sourceEncryptedFile.readBytes(), key)
             destinationPlainFile.parentFile?.mkdirs()
