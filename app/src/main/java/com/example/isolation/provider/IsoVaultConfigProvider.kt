@@ -60,16 +60,15 @@ class IsoVaultConfigProvider : ContentProvider() {
                         app.database.isolationDao().getConfigForPackage(pkg)
                     }
                     if (config != null) {
-                        cursor.addRow(
-                            arrayOf<Any>(
-                                config.packageName,
-                                if (config.isIsolated) 1 else 0,
-                                config.isolationMode.name,
-                                config.whitelistedFolders,
-                                if (config.blockRootPollution) 1 else 0,
-                                if (!config.isIsolated) 1 else 0
-                            )
+                        val row: Array<Any> = arrayOf(
+                            config.packageName,
+                            if (config.isIsolated) 1 else 0,
+                            config.isolationMode.name,
+                            config.whitelistedFolders,
+                            if (config.blockRootPollution) 1 else 0,
+                            if (!config.isIsolated) 1 else 0
                         )
+                        cursor.addRow(row)
                         return cursor
                     }
                 }
@@ -80,23 +79,22 @@ class IsoVaultConfigProvider : ContentProvider() {
 
         val ctx = context
         val prefs = if (ctx != null) IsolationRuleManager.getReadableSharedPrefs(ctx) else null
-        val isConfigured = prefs?.getBoolean("${pkg}_configured", false) ?: false
-        val isIsolated = if (isConfigured) (prefs?.getBoolean("${pkg}_isolated", true) ?: true) else true
-        val explicitlyDisabled = prefs?.getBoolean("${pkg}_explicitly_disabled", false) ?: false
-        val mode = prefs?.getString("${pkg}_mode", "ENCRYPTED_VAULT") ?: "ENCRYPTED_VAULT"
-        val whitelist = prefs?.getString("${pkg}_whitelist", "") ?: ""
-        val pollution = prefs?.getBoolean("${pkg}_pollution", true) ?: true
+        val isConfigured: Boolean = prefs?.getBoolean("${pkg}_configured", false) ?: false
+        val isIsolated: Boolean = if (isConfigured) (prefs?.getBoolean("${pkg}_isolated", true) ?: true) else true
+        val explicitlyDisabled: Boolean = prefs?.getBoolean("${pkg}_explicitly_disabled", false) ?: false
+        val mode: String = prefs?.getString("${pkg}_mode", "ENCRYPTED_VAULT") ?: "ENCRYPTED_VAULT"
+        val whitelist: String = prefs?.getString("${pkg}_whitelist", "") ?: ""
+        val pollution: Boolean = prefs?.getBoolean("${pkg}_pollution", true) ?: true
 
-        cursor.addRow(
-            arrayOf<Any>(
-                pkg,
-                if (isIsolated) 1 else 0,
-                mode,
-                whitelist,
-                if (pollution) 1 else 0,
-                if (explicitlyDisabled) 1 else 0
-            )
+        val defaultRow: Array<Any> = arrayOf(
+            pkg,
+            if (isIsolated) 1 else 0,
+            mode,
+            whitelist,
+            if (pollution) 1 else 0,
+            if (explicitlyDisabled) 1 else 0
         )
+        cursor.addRow(defaultRow)
         return cursor
     }
 
@@ -179,6 +177,23 @@ class IsoVaultConfigProvider : ContentProvider() {
         }
 
         return bundle
+    }
+
+    override fun openFile(uri: Uri, mode: String): android.os.ParcelFileDescriptor? {
+        val path = uri.path ?: return null
+        if (uri.pathSegments.firstOrNull() == "isolated_file") {
+            val targetPath = uri.pathSegments.drop(1).joinToString("/")
+            val file = java.io.File(targetPath)
+            if (file.exists()) {
+                val fileMode = if (mode.contains("w")) {
+                    android.os.ParcelFileDescriptor.MODE_READ_WRITE or android.os.ParcelFileDescriptor.MODE_CREATE
+                } else {
+                    android.os.ParcelFileDescriptor.MODE_READ_ONLY
+                }
+                return android.os.ParcelFileDescriptor.open(file, fileMode)
+            }
+        }
+        return super.openFile(uri, mode)
     }
 
     override fun getType(uri: Uri): String = "vnd.android.cursor.item/vnd.$AUTHORITY.rule"
