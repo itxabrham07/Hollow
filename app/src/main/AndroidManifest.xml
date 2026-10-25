@@ -2,30 +2,33 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Required to query installed application packages to apply per-app isolation rules -->
+    <!-- Permissions required for storage management & package isolation inspection -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" tools:ignore="ScopedStorage" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
-
-    <!-- Required for biometric authentication to lock and unlock the secure vault -->
-    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
-
-    <!-- Required for delivering security alerts and access interception notifications -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
         </intent>
+        <package android:name="com.snapchat.android" />
+        <package android:name="com.whatsapp" />
+        <package android:name="com.instagram.android" />
+        <package android:name="org.telegram.messenger" />
     </queries>
 
     <application
         android:name=".IsoVaultApp"
-        android:allowBackup="false"
+        android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
+        android:requestLegacyExternalStorage="true"
         android:theme="@style/Theme.MyApplication">
 
         <!-- LSPosed / Vector / Xposed Module Metadata -->
@@ -34,10 +37,13 @@
             android:value="true" />
         <meta-data
             android:name="xposeddescription"
-            android:value="Storage isolation and AES-256 chunked AEAD encrypted filesystem engine for Android 15+" />
+            android:value="Storage isolation, MediaStore guard, and encrypted filesystem mount engine for Android 15+" />
         <meta-data
             android:name="xposedminversion"
             android:value="82" />
+        <meta-data
+            android:name="xposedsharedprefs"
+            android:value="true" />
         <meta-data
             android:name="xposedscope"
             android:resource="@array/xposed_scope" />

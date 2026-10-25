@@ -1,9 +1,13 @@
 package com.example
 
 import android.app.Application
+import com.example.isolation.crypto.AesVaultCipher
 import com.example.isolation.data.IsoVaultDatabase
 import com.example.isolation.data.entity.AccessAuditLog
+import com.example.isolation.data.entity.AppIsolationConfig
+import com.example.isolation.data.entity.VaultFileItem
 import com.example.isolation.model.AuditAction
+import com.example.isolation.model.IsolationMode
 import com.example.isolation.model.IsolationRuleManager
 import com.example.isolation.pkg.AppPackageRepository
 import kotlinx.coroutines.CoroutineScope
@@ -24,36 +28,28 @@ class IsoVaultApp : Application() {
         super.onCreate()
         instance = this
 
-        // Ensure internal vault storage structure exists (in private filesDir)
-        val vaultsDir = File(filesDir, "vaults")
-        val sharedDir = File(vaultsDir, "shared")
-        val recycleBinDir = File(filesDir, "recycle_bin")
-        vaultsDir.mkdirs()
-        sharedDir.mkdirs()
-        recycleBinDir.mkdirs()
-
         // Connect hook interception engine to database audit logger
         IsolationRuleManager.onAccessIntercepted = { pkg, path, action, details ->
             applicationScope.launch {
                 try {
                     val config = database.isolationDao().getConfigForPackage(pkg)
-                    val appName = config?.appName ?: pkg.substringAfterLast('.').replaceFirstChar { it.uppercase() }
+                    val appName = config?.appName ?: pkg.substringAfterLast('.')
                     database.isolationDao().insertAuditLog(
                         AccessAuditLog(
                             packageName = pkg,
                             appName = appName,
                             requestedPath = path,
                             targetResolvedPath = when (action) {
-                                AuditAction.ENCRYPTED -> "/files/vaults/$pkg/storage/"
-                                AuditAction.REDIRECTED -> "/files/vaults/$pkg/storage/"
+                                AuditAction.ENCRYPTED -> "/vaults/$pkg/storage/encrypted.isovault"
+                                AuditAction.REDIRECTED -> "/vaults/$pkg/storage/"
                                 AuditAction.BLOCKED -> "/dev/null"
-                                AuditAction.SPOOFED_EMPTY -> "/dev/null"
+                                AuditAction.SPOOFED_EMPTY -> "/isovault_empty_dummy"
                                 AuditAction.PERMITTED -> path
                             },
                             action = action,
                             operation = when (action) {
                                 AuditAction.ENCRYPTED -> "ENCRYPT_WRITE"
-                                AuditAction.BLOCKED -> "ACCESS_BLOCKED"
+                                AuditAction.BLOCKED -> "MKDIR_DENIED"
                                 AuditAction.REDIRECTED -> "REDIRECT_OPEN"
                                 else -> "READ"
                             },
@@ -65,27 +61,57 @@ class IsoVaultApp : Application() {
             }
         }
 
-        // Synchronize active isolation rules from Room database
+        // Initialize default rules and sample files if needed
         applicationScope.launch {
-            syncSavedRules()
+            seedInitialDataIfNeeded()
         }
     }
 
-    private suspend fun syncSavedRules() {
+    private suspend fun seedInitialDataIfNeeded() {
         val dao = database.isolationDao()
         val existingConfigs = dao.getAllConfigs().first()
 
-        for (cfg in existingConfigs) {
-            if (cfg.isIsolated) {
-                IsolationRuleManager.updateRule(
-                    packageName = cfg.packageName,
-                    mode = cfg.isolationMode,
-                    blockRootPollution = cfg.blockRootPollution,
-                    whitelistedFolders = cfg.whitelistedFolders.split(',').map { it.trim() }.filter { it.isNotBlank() }.toSet(),
-                    useSharedSpace = cfg.useSharedSpace
+        if (existingConfigs.isEmpty()) {
+            val initial = listOf(
+                AppIsolationConfig(
+                    packageName = "com.snapchat.android",
+                    appName = "Snapchat",
+                    isIsolated = true,
+                    isolationMode = IsolationMode.ENCRYPTED_VAULT,
+                    encryptMediaOnly = false,
+                    blockRootPollution = true,
+                    whitelistedFolders = "",
+                    totalFilesRedirected = 0,
+                    totalBytesEncrypted = 0L,
+                    lastAccessedTimestamp = System.currentTimeMillis()
                 )
-            } else {
-                IsolationRuleManager.removeRule(cfg.packageName)
+            )
+            dao.insertConfigs(initial)
+
+            // Register rule in rule manager
+            for (cfg in initial) {
+                if (cfg.isIsolated) {
+                    IsolationRuleManager.updateRule(
+                        packageName = cfg.packageName,
+                        mode = cfg.isolationMode,
+                        blockRootPollution = cfg.blockRootPollution,
+                        whitelistedFolders = cfg.whitelistedFolders.split(',').map { it.trim() }.toSet()
+                    )
+                }
+            }
+        } else {
+            // Re-sync active and disabled rules to rule manager
+            for (cfg in existingConfigs) {
+                if (cfg.isIsolated) {
+                    IsolationRuleManager.updateRule(
+                        packageName = cfg.packageName,
+                        mode = cfg.isolationMode,
+                        blockRootPollution = cfg.blockRootPollution,
+                        whitelistedFolders = cfg.whitelistedFolders.split(',').map { it.trim() }.toSet()
+                    )
+                } else {
+                    IsolationRuleManager.removeRule(cfg.packageName)
+                }
             }
         }
     }

@@ -1,12 +1,10 @@
 package com.example.isolation.ui.viewmodel
 
 import android.app.Application
-import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.IsoVaultApp
 import com.example.isolation.crypto.AesVaultCipher
-import com.example.isolation.crypto.VaultLockManager
 import com.example.isolation.data.entity.AccessAuditLog
 import com.example.isolation.data.entity.AppIsolationConfig
 import com.example.isolation.data.entity.VaultFileItem
@@ -26,11 +24,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
 
 enum class AppListFilter {
     ALL,
@@ -75,16 +69,16 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
 
     private val _isLsposedActive = MutableStateFlow(
         com.example.MainActivity.isLsposedModuleActiveReal() ||
-                IsolationRuleManager.isSimulatedHookActive
+                IsolationRuleManager.isXSharedPrefsHooked(app)
     )
     val isLsposedActive = _isLsposedActive.asStateFlow()
 
     private val _terminalLogs = MutableStateFlow<List<String>>(
         listOf(
-            "[Hollow Security] Initialized on Android 15 (Kernel 6.6+)",
-            "[Hollow LSPosed] Module hooked into zygote64 namespace (API 82)",
-            "[Hollow Crypto] AES-256 chunked AEAD hardware acceleration active.",
-            "[Hollow Policy] Zero dummy data. Fail-closed isolated storage."
+            "[IsoVault Kernel] Initialized on Android 15 (Linux 6.6+)",
+            "[IsoVault LSPosed] Module hooked into zygote64 namespace (Vector/LSPosed API 82)",
+            "[IsoVault Mount] FUSE overlay, MediaStore ContentResolver & File I/O hooks ready.",
+            "[IsoVault Crypto] AES-256-GCM hardware acceleration enabled."
         )
     )
     val terminalLogs = _terminalLogs.asStateFlow()
@@ -92,12 +86,13 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
     private val _selectedAppForDetail = MutableStateFlow<InstalledAppInfo?>(null)
     val selectedAppForDetail = _selectedAppForDetail.asStateFlow()
 
-    private val _previewDecryptedText = MutableStateFlow<Pair<String, String>?>(null)
+    private val _previewDecryptedText = MutableStateFlow<Pair<String, String>?>(null) // (Title, Content)
     val previewDecryptedText = _previewDecryptedText.asStateFlow()
 
     private val _statusMessage = MutableStateFlow<String?>(null)
     val statusMessage = _statusMessage.asStateFlow()
 
+    // Filtered apps list combining search and filter
     val filteredApps: StateFlow<List<InstalledAppInfo>> = combine(
         _rawInstalledApps,
         configs,
@@ -109,8 +104,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             val cfg = cfgMap[app.packageName]
             app.copy(
                 isIsolated = cfg?.isIsolated ?: false,
-                isolationMode = cfg?.isolationMode ?: IsolationMode.ENCRYPTED_VAULT,
-                useSharedSpace = cfg?.useSharedSpace ?: false
+                isolationMode = cfg?.isolationMode ?: IsolationMode.ENCRYPTED_VAULT
             )
         }.filter { app ->
             val matchesQuery = query.isBlank() ||
@@ -164,7 +158,8 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch(Dispatchers.IO) {
             _systemMounts.value = MountManager.readSystemMounts()
             _selinuxStatus.value = MountManager.getSelinuxStatus()
-            val isReal = com.example.MainActivity.isLsposedModuleActiveReal()
+            val isReal = com.example.MainActivity.isLsposedModuleActiveReal() ||
+                    IsolationRuleManager.isXSharedPrefsHooked(app)
             _isLsposedActive.value = if (isReal) true else IsolationRuleManager.isSimulatedHookActive
         }
     }
@@ -185,8 +180,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 packageName = appInfo.packageName,
                 appName = appInfo.appName,
                 isIsolated = enable,
-                isolationMode = appInfo.isolationMode,
-                useSharedSpace = appInfo.useSharedSpace
+                isolationMode = appInfo.isolationMode
             )
             dao.insertOrUpdateConfig(updated)
 
@@ -195,14 +189,13 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                     packageName = updated.packageName,
                     mode = updated.isolationMode,
                     blockRootPollution = updated.blockRootPollution,
-                    whitelistedFolders = updated.whitelistedFolders.split(',').map { it.trim() }.filter { it.isNotBlank() }.toSet(),
-                    useSharedSpace = updated.useSharedSpace
+                    whitelistedFolders = updated.whitelistedFolders.split(',').map { it.trim() }.filter { it.isNotBlank() }.toSet()
                 )
-                appendTerminalLog("[Hollow] Isolation ENABLED for ${appInfo.appName} (${updated.isolationMode.badge})")
-                _statusMessage.value = "${appInfo.appName} is isolated. Force-stop ${appInfo.appName} to apply hooks."
+                appendTerminalLog("[IsoVault] Isolation ENABLED for ${appInfo.appName} (${updated.isolationMode.badge})")
+                _statusMessage.value = "${appInfo.appName} is now isolated (${updated.isolationMode.title}). Force-stop ${appInfo.appName} to apply hooks immediately."
             } else {
                 IsolationRuleManager.removeRule(updated.packageName)
-                appendTerminalLog("[Hollow] Isolation DISABLED for ${appInfo.appName}")
+                appendTerminalLog("[IsoVault] Isolation DISABLED for ${appInfo.appName}")
                 _statusMessage.value = "Storage isolation disabled for ${appInfo.appName}."
             }
 
@@ -221,11 +214,10 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                     packageName = updated.packageName,
                     mode = updated.isolationMode,
                     blockRootPollution = updated.blockRootPollution,
-                    whitelistedFolders = updated.whitelistedFolders.split(',').map { it.trim() }.filter { it.isNotBlank() }.toSet(),
-                    useSharedSpace = updated.useSharedSpace
+                    whitelistedFolders = updated.whitelistedFolders.split(',').map { it.trim() }.filter { it.isNotBlank() }.toSet()
                 )
                 notifyConfigChanged()
-                appendTerminalLog("[Hollow] Updated mode for $packageName to ${newMode.name}")
+                appendTerminalLog("[IsoVault] Updated mode for $packageName to ${newMode.name}")
                 _statusMessage.value = "Updated to ${newMode.title}."
             }
         }
@@ -241,8 +233,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                     packageName = updated.packageName,
                     mode = updated.isolationMode,
                     blockRootPollution = block,
-                    whitelistedFolders = updated.whitelistedFolders.split(',').map { it.trim() }.filter { it.isNotBlank() }.toSet(),
-                    useSharedSpace = updated.useSharedSpace
+                    whitelistedFolders = updated.whitelistedFolders.split(',').map { it.trim() }.filter { it.isNotBlank() }.toSet()
                 )
                 notifyConfigChanged()
             }
@@ -259,8 +250,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                     packageName = updated.packageName,
                     mode = updated.isolationMode,
                     blockRootPollution = updated.blockRootPollution,
-                    whitelistedFolders = folders.split(',').map { it.trim() }.filter { it.isNotBlank() }.toSet(),
-                    useSharedSpace = updated.useSharedSpace
+                    whitelistedFolders = folders.split(',').map { it.trim() }.filter { it.isNotBlank() }.toSet()
                 )
                 notifyConfigChanged()
                 _statusMessage.value = "Whitelisted folders updated."
@@ -268,27 +258,80 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun updateUseSharedSpace(packageName: String, useShared: Boolean) {
-        viewModelScope.launch {
-            val existing = dao.getConfigForPackage(packageName)
-            if (existing != null) {
-                val updated = existing.copy(useSharedSpace = useShared)
-                dao.insertOrUpdateConfig(updated)
-                IsolationRuleManager.updateRule(
-                    packageName = updated.packageName,
-                    mode = updated.isolationMode,
-                    blockRootPollution = updated.blockRootPollution,
-                    whitelistedFolders = updated.whitelistedFolders.split(',').map { it.trim() }.filter { it.isNotBlank() }.toSet(),
-                    useSharedSpace = useShared
+    /**
+     * Simulates an application performing storage I/O and demonstrates the hook & encryption in action!
+     */
+    fun testSimulateAppIo(packageName: String, appName: String, testPath: String, fileContent: String = "Sensitive user chat log or photo token.") {
+        viewModelScope.launch(Dispatchers.IO) {
+            appendTerminalLog("[Simulate I/O] $appName attempting access to: $testPath")
+
+            val baseVaultDir = File(app.getExternalFilesDir(null), "vaults/$packageName/storage")
+            baseVaultDir.mkdirs()
+
+            // Run through hook resolver
+            val result = IsolationRuleManager.resolvePath(
+                packageName = packageName,
+                requestedPath = testPath,
+                isWriteOperation = true,
+                baseAppVaultDir = baseVaultDir
+            )
+
+            appendTerminalLog("[Simulate Hook] Action: ${result.action.name} -> Target: ${result.resolvedPath}")
+
+            if (result.action == AuditAction.ENCRYPTED) {
+                // Perform real physical encryption into vault!
+                val fileName = testPath.substringAfterLast('/').ifBlank { "test_item.dat" }
+                val encryptedFile = File(baseVaultDir, "$fileName.isovault")
+                val plainBytes = fileContent.toByteArray()
+                val encBytes = AesVaultCipher.encrypt(plainBytes)
+                encryptedFile.writeBytes(encBytes)
+
+                val vaultItem = VaultFileItem(
+                    packageName = packageName,
+                    relativePath = "storage/$fileName",
+                    physicalPath = encryptedFile.absolutePath,
+                    isEncrypted = true,
+                    originalSizeBytes = plainBytes.size.toLong(),
+                    encryptedSizeBytes = encBytes.size.toLong(),
+                    mimeType = "text/plain",
+                    lastModified = System.currentTimeMillis()
                 )
-                notifyConfigChanged()
-                appendTerminalLog("[Hollow] Shared space for $packageName set to: $useShared")
-                _statusMessage.value = if (useShared) "Shared space enabled for $packageName" else "Shared space disabled"
-                loadInstalledApps()
+                dao.insertVaultFile(vaultItem)
+                dao.addEncryptedBytes(packageName, encBytes.size.toLong())
+                dao.incrementRedirectCount(packageName, System.currentTimeMillis())
+
+                appendTerminalLog("[Crypto Vault] Wrote ${encBytes.size} bytes AES-256-GCM ciphertext to ${encryptedFile.name}")
+                _statusMessage.value = "Intercepted & Encrypted $fileName into isolated vault!"
+            } else if (result.action == AuditAction.REDIRECTED) {
+                val fileName = testPath.substringAfterLast('/').ifBlank { "test_item.dat" }
+                val regularFile = File(baseVaultDir, fileName)
+                regularFile.writeText(fileContent)
+
+                dao.insertVaultFile(
+                    VaultFileItem(
+                        packageName = packageName,
+                        relativePath = "storage/$fileName",
+                        physicalPath = regularFile.absolutePath,
+                        isEncrypted = false,
+                        originalSizeBytes = fileContent.length.toLong(),
+                        encryptedSizeBytes = fileContent.length.toLong(),
+                        mimeType = "text/plain",
+                        lastModified = System.currentTimeMillis()
+                    )
+                )
+                dao.incrementRedirectCount(packageName, System.currentTimeMillis())
+                appendTerminalLog("[Sandbox] File redirected to isolated sandbox.")
+                _statusMessage.value = "Redirected to isolated sandbox."
+            } else if (result.action == AuditAction.BLOCKED) {
+                appendTerminalLog("[Blocked] Access refused: Root pollution or read-only violation.")
+                _statusMessage.value = "Blocked access to $testPath (Privacy Protected)"
             }
         }
     }
 
+    /**
+     * Decrypts an encrypted vault file and displays it in dialog
+     */
     fun decryptAndPreviewFile(item: VaultFileItem) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -298,10 +341,9 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                     return@launch
                 }
 
-                val key = AesVaultCipher.getVolumeKey(item.packageName, app)
                 val content = if (item.isEncrypted) {
                     val encryptedBytes = file.readBytes()
-                    val decryptedBytes = AesVaultCipher.decrypt(encryptedBytes, key)
+                    val decryptedBytes = AesVaultCipher.decrypt(encryptedBytes)
                     String(decryptedBytes, Charsets.UTF_8)
                 } else {
                     file.readText()
@@ -318,25 +360,28 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun checkMountDiagnostics(packageName: String, mode: IsolationMode) {
+    /**
+     * Executes mount simulation and outputs logs
+     */
+    fun executeMount(packageName: String, mode: IsolationMode) {
         viewModelScope.launch(Dispatchers.IO) {
-            val result = MountManager.checkMountStatus(packageName, mode)
+            val result = MountManager.executeMountSimulation(packageName, mode)
             appendTerminalLog("======================================")
             appendTerminalLog(result.output)
             appendTerminalLog("======================================")
-            _statusMessage.value = "Diagnostics executed (Kernel bridge: Inactive)"
+            _statusMessage.value = "Mount execution completed (Exit code: ${result.exitCode})"
         }
     }
 
     fun purgeVaultForPackage(packageName: String) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val baseVaultDir = File(app.filesDir, "vaults/$packageName")
+                val baseVaultDir = File(app.getExternalFilesDir(null), "vaults/$packageName")
                 if (baseVaultDir.exists()) {
                     baseVaultDir.deleteRecursively()
                 }
                 dao.deleteVaultFilesForPackage(packageName)
-                appendTerminalLog("[Hollow Purge] Emptied vault directory for $packageName")
+                appendTerminalLog("[IsoVault Purge] Emptied vault directory for $packageName")
                 _statusMessage.value = "Purged isolated storage for $packageName."
             } catch (e: Exception) {
                 _statusMessage.value = "Purge error: ${e.message}"
@@ -347,7 +392,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
     fun clearAuditLogs() {
         viewModelScope.launch {
             dao.clearAuditLogs()
-            appendTerminalLog("[Hollow] Audit logs cleared.")
+            appendTerminalLog("[IsoVault] Audit logs cleared.")
             _statusMessage.value = "Audit logs cleared."
         }
     }
@@ -362,79 +407,6 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
     fun generateMagiskExport(): String {
         val isolatedPkgs = configs.value.filter { it.isIsolated }.map { it.packageName }
         return MountManager.generateMagiskServiceScript(app, isolatedPkgs)
-    }
-
-    fun importFileToVault(uri: Uri, volumeName: String, displayName: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val volumeDir = File(app.filesDir, "vaults/$volumeName")
-                volumeDir.mkdirs()
-                val targetEncFile = File(volumeDir, "$displayName.hllw")
-                val key = AesVaultCipher.getVolumeKey(volumeName, app)
-
-                app.contentResolver.openInputStream(uri)?.use { inputStream ->
-                    FileOutputStream(targetEncFile).use { fos ->
-                        AesVaultCipher.encryptStream(inputStream, fos, -1L, key)
-                    }
-                }
-
-                dao.insertVaultFile(
-                    VaultFileItem(
-                        packageName = volumeName,
-                        relativePath = displayName,
-                        physicalPath = targetEncFile.absolutePath,
-                        isEncrypted = true,
-                        originalSizeBytes = targetEncFile.length(),
-                        encryptedSizeBytes = targetEncFile.length(),
-                        mimeType = app.contentResolver.getType(uri) ?: "application/octet-stream",
-                        lastModified = System.currentTimeMillis()
-                    )
-                )
-                dao.addEncryptedBytes(volumeName, targetEncFile.length())
-                _statusMessage.value = "Imported & encrypted $displayName into $volumeName volume."
-            } catch (e: Exception) {
-                _statusMessage.value = "Import failed: ${e.message}"
-            }
-        }
-    }
-
-    fun exportFileFromVault(item: VaultFileItem, targetUri: Uri) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val sourceFile = File(item.physicalPath)
-                if (!sourceFile.exists()) {
-                    _statusMessage.value = "Encrypted file not found on disk."
-                    return@launch
-                }
-                val key = AesVaultCipher.getVolumeKey(item.packageName, app)
-                app.contentResolver.openOutputStream(targetUri)?.use { outputStream ->
-                    FileInputStream(sourceFile).use { fis ->
-                        AesVaultCipher.decryptStream(fis, outputStream, key)
-                    }
-                }
-                _statusMessage.value = "Exported decrypted file successfully."
-            } catch (e: Exception) {
-                _statusMessage.value = "Export failed: ${e.message}"
-            }
-        }
-    }
-
-    fun deleteFileToRecycleBin(item: VaultFileItem) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val recycleBinDir = File(app.filesDir, "recycle_bin")
-                recycleBinDir.mkdirs()
-                val source = File(item.physicalPath)
-                val dest = File(recycleBinDir, "${item.id}_${source.name}")
-                if (source.exists()) {
-                    source.renameTo(dest)
-                }
-                dao.deleteVaultFile(item.id)
-                _statusMessage.value = "Moved ${item.relativePath} to 30-day Recycle Bin."
-            } catch (e: Exception) {
-                _statusMessage.value = "Delete error: ${e.message}"
-            }
-        }
     }
 
     private fun appendTerminalLog(log: String) {

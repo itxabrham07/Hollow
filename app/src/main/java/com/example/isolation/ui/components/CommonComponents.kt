@@ -376,23 +376,3 @@ fun DecryptedPreviewDialog(
         }
     )
 }
-
-fun formatBytes(bytes: Long): String {
-    return when {
-        bytes >= 1024 * 1024 * 1024 -> String.format(java.util.Locale.US, "%.1f GB", bytes / (1024.0 * 1024.0 * 1024.0))
-        bytes >= 1024 * 1024 -> String.format(java.util.Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0))
-        bytes >= 1024 -> "${bytes / 1024} KB"
-        else -> "$bytes B"
-    }
-}
-
-fun friendlyPathSummary(path: String): String {
-    return when {
-        path.contains("/DCIM/Camera", ignoreCase = true) -> "Camera Photos & Videos (DCIM)"
-        path.contains("/Pictures", ignoreCase = true) -> "Pictures & Saved Photos"
-        path.contains("/Download", ignoreCase = true) -> "Downloaded Files & Media"
-        path.contains("/Documents", ignoreCase = true) -> "Personal Documents"
-        path.contains("/Android/media", ignoreCase = true) -> "App Media & Chats"
-        else -> path.substringAfterLast('/').ifBlank { path }
-    }
-}

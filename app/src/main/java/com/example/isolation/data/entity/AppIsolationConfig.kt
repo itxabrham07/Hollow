@@ -18,6 +18,5 @@ data class AppIsolationConfig(
     val totalFilesRedirected: Long = 0,
     val totalBytesEncrypted: Long = 0,
     val lastAccessedTimestamp: Long = 0L,
-    val createdAt: Long = System.currentTimeMillis(),
-    val useSharedSpace: Boolean = false
+    val createdAt: Long = System.currentTimeMillis()
 )

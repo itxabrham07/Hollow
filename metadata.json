@@ -1,6 +1,6 @@
 {
-  "name": "Hollow",
-  "description": "LSPosed storage isolation and AES-256 chunked AEAD encrypted vault module for Android 15+",
+  "name": "IsoVault",
+  "description": "LSPosed module & security suite for encrypted storage mounts, virtual filesystem isolation, and privacy redirection on Android 15+",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -6,8 +6,6 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverter
 import androidx.room.TypeConverters
-import androidx.room.migration.Migration
-import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.isolation.data.dao.IsolationDao
 import com.example.isolation.data.entity.AccessAuditLog
 import com.example.isolation.data.entity.AppIsolationConfig
@@ -37,19 +35,13 @@ class IsoVaultConverters {
     }
 }
 
-val MIGRATION_1_2 = object : Migration(1, 2) {
-    override fun migrate(db: SupportSQLiteDatabase) {
-        db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN useSharedSpace INTEGER NOT NULL DEFAULT 0")
-    }
-}
-
 @Database(
     entities = [
         AppIsolationConfig::class,
         AccessAuditLog::class,
         VaultFileItem::class
     ],
-    version = 2,
+    version = 1,
     exportSchema = false
 )
 @TypeConverters(IsoVaultConverters::class)
@@ -67,7 +59,7 @@ abstract class IsoVaultDatabase : RoomDatabase() {
                     IsoVaultDatabase::class.java,
                     "isovault_database"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
                 instance

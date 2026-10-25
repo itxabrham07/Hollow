@@ -1,5 +1,6 @@
 package com.example.isolation.model
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
 import com.example.IsoVaultApp
@@ -7,14 +8,14 @@ import java.io.File
 
 /**
  * Pure Android Isolation Rule & Path Resolution Manager.
- * Operates purely with secure private storage and ContentProvider communication.
- * No MODE_WORLD_READABLE and no external unencrypted config files.
+ * Synchronizes rules via Vector/LSPosed XSharedPreferences (MODE_WORLD_READABLE),
+ * ContentProvider, and shared storage config so hooked apps always receive live rules.
  */
 object IsolationRuleManager {
 
-    const val HOOK_VERSION = "3.0.0-hollow"
+    const val HOOK_VERSION = "2.6.0-vector-lsposed"
     const val MODULE_PKG = "com.aistudio.isovault.xrvf"
-    const val PREFS_NAME = "hollow_rules_private"
+    const val PREFS_NAME = "isovault_rules"
 
     @Volatile
     var isSimulatedHookActive: Boolean = false
@@ -28,20 +29,52 @@ object IsolationRuleManager {
         val isIsolated: Boolean,
         val mode: IsolationMode,
         val blockRootPollution: Boolean,
-        val whitelistedFolders: Set<String>,
-        val useSharedSpace: Boolean = false
+        val whitelistedFolders: Set<String>
     )
 
-    fun getPrivateSharedPrefs(context: Context): SharedPreferences {
-        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    init {
+        localRules["com.snapchat.android"] = AppRule(
+            packageName = "com.snapchat.android",
+            isIsolated = true,
+            mode = IsolationMode.ENCRYPTED_VAULT,
+            blockRootPollution = true,
+            whitelistedFolders = emptySet()
+        )
+    }
+
+    /**
+     * Checks if Vector / LSPosed has hooked Context.getSharedPreferences(MODE_WORLD_READABLE).
+     * When a module with xposedsharedprefs="true" is enabled in Vector/LSPosed,
+     * MODE_WORLD_READABLE (1) succeeds without throwing SecurityException.
+     */
+    @SuppressLint("WorldReadableFiles")
+    @Suppress("DEPRECATION")
+    fun isXSharedPrefsHooked(context: Context): Boolean {
+        return try {
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_WORLD_READABLE)
+            true
+        } catch (_: SecurityException) {
+            false
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    @SuppressLint("WorldReadableFiles")
+    @Suppress("DEPRECATION")
+    fun getReadableSharedPrefs(context: Context): SharedPreferences {
+        return try {
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_WORLD_READABLE)
+        } catch (_: Throwable) {
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        }
     }
 
     fun updateRule(
         packageName: String,
         mode: IsolationMode,
         blockRootPollution: Boolean = true,
-        whitelistedFolders: Set<String> = emptySet(),
-        useSharedSpace: Boolean = false
+        whitelistedFolders: Set<String> = emptySet()
     ) {
         val cleanWhitelist = whitelistedFolders.map { it.trim() }.filter { it.isNotBlank() }.toSet()
         localRules[packageName] = AppRule(
@@ -49,16 +82,14 @@ object IsolationRuleManager {
             isIsolated = true,
             mode = mode,
             blockRootPollution = blockRootPollution,
-            whitelistedFolders = cleanWhitelist,
-            useSharedSpace = useSharedSpace
+            whitelistedFolders = cleanWhitelist
         )
-        syncRuleToPrefs(
+        syncRuleToSharedPrefsAndDisk(
             pkg = packageName,
             isolated = true,
             mode = mode,
             blockRootPollution = blockRootPollution,
-            whitelist = cleanWhitelist.joinToString(","),
-            useSharedSpace = useSharedSpace
+            whitelist = cleanWhitelist.joinToString(",")
         )
     }
 
@@ -69,39 +100,48 @@ object IsolationRuleManager {
             isIsolated = false,
             mode = existing?.mode ?: IsolationMode.ENCRYPTED_VAULT,
             blockRootPollution = existing?.blockRootPollution ?: true,
-            whitelistedFolders = existing?.whitelistedFolders ?: emptySet(),
-            useSharedSpace = existing?.useSharedSpace ?: false
+            whitelistedFolders = existing?.whitelistedFolders ?: emptySet()
         )
-        syncRuleToPrefs(
+        syncRuleToSharedPrefsAndDisk(
             pkg = packageName,
             isolated = false,
             mode = existing?.mode ?: IsolationMode.ENCRYPTED_VAULT,
             blockRootPollution = existing?.blockRootPollution ?: true,
-            whitelist = (existing?.whitelistedFolders ?: emptySet()).joinToString(","),
-            useSharedSpace = existing?.useSharedSpace ?: false
+            whitelist = (existing?.whitelistedFolders ?: emptySet()).joinToString(",")
         )
     }
 
-    private fun syncRuleToPrefs(
+    private fun syncRuleToSharedPrefsAndDisk(
         pkg: String,
         isolated: Boolean,
         mode: IsolationMode,
         blockRootPollution: Boolean,
-        whitelist: String,
-        useSharedSpace: Boolean
+        whitelist: String
     ) {
         try {
             val app = IsoVaultApp.instanceOrNull()
             if (app != null) {
-                val prefs = getPrivateSharedPrefs(app)
+                val prefs = getReadableSharedPrefs(app)
                 prefs.edit()
+                    .putBoolean("configured_init", true)
                     .putBoolean("${pkg}_configured", true)
                     .putBoolean("${pkg}_isolated", isolated)
+                    .putBoolean("${pkg}_explicitly_disabled", !isolated)
                     .putString("${pkg}_mode", mode.name)
                     .putBoolean("${pkg}_pollution", blockRootPollution)
                     .putString("${pkg}_whitelist", whitelist)
-                    .putBoolean("${pkg}_shared_space", useSharedSpace)
-                    .apply()
+                    .commit() // Synchronous commit so XSharedPreferences sees changes immediately
+            }
+        } catch (_: Throwable) {}
+
+        // Also mirror to shared external .IsoVault config directory if accessible
+        try {
+            val sharedDir = File("/storage/emulated/0/.IsoVault/config")
+            if (sharedDir.exists() || sharedDir.mkdirs()) {
+                val nomedia = File("/storage/emulated/0/.IsoVault/.nomedia")
+                if (!nomedia.exists()) nomedia.createNewFile()
+                val ruleFile = File(sharedDir, "$pkg.rule")
+                ruleFile.writeText("$isolated|${mode.name}|$blockRootPollution|$whitelist")
             }
         } catch (_: Throwable) {}
     }
@@ -109,9 +149,25 @@ object IsolationRuleManager {
     fun isPackageIsolated(packageName: String): Boolean {
         val rule = localRules[packageName]
         if (rule != null) return rule.isIsolated
-        val app = IsoVaultApp.instanceOrNull() ?: return false
-        val prefs = getPrivateSharedPrefs(app)
-        return prefs.getBoolean("${packageName}_isolated", false)
+        return readExternalRule(packageName)?.isIsolated ?: false
+    }
+
+    fun readExternalRule(pkg: String): AppRule? {
+        return try {
+            val ruleFile = File("/storage/emulated/0/.IsoVault/config/$pkg.rule")
+            if (ruleFile.exists() && ruleFile.canRead()) {
+                val parts = ruleFile.readText().trim().split("|")
+                if (parts.size >= 4) {
+                    val isolated = parts[0].toBoolean()
+                    val mode = try { IsolationMode.valueOf(parts[1]) } catch (_: Exception) { IsolationMode.ENCRYPTED_VAULT }
+                    val pollution = parts[2].toBoolean()
+                    val whitelist = parts[3].split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+                    AppRule(pkg, isolated, mode, pollution, whitelist)
+                } else null
+            } else null
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     fun resolvePath(
@@ -139,23 +195,23 @@ object IsolationRuleManager {
             }
         }
 
+        val targetBase = baseAppVaultDir?.absolutePath ?: "/storage/emulated/0/Android/media/$packageName/IsoVault_Sandbox"
         val relative = extractRelative(normalized)
-        val targetBase = baseAppVaultDir?.absolutePath ?: "/data/user/0/$MODULE_PKG/files/vaults/$packageName"
 
         return when (rule.mode) {
             IsolationMode.ENCRYPTED_VAULT -> {
-                val encPath = "$targetBase/$relative.hllw"
+                val encPath = "$targetBase/$relative.isovault"
                 onAccessIntercepted?.invoke(packageName, requestedPath, AuditAction.ENCRYPTED, "Encrypted vault redirection")
-                PathResolutionResult(requestedPath, encPath, AuditAction.ENCRYPTED, "AES-256 chunked AEAD container")
+                PathResolutionResult(requestedPath, encPath, AuditAction.ENCRYPTED, "AES-256 vault container")
             }
             IsolationMode.SANDBOX_REDIRECT -> {
-                val sandPath = "$targetBase/$relative.hllw"
+                val sandPath = "$targetBase/$relative"
                 onAccessIntercepted?.invoke(packageName, requestedPath, AuditAction.REDIRECTED, "Sandbox redirection")
                 PathResolutionResult(requestedPath, sandPath, AuditAction.REDIRECTED, "Isolated sandbox container")
             }
             IsolationMode.FAKE_EMPTY -> {
                 onAccessIntercepted?.invoke(packageName, requestedPath, AuditAction.SPOOFED_EMPTY, "Empty storage spoofed")
-                PathResolutionResult(requestedPath, "/dev/null", AuditAction.SPOOFED_EMPTY, "Empty spoof")
+                PathResolutionResult(requestedPath, "$targetBase/.empty_spoof", AuditAction.SPOOFED_EMPTY, "Empty spoof")
             }
             IsolationMode.READ_ONLY -> {
                 if (isWriteOperation) {

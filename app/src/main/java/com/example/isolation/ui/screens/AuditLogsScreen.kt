@@ -45,18 +45,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.isolation.model.AuditAction
 import com.example.isolation.ui.components.AuditActionBadge
-import com.example.isolation.ui.components.friendlyPathSummary
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
-import com.example.ui.theme.AccentCoral
-import com.example.ui.theme.AccentSky
-import com.example.ui.theme.DarkBackground
-import com.example.ui.theme.DarkBorder
-import com.example.ui.theme.DarkSurfaceCard
-import com.example.ui.theme.DarkSurfaceElevated
+import com.example.ui.theme.CoralError
+import com.example.ui.theme.ForestPrimary
+import com.example.ui.theme.FrauncesFontFamily
+import com.example.ui.theme.InkPrimary
+import com.example.ui.theme.InkSecondary
 import com.example.ui.theme.JakartaFontFamily
-import com.example.ui.theme.TextMuted
-import com.example.ui.theme.TextSubtle
-import com.example.ui.theme.TextWhite
+import com.example.ui.theme.WarmIvory
+import com.example.ui.theme.WarmSand
+import com.example.ui.theme.WarmStone
 
 @Composable
 fun AuditLogsScreen(
@@ -84,11 +82,10 @@ fun AuditLogsScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(DarkBackground)
             .padding(horizontal = 20.dp)
             .testTag("audit_logs_screen")
     ) {
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -98,27 +95,24 @@ fun AuditLogsScreen(
             Column {
                 Text(
                     text = "Activity History",
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.SemiBold,
                     fontSize = 24.sp,
-                    color = TextWhite,
-                    fontFamily = JakartaFontFamily
+                    fontFamily = FrauncesFontFamily,
+                    color = InkPrimary
                 )
                 Text(
-                    text = "Real-time storage interception audit logs",
-                    fontSize = 12.sp,
-                    color = TextMuted,
+                    text = "See when apps checked your photos or folders.",
+                    fontSize = 13.sp,
+                    color = InkSecondary,
                     fontFamily = JakartaFontFamily
                 )
             }
             if (auditLogs.isNotEmpty()) {
-                IconButton(
-                    onClick = { viewModel.clearAuditLogs() },
-                    modifier = Modifier.testTag("btn_clear_audit_logs")
-                ) {
+                IconButton(onClick = { viewModel.clearAuditLogs() }) {
                     Icon(
                         imageVector = Icons.Default.Delete,
                         contentDescription = "Clear History",
-                        tint = AccentCoral
+                        tint = CoralError
                     )
                 }
             }
@@ -135,18 +129,19 @@ fun AuditLogsScreen(
                 FilterChip(
                     selected = isSelected,
                     onClick = { selectedFilter = key },
-                    label = { Text(label, fontFamily = JakartaFontFamily, fontSize = 12.sp) },
+                    label = { Text(label, fontFamily = JakartaFontFamily) },
                     shape = RoundedCornerShape(50),
                     colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = AccentSky.copy(alpha = 0.2f),
-                        selectedLabelColor = AccentSky,
-                        containerColor = DarkSurfaceElevated,
-                        labelColor = TextMuted
+                        selectedContainerColor = ForestPrimary,
+                        selectedLabelColor = Color.White,
+                        containerColor = WarmIvory,
+                        labelColor = InkSecondary
                     ),
                     border = FilterChipDefaults.filterChipBorder(
                         enabled = true,
                         selected = isSelected,
-                        borderColor = if (isSelected) AccentSky else DarkBorder
+                        borderColor = WarmStone,
+                        selectedBorderColor = ForestPrimary
                     )
                 )
             }
@@ -167,28 +162,28 @@ fun AuditLogsScreen(
                         modifier = Modifier
                             .size(60.dp)
                             .clip(CircleShape)
-                            .background(DarkSurfaceElevated)
+                            .background(WarmSand)
                     ) {
                         Icon(
                             imageVector = Icons.Default.History,
                             contentDescription = null,
-                            tint = TextSubtle,
+                            tint = InkSecondary,
                             modifier = Modifier.size(28.dp)
                         )
                     }
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
                         text = "No activity recorded yet",
-                        color = TextWhite,
-                        fontSize = 16.sp,
+                        color = InkPrimary,
+                        fontSize = 17.sp,
                         fontWeight = FontWeight.SemiBold,
-                        fontFamily = JakartaFontFamily
+                        fontFamily = FrauncesFontFamily
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Interceptions from hooked apps will appear here live.",
-                        color = TextMuted,
-                        fontSize = 12.sp,
+                        text = "Protected app checks will show up here automatically.",
+                        color = InkSecondary,
+                        fontSize = 13.sp,
                         fontFamily = JakartaFontFamily
                     )
                 }
@@ -200,70 +195,75 @@ fun AuditLogsScreen(
             ) {
                 items(filteredLogs, key = { it.id }) { log ->
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = DarkSurfaceCard),
-                        shape = RoundedCornerShape(16.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+                        colors = CardDefaults.cardColors(containerColor = WarmIvory),
+                        shape = RoundedCornerShape(20.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, WarmStone),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(14.dp)
+                            modifier = Modifier.padding(16.dp)
                         ) {
                             Box(
                                 contentAlignment = Alignment.Center,
                                 modifier = Modifier
-                                    .size(40.dp)
+                                    .size(42.dp)
                                     .clip(CircleShape)
-                                    .background(DarkSurfaceElevated)
+                                    .background(WarmSand)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Folder,
                                     contentDescription = null,
-                                    tint = AccentSky,
-                                    modifier = Modifier.size(18.dp)
+                                    tint = ForestPrimary,
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
-                            Spacer(modifier = Modifier.width(12.dp))
+                            Spacer(modifier = Modifier.width(14.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text(
-                                        text = log.appName,
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 14.sp,
-                                        color = TextWhite,
-                                        fontFamily = JakartaFontFamily
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = log.appName,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 15.sp,
+                                            color = InkPrimary,
+                                            fontFamily = JakartaFontFamily
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = android.text.format.DateFormat.format("h:mm a", log.timestamp).toString(),
+                                            fontSize = 12.sp,
+                                            color = InkSecondary,
+                                            fontFamily = JakartaFontFamily
+                                        )
+                                    }
                                     AuditActionBadge(action = log.action)
                                 }
-                                Spacer(modifier = Modifier.height(2.dp))
+
+                                Spacer(modifier = Modifier.height(4.dp))
+
                                 Text(
                                     text = friendlyPathSummary(log.requestedPath),
-                                    fontSize = 12.sp,
-                                    color = TextMuted,
+                                    fontSize = 13.sp,
+                                    color = InkSecondary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     fontFamily = JakartaFontFamily
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = log.details,
-                                    fontSize = 11.sp,
-                                    color = TextSubtle,
-                                    fontFamily = JakartaFontFamily,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
                     }
                 }
+
+                item {
+                    Spacer(modifier = Modifier.height(20.dp))
+                }
             }
         }
-
-        Spacer(modifier = Modifier.height(14.dp))
     }
 }
