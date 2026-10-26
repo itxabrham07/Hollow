@@ -59,9 +59,9 @@ import com.example.isolation.ui.components.StatusBadge
 import com.example.isolation.ui.screens.AppsScreen
 import com.example.isolation.ui.screens.AuditLogsScreen
 import com.example.isolation.ui.screens.DashboardScreen
+import com.example.isolation.ui.screens.FilesScreen
 import com.example.isolation.ui.screens.MountTerminalScreen
 import com.example.isolation.ui.screens.SettingsScreen
-import com.example.isolation.ui.screens.VaultScreen
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
 import com.example.ui.theme.ForestPrimary
 import com.example.ui.theme.FrauncesFontFamily
@@ -78,7 +78,7 @@ import com.example.ui.theme.WarmStone
 enum class NavDestination(val label: String) {
     DASHBOARD("Home"),
     APPS("Apps"),
-    VAULT("Locker"),
+    VAULT("Files"),
     AUDIT("Activity"),
     SETTINGS("Settings"),
     MOUNTS("System")
@@ -246,7 +246,7 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                         icon = {
                             Icon(
                                 imageVector = if (currentScreen == NavDestination.VAULT) Icons.Filled.Folder else Icons.Outlined.Folder,
-                                contentDescription = "Locker"
+                                contentDescription = "Files"
                             )
                         },
                         label = {
@@ -338,7 +338,7 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                     onNavigateToAudit = { currentScreen = NavDestination.AUDIT }
                 )
                 NavDestination.APPS -> AppsScreen(viewModel = viewModel)
-                NavDestination.VAULT -> VaultScreen(viewModel = viewModel)
+                NavDestination.VAULT -> FilesScreen(viewModel = viewModel)
                 NavDestination.MOUNTS -> MountTerminalScreen(viewModel = viewModel)
                 NavDestination.AUDIT -> AuditLogsScreen(viewModel = viewModel)
                 NavDestination.SETTINGS -> SettingsScreen(
