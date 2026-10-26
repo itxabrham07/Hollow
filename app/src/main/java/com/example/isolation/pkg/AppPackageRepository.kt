@@ -7,7 +7,9 @@ import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import androidx.core.content.ContextCompat
 import com.example.isolation.data.entity.AppIsolationConfig
+import com.example.isolation.model.DisguiseIconPreset
 import com.example.isolation.model.IsolationMode
+import com.example.isolation.model.LauncherVisibilityMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -19,7 +21,13 @@ data class InstalledAppInfo(
     val isIsolated: Boolean = false,
     val isolationMode: IsolationMode = IsolationMode.ENCRYPTED_VAULT,
     val hasStoragePermission: Boolean = true,
-    val icon: Drawable? = null
+    val icon: Drawable? = null,
+    // Independent App Hider & Disguise fields (separate from Storage Protection)
+    val isHiddenOrDisguised: Boolean = false,
+    val launcherVisibilityMode: LauncherVisibilityMode = LauncherVisibilityMode.VISIBLE,
+    val customLauncherLabel: String = "",
+    val disguiseIconPreset: DisguiseIconPreset = DisguiseIconPreset.CALCULATOR,
+    val hideInSystemUiRecents: Boolean = true
 )
 
 class AppPackageRepository(private val context: Context) {
@@ -60,18 +68,20 @@ class AppPackageRepository(private val context: Context) {
                 }
 
                 val config = configMap[pkg]
-                val isIsolated = config?.isIsolated ?: false
-                val mode = config?.isolationMode ?: IsolationMode.ENCRYPTED_VAULT
-
                 resultMap[pkg] = InstalledAppInfo(
                     packageName = pkg,
                     appName = appName,
                     isSystemApp = isSystem,
                     targetSdkVersion = appInfo.targetSdkVersion,
-                    isIsolated = isIsolated,
-                    isolationMode = mode,
+                    isIsolated = config?.isIsolated ?: false,
+                    isolationMode = config?.isolationMode ?: IsolationMode.ENCRYPTED_VAULT,
                     hasStoragePermission = true,
-                    icon = icon
+                    icon = icon,
+                    isHiddenOrDisguised = config?.isHiddenOrDisguised ?: false,
+                    launcherVisibilityMode = config?.launcherVisibilityMode ?: LauncherVisibilityMode.VISIBLE,
+                    customLauncherLabel = config?.customLauncherLabel ?: "",
+                    disguiseIconPreset = config?.disguiseIconPreset ?: DisguiseIconPreset.CALCULATOR,
+                    hideInSystemUiRecents = config?.hideInSystemUiRecents ?: true
                 )
             }
         } catch (_: Exception) {}
@@ -100,23 +110,25 @@ class AppPackageRepository(private val context: Context) {
                 }
 
                 val config = configMap[pkg]
-                val isIsolated = config?.isIsolated ?: false
-                val mode = config?.isolationMode ?: IsolationMode.ENCRYPTED_VAULT
-
                 resultMap[pkg] = InstalledAppInfo(
                     packageName = pkg,
                     appName = appName,
                     isSystemApp = isSystem,
                     targetSdkVersion = appInfo.targetSdkVersion,
-                    isIsolated = isIsolated,
-                    isolationMode = mode,
+                    isIsolated = config?.isIsolated ?: false,
+                    isolationMode = config?.isolationMode ?: IsolationMode.ENCRYPTED_VAULT,
                     hasStoragePermission = true,
-                    icon = icon
+                    icon = icon,
+                    isHiddenOrDisguised = config?.isHiddenOrDisguised ?: false,
+                    launcherVisibilityMode = config?.launcherVisibilityMode ?: LauncherVisibilityMode.VISIBLE,
+                    customLauncherLabel = config?.customLauncherLabel ?: "",
+                    disguiseIconPreset = config?.disguiseIconPreset ?: DisguiseIconPreset.CALCULATOR,
+                    hideInSystemUiRecents = config?.hideInSystemUiRecents ?: true
                 )
             }
         } catch (_: Exception) {}
 
-        // Always ensure Snapchat is present in the list if configured in database
+        // Always ensure any configured app is present in the list even if hidden from PM queries
         configs.forEach { cfg ->
             if (!resultMap.containsKey(cfg.packageName)) {
                 resultMap[cfg.packageName] = InstalledAppInfo(
@@ -127,13 +139,18 @@ class AppPackageRepository(private val context: Context) {
                     isIsolated = cfg.isIsolated,
                     isolationMode = cfg.isolationMode,
                     hasStoragePermission = true,
-                    icon = ContextCompat.getDrawable(context, android.R.drawable.sym_def_app_icon)
+                    icon = ContextCompat.getDrawable(context, android.R.drawable.sym_def_app_icon),
+                    isHiddenOrDisguised = cfg.isHiddenOrDisguised,
+                    launcherVisibilityMode = cfg.launcherVisibilityMode,
+                    customLauncherLabel = cfg.customLauncherLabel,
+                    disguiseIconPreset = cfg.disguiseIconPreset,
+                    hideInSystemUiRecents = cfg.hideInSystemUiRecents
                 )
             }
         }
 
         resultMap.values.sortedWith(
-            compareByDescending<InstalledAppInfo> { it.isIsolated }
+            compareByDescending<InstalledAppInfo> { it.isIsolated || it.isHiddenOrDisguised }
                 .thenBy { it.appName.lowercase() }
         )
     }

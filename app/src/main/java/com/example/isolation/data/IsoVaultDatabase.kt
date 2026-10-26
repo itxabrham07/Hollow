@@ -11,7 +11,9 @@ import com.example.isolation.data.entity.AccessAuditLog
 import com.example.isolation.data.entity.AppIsolationConfig
 import com.example.isolation.data.entity.VaultFileItem
 import com.example.isolation.model.AuditAction
+import com.example.isolation.model.DisguiseIconPreset
 import com.example.isolation.model.IsolationMode
+import com.example.isolation.model.LauncherVisibilityMode
 
 class IsoVaultConverters {
     @TypeConverter
@@ -33,6 +35,26 @@ class IsoVaultConverters {
     } catch (_: Exception) {
         AuditAction.REDIRECTED
     }
+
+    @TypeConverter
+    fun fromLauncherVisibilityMode(mode: LauncherVisibilityMode): String = mode.name
+
+    @TypeConverter
+    fun toLauncherVisibilityMode(name: String): LauncherVisibilityMode = try {
+        LauncherVisibilityMode.valueOf(name)
+    } catch (_: Exception) {
+        LauncherVisibilityMode.VISIBLE
+    }
+
+    @TypeConverter
+    fun fromDisguiseIconPreset(preset: DisguiseIconPreset): String = preset.name
+
+    @TypeConverter
+    fun toDisguiseIconPreset(name: String): DisguiseIconPreset = try {
+        DisguiseIconPreset.valueOf(name)
+    } catch (_: Exception) {
+        DisguiseIconPreset.CALCULATOR
+    }
 }
 
 @Database(
@@ -41,7 +63,7 @@ class IsoVaultConverters {
         AccessAuditLog::class,
         VaultFileItem::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(IsoVaultConverters::class)

@@ -16,17 +16,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -60,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.isolation.ui.components.StatusBadge
+import com.example.isolation.ui.screens.AppHiderScreen
 import com.example.isolation.ui.screens.AppsScreen
 import com.example.isolation.ui.screens.AuditLogsScreen
 import com.example.isolation.ui.screens.DashboardScreen
@@ -74,6 +71,7 @@ enum class NavDestination(val label: String) {
     DASHBOARD("Home"),
     VAULT("Files"),
     APPS("Apps"),
+    APP_HIDER("Hide Apps"),
     AUDIT("Activity"),
     SETTINGS("Settings"),
     MOUNTS("System")
@@ -198,6 +196,7 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
 
                     val isHomeSection = currentScreen == NavDestination.DASHBOARD ||
                             currentScreen == NavDestination.APPS ||
+                            currentScreen == NavDestination.APP_HIDER ||
                             currentScreen == NavDestination.AUDIT
 
                     NavigationBarItem(
@@ -278,6 +277,7 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                 NavDestination.DASHBOARD -> DashboardScreen(
                     viewModel = viewModel,
                     onNavigateToApps = { currentScreen = NavDestination.APPS },
+                    onNavigateToAppHider = { currentScreen = NavDestination.APP_HIDER },
                     onNavigateToVault = {
                         filesInitialTab = 2
                         currentScreen = NavDestination.VAULT
@@ -294,6 +294,10 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                     onNavigateToAudit = { currentScreen = NavDestination.AUDIT }
                 )
                 NavDestination.APPS -> AppsScreen(
+                    viewModel = viewModel,
+                    onBack = { currentScreen = NavDestination.DASHBOARD }
+                )
+                NavDestination.APP_HIDER -> AppHiderScreen(
                     viewModel = viewModel,
                     onBack = { currentScreen = NavDestination.DASHBOARD }
                 )

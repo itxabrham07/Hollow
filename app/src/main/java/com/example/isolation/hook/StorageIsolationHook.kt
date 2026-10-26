@@ -191,16 +191,7 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         val pkg = lpparam.packageName ?: return
 
-        // Ignore core system packages
-        if (pkg == "android" || pkg.startsWith("com.android.systemui")) {
-            return
-        }
-        if (pkg.startsWith("com.android.providers.") ||
-            pkg.contains("documentsui") ||
-            pkg == "com.android.externalstorage" ||
-            pkg == "com.google.android.providers.media.module") return
-
-        // Self-hook for Manager App to confirm module status
+        // Self-hook for Manager App to confirm module status (exempted from hiding/spoofing)
         if (pkg == MODULE_PKG) {
             for (cls in listOf("com.example.MainActivity\$Companion", "com.example.MainActivity")) {
                 try {
@@ -213,9 +204,25 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             return
         }
 
+        // Attach System-Wide App Hider, Custom Name/Icon Disguise & Direct SystemUI Injection
+        // Works inside System Framework (`android`), `com.android.systemui`, and any existing or
+        // newly installed launcher process.
+        try {
+            SystemStealthHook.attachForPackage(lpparam, pkg, xSharedPrefs)
+        } catch (_: Throwable) {}
+
+        // Core system packages only run stealth/SystemUI hooks, never storage isolation hooks
+        if (pkg == "android" || pkg.startsWith("com.android.systemui")) {
+            return
+        }
+        if (pkg.startsWith("com.android.providers.") ||
+            pkg.contains("documentsui") ||
+            pkg == "com.android.externalstorage" ||
+            pkg == "com.google.android.providers.media.module") return
+
         val rule = resolveRuleForPackage(pkg)
         if (!rule.isIsolated) {
-            XposedBridge.log("[IsoVault] Skipping $pkg (explicitly disabled in IsoVault settings)")
+            XposedBridge.log("[IsoVault] Skipping storage hooks for $pkg (not isolated)")
             return
         }
 

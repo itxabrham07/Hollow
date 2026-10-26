@@ -20,13 +20,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 /**
- * IPC channel between hooked target apps and the IsoVault manager.
+ * IPC channel between hooked target apps, SystemUI, launchers, and the Hollow manager.
  *
  * The provider has to be exported because hooked apps live in other UIDs, so every request is
  * authenticated by the caller's Binder UID instead of by anything the caller says about itself:
  *
- *  - A request is only served when the package it names belongs to the calling UID. A hooked app
- *    can read its own rule and write its own audit entries, nothing else.
+ *  - A storage rule request is only served when the package it names belongs to the calling UID.
+ *  - Global stealth/disguise table queries (`get_stealth_table`) return the non-sensitive
+ *    launcher visibility and spoofed label table so SystemUI and any launcher can apply disguises.
  *  - The manager's own UID may query any package.
  *  - There is no file access of any kind. The provider never opens files on behalf of a caller.
  */
@@ -39,6 +40,7 @@ class IsoVaultConfigProvider : ContentProvider() {
 
         const val METHOD_CHECK_ISOLATED = "check_isolated"
         const val METHOD_RECORD_AUDIT = "record_audit"
+        const val METHOD_GET_STEALTH_TABLE = "get_stealth_table"
 
         private const val MAX_FIELD_LENGTH = 512
         private const val MAX_PACKAGE_LENGTH = 255
@@ -146,6 +148,21 @@ class IsoVaultConfigProvider : ContentProvider() {
 
     override fun call(method: String, arg: String?, extras: Bundle?): Bundle {
         val result = Bundle()
+
+        if (method == METHOD_GET_STEALTH_TABLE) {
+            val ctx = context ?: return result
+            val prefs = IsolationRuleManager.getReadableSharedPrefs(ctx)
+            result.putString(
+                "stealthTable",
+                prefs.getString(IsolationRuleManager.KEY_STEALTH_TABLE, "") ?: ""
+            )
+            result.putBoolean(
+                "systemUiTriggerEnabled",
+                prefs.getBoolean(IsolationRuleManager.KEY_SYSTEMUI_TRIGGER, true)
+            )
+            return result
+        }
+
         val pkg = arg ?: ""
         if (!callerMayAccess(pkg)) {
             result.putString("error", "denied")

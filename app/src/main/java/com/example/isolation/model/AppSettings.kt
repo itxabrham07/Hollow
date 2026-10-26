@@ -2,7 +2,7 @@ package com.example.isolation.model
 
 import android.content.Context
 
-/** Manager-wide switches shown in Settings and TopAppBar. */
+/** Manager-wide switches shown in Settings, App Hider, and TopAppBar. */
 data class AppSettings(
     /** Master switch for the root-only volume features (attach, detach, seal). */
     val rootVolumesEnabled: Boolean = false,
@@ -13,7 +13,15 @@ data class AppSettings(
     /** Material 3 Pro Dark Theme toggle (enabled by default). */
     val darkTheme: Boolean = true,
     /** Material You Dynamic Color on Android 12+. */
-    val dynamicColor: Boolean = false
+    val dynamicColor: Boolean = false,
+    /** How Hollow itself appears in launchers & SystemUI. */
+    val hollowVisibilityMode: LauncherVisibilityMode = LauncherVisibilityMode.VISIBLE,
+    /** Custom spoofed launcher name for Hollow when disguised. */
+    val hollowCustomName: String = "Calculator",
+    /** Decoy icon preset for Hollow when disguised. */
+    val hollowIconPreset: DisguiseIconPreset = DisguiseIconPreset.CALCULATOR,
+    /** Injects a direct stealth entry trigger into SystemUI (Quick Settings Clock/Header long-press). */
+    val systemUiTriggerEnabled: Boolean = true
 )
 
 object SettingsStore {
@@ -23,6 +31,10 @@ object SettingsStore {
     private const val K_PICKER = "picker_policy"
     private const val K_DARK = "dark_theme_v2"
     private const val K_DYNAMIC = "dynamic_color"
+    private const val K_HOLLOW_VISIBILITY = "hollow_visibility_mode"
+    private const val K_HOLLOW_NAME = "hollow_custom_name"
+    private const val K_HOLLOW_ICON = "hollow_icon_preset"
+    private const val K_SYSTEMUI_TRIGGER = "systemui_trigger_enabled"
 
     fun load(context: Context): AppSettings {
         val p = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -31,12 +43,32 @@ object SettingsStore {
         } catch (_: IllegalArgumentException) {
             PickerPolicy.ALLOW
         }
+        val hollowVis = try {
+            LauncherVisibilityMode.valueOf(
+                p.getString(K_HOLLOW_VISIBILITY, LauncherVisibilityMode.VISIBLE.name)
+                    ?: LauncherVisibilityMode.VISIBLE.name
+            )
+        } catch (_: IllegalArgumentException) {
+            LauncherVisibilityMode.VISIBLE
+        }
+        val hollowIcon = try {
+            DisguiseIconPreset.valueOf(
+                p.getString(K_HOLLOW_ICON, DisguiseIconPreset.CALCULATOR.name)
+                    ?: DisguiseIconPreset.CALCULATOR.name
+            )
+        } catch (_: IllegalArgumentException) {
+            DisguiseIconPreset.CALCULATOR
+        }
         return AppSettings(
             rootVolumesEnabled = p.getBoolean(K_ROOT, false),
             encryptVolumesAtRest = p.getBoolean(K_ENCRYPT, true),
             pickerPolicy = picker,
             darkTheme = p.getBoolean(K_DARK, true),
-            dynamicColor = p.getBoolean(K_DYNAMIC, false)
+            dynamicColor = p.getBoolean(K_DYNAMIC, false),
+            hollowVisibilityMode = hollowVis,
+            hollowCustomName = p.getString(K_HOLLOW_NAME, "Calculator") ?: "Calculator",
+            hollowIconPreset = hollowIcon,
+            systemUiTriggerEnabled = p.getBoolean(K_SYSTEMUI_TRIGGER, true)
         )
     }
 
@@ -47,8 +79,13 @@ object SettingsStore {
             .putString(K_PICKER, settings.pickerPolicy.name)
             .putBoolean(K_DARK, settings.darkTheme)
             .putBoolean(K_DYNAMIC, settings.dynamicColor)
+            .putString(K_HOLLOW_VISIBILITY, settings.hollowVisibilityMode.name)
+            .putString(K_HOLLOW_NAME, settings.hollowCustomName)
+            .putString(K_HOLLOW_ICON, settings.hollowIconPreset.name)
+            .putBoolean(K_SYSTEMUI_TRIGGER, settings.systemUiTriggerEnabled)
             .commit()
-        // Hooked apps read the picker policy through the rule channels, so publish it there too.
+        // Hooked apps read the picker policy and SystemUI trigger through the rule channels.
         IsolationRuleManager.publishPickerPolicy(settings.pickerPolicy)
+        IsolationRuleManager.publishSystemUiTrigger(settings.systemUiTriggerEnabled)
     }
 }

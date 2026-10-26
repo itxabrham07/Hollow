@@ -13,14 +13,20 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface IsolationDao {
     // Configs
-    @Query("SELECT * FROM app_isolation_configs ORDER BY isIsolated DESC, appName ASC")
+    @Query("SELECT * FROM app_isolation_configs ORDER BY isIsolated DESC, isHiddenOrDisguised DESC, appName ASC")
     fun getAllConfigs(): Flow<List<AppIsolationConfig>>
+
+    @Query("SELECT * FROM app_isolation_configs ORDER BY isIsolated DESC, isHiddenOrDisguised DESC, appName ASC")
+    suspend fun getAllConfigsSync(): List<AppIsolationConfig>
 
     @Query("SELECT * FROM app_isolation_configs WHERE packageName = :pkg LIMIT 1")
     suspend fun getConfigForPackage(pkg: String): AppIsolationConfig?
 
     @Query("SELECT * FROM app_isolation_configs WHERE isIsolated = 1")
     fun getIsolatedConfigs(): Flow<List<AppIsolationConfig>>
+
+    @Query("SELECT * FROM app_isolation_configs WHERE isHiddenOrDisguised = 1")
+    fun getHiddenOrDisguisedConfigs(): Flow<List<AppIsolationConfig>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdateConfig(config: AppIsolationConfig)
@@ -75,6 +81,9 @@ interface IsolationDao {
     // Statistics
     @Query("SELECT COUNT(*) FROM app_isolation_configs WHERE isIsolated = 1")
     fun getIsolatedAppsCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM app_isolation_configs WHERE isHiddenOrDisguised = 1 AND launcherVisibilityMode != 'VISIBLE'")
+    fun getHiddenOrDisguisedAppsCount(): Flow<Int>
 
     @Query("SELECT COUNT(*) FROM access_audit_logs")
     fun getTotalAuditCount(): Flow<Int>

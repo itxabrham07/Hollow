@@ -1,6 +1,9 @@
 package com.example.isolation.ui.viewmodel
 
 import android.app.Application
+import android.content.ComponentName
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -13,8 +16,10 @@ import com.example.isolation.data.entity.AccessAuditLog
 import com.example.isolation.data.entity.AppIsolationConfig
 import com.example.isolation.data.entity.VaultFileItem
 import com.example.isolation.model.AppSettings
+import com.example.isolation.model.DisguiseIconPreset
 import com.example.isolation.model.IsolationMode
 import com.example.isolation.model.IsolationRuleManager
+import com.example.isolation.model.LauncherVisibilityMode
 import com.example.isolation.model.PickerPolicy
 import com.example.isolation.model.SettingsStore
 import com.example.isolation.mount.MountEntry
@@ -72,6 +77,9 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
     val isolatedCount: StateFlow<Int> = dao.getIsolatedAppsCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
+    val hiddenOrDisguisedCount: StateFlow<Int> = dao.getHiddenOrDisguisedAppsCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
     val totalEncryptedBytes: StateFlow<Long> = dao.getTotalEncryptedBytes()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
 
@@ -115,7 +123,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
     private val _statusMessage = MutableStateFlow<String?>(null)
     val statusMessage = _statusMessage.asStateFlow()
 
-    // Full list of installed apps merged with current isolation config (used by "+ Add Apps" picker)
+    // Full list of installed apps merged with current isolation & stealth config
     val allInstalledApps: StateFlow<List<InstalledAppInfo>> = combine(
         _rawInstalledApps,
         configs
@@ -125,12 +133,17 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             val cfg = cfgMap[app.packageName]
             app.copy(
                 isIsolated = cfg?.isIsolated ?: false,
-                isolationMode = cfg?.isolationMode ?: IsolationMode.ENCRYPTED_VAULT
+                isolationMode = cfg?.isolationMode ?: IsolationMode.ENCRYPTED_VAULT,
+                isHiddenOrDisguised = cfg?.isHiddenOrDisguised ?: false,
+                launcherVisibilityMode = cfg?.launcherVisibilityMode ?: LauncherVisibilityMode.VISIBLE,
+                customLauncherLabel = cfg?.customLauncherLabel ?: "",
+                disguiseIconPreset = cfg?.disguiseIconPreset ?: DisguiseIconPreset.CALCULATOR,
+                hideInSystemUiRecents = cfg?.hideInSystemUiRecents ?: true
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Filtered apps list combining search and filter
+    // Filtered apps list combining search and filter (for Protected Apps screen)
     val filteredApps: StateFlow<List<InstalledAppInfo>> = combine(
         allInstalledApps,
         _searchQuery,
@@ -155,6 +168,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
     init {
         loadInstalledApps()
         refreshDiagnostics()
+        syncStealthRulesToHooks()
     }
 
     fun setSearchQuery(query: String) {
@@ -205,6 +219,14 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 null
             )
         } catch (_: Throwable) {}
+    }
+
+    private fun syncStealthRulesToHooks() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val allConfigs = dao.getAllConfigsSync()
+            IsolationRuleManager.publishStealthTable(allConfigs, _settings.value)
+            notifyConfigChanged()
+        }
     }
 
     private fun AppIsolationConfig.whitelistSet(): Set<String> =
@@ -280,6 +302,175 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             if (updated.isIsolated) updated.publishEnabled()
             notifyConfigChanged()
             _statusMessage.value = "Whitelisted folders updated."
+        }
+    }
+
+    // ---- Independent App Hider & SystemUI Disguise -----------------------------------------
+
+    fun saveAppStealthConfig(
+        appInfo: InstalledAppInfo,
+        visibilityMode: LauncherVisibilityMode,
+        customLabel: String,
+        iconPreset: DisguiseIconPreset,
+        hideInRecents: Boolean
+    ) {
+        viewModelScope.launch {
+            val existing = dao.getConfigForPackage(appInfo.packageName)
+            val isEnrolled = visibilityMode != LauncherVisibilityMode.VISIBLE
+            val resolvedLabel = if (visibilityMode == LauncherVisibilityMode.DISGUISED && customLabel.isBlank()) {
+                iconPreset.suggestedName.ifBlank { "Calculator" }
+            } else {
+                customLabel.trim()
+            }
+
+            val updated = existing?.copy(
+                isHiddenOrDisguised = isEnrolled,
+                launcherVisibilityMode = visibilityMode,
+                customLauncherLabel = resolvedLabel,
+                disguiseIconPreset = iconPreset,
+                hideInSystemUiRecents = hideInRecents
+            ) ?: AppIsolationConfig(
+                packageName = appInfo.packageName,
+                appName = appInfo.appName,
+                isIsolated = false,
+                isHiddenOrDisguised = isEnrolled,
+                launcherVisibilityMode = visibilityMode,
+                customLauncherLabel = resolvedLabel,
+                disguiseIconPreset = iconPreset,
+                hideInSystemUiRecents = hideInRecents
+            )
+
+            dao.insertOrUpdateConfig(updated)
+            val allConfigs = dao.getAllConfigsSync()
+            IsolationRuleManager.publishStealthTable(allConfigs, _settings.value)
+            notifyConfigChanged()
+            loadInstalledApps()
+
+            when (visibilityMode) {
+                LauncherVisibilityMode.HIDDEN -> {
+                    appendTerminalLog("System-wide hide enabled for ${appInfo.appName}")
+                    _statusMessage.value = "${appInfo.appName} is now hidden from all launchers. You can launch it directly from Hollow."
+                }
+                LauncherVisibilityMode.DISGUISED -> {
+                    appendTerminalLog("Disguised ${appInfo.appName} as '$resolvedLabel' (${iconPreset.label})")
+                    _statusMessage.value = "${appInfo.appName} is now disguised as \"$resolvedLabel\" across launchers & SystemUI."
+                }
+                LauncherVisibilityMode.VISIBLE -> {
+                    appendTerminalLog("Restored normal launcher visibility for ${appInfo.appName}")
+                    _statusMessage.value = "${appInfo.appName} restored to normal visibility."
+                }
+            }
+        }
+    }
+
+    fun removeAppFromStealth(appInfo: InstalledAppInfo) {
+        saveAppStealthConfig(
+            appInfo = appInfo,
+            visibilityMode = LauncherVisibilityMode.VISIBLE,
+            customLabel = "",
+            iconPreset = DisguiseIconPreset.CALCULATOR,
+            hideInRecents = false
+        )
+    }
+
+    fun updateHollowStealthConfig(
+        visibilityMode: LauncherVisibilityMode,
+        customName: String,
+        iconPreset: DisguiseIconPreset,
+        systemUiTriggerEnabled: Boolean
+    ) {
+        val cleanName = customName.trim().ifBlank { iconPreset.suggestedName.ifBlank { "Calculator" } }
+        updateSettings {
+            it.copy(
+                hollowVisibilityMode = visibilityMode,
+                hollowCustomName = cleanName,
+                hollowIconPreset = iconPreset,
+                systemUiTriggerEnabled = systemUiTriggerEnabled
+            )
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val allConfigs = dao.getAllConfigsSync()
+            IsolationRuleManager.publishStealthTable(allConfigs, _settings.value)
+            notifyConfigChanged()
+            applyNativeHollowAlias(visibilityMode, iconPreset)
+        }
+        _statusMessage.value = when (visibilityMode) {
+            LauncherVisibilityMode.HIDDEN ->
+                "Hollow is now hidden from launchers. Long-press the SystemUI Quick Settings Clock/Header or use the Quick Calc tile to open Hollow."
+            LauncherVisibilityMode.DISGUISED ->
+                "Hollow is now disguised as \"$cleanName\" across launchers & SystemUI."
+            LauncherVisibilityMode.VISIBLE ->
+                "Hollow launcher visibility restored to normal."
+        }
+    }
+
+    private fun applyNativeHollowAlias(
+        visibilityMode: LauncherVisibilityMode,
+        iconPreset: DisguiseIconPreset
+    ) {
+        try {
+            val pm = app.packageManager
+            val mainComp = ComponentName(app, "com.example.MainActivity")
+            val calcAlias = ComponentName(app, "com.example.MainActivityCalculatorAlias")
+            val notesAlias = ComponentName(app, "com.example.MainActivityNotesAlias")
+
+            when (visibilityMode) {
+                LauncherVisibilityMode.VISIBLE -> {
+                    pm.setComponentEnabledSetting(mainComp, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP)
+                    pm.setComponentEnabledSetting(calcAlias, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
+                    pm.setComponentEnabledSetting(notesAlias, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
+                }
+                LauncherVisibilityMode.DISGUISED -> {
+                    val useNotes = iconPreset == DisguiseIconPreset.NOTES
+                    pm.setComponentEnabledSetting(mainComp, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
+                    pm.setComponentEnabledSetting(
+                        calcAlias,
+                        if (useNotes) PackageManager.COMPONENT_ENABLED_STATE_DISABLED else PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                        PackageManager.DONT_KILL_APP
+                    )
+                    pm.setComponentEnabledSetting(
+                        notesAlias,
+                        if (useNotes) PackageManager.COMPONENT_ENABLED_STATE_ENABLED else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                        PackageManager.DONT_KILL_APP
+                    )
+                }
+                LauncherVisibilityMode.HIDDEN -> {
+                    // Keep main component enabled for SystemUI intent launch while SystemStealthHook filters it from launchers
+                    pm.setComponentEnabledSetting(mainComp, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP)
+                    pm.setComponentEnabledSetting(calcAlias, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
+                    pm.setComponentEnabledSetting(notesAlias, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
+                }
+            }
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * Launches any installed app (including apps completely hidden from launchers) directly from Hollow.
+     */
+    fun launchAppFromHollow(appInfo: InstalledAppInfo) {
+        viewModelScope.launch {
+            try {
+                val pm = app.packageManager
+                var launchIntent = pm.getLaunchIntentForPackage(appInfo.packageName)
+                if (launchIntent == null) {
+                    val pkgInfo = pm.getPackageInfo(appInfo.packageName, PackageManager.GET_ACTIVITIES)
+                    val entryActivity = pkgInfo.activities?.firstOrNull { it.exported }
+                        ?: pkgInfo.activities?.firstOrNull()
+                    if (entryActivity != null) {
+                        launchIntent = Intent(Intent.ACTION_MAIN).apply {
+                            component = ComponentName(appInfo.packageName, entryActivity.name)
+                        }
+                    }
+                }
+                if (launchIntent != null) {
+                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    app.startActivity(launchIntent)
+                } else {
+                    _statusMessage.value = "Could not find a launchable screen for ${appInfo.appName}."
+                }
+            } catch (e: Exception) {
+                _statusMessage.value = "Could not launch ${appInfo.appName}: ${e.message}"
+            }
         }
     }
 

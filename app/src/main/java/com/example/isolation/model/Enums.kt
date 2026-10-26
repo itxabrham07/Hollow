@@ -32,6 +32,48 @@ enum class IsolationMode(
     )
 }
 
+/**
+ * Controls how an app (or Hollow itself) appears across Android System Framework,
+ * SystemUI, and any existing or newly installed launcher.
+ */
+enum class LauncherVisibilityMode(
+    val title: String,
+    val description: String,
+    val badge: String
+) {
+    VISIBLE(
+        title = "Visible (Normal)",
+        description = "App appears with its real name and icon in launchers and SystemUI.",
+        badge = "Normal"
+    ),
+    DISGUISED(
+        title = "Disguise Name & Icon",
+        description = "Replaces the app's name and icon across all launchers and SystemUI Recents.",
+        badge = "Disguised"
+    ),
+    HIDDEN(
+        title = "Hide Completely",
+        description = "Removes the app from every launcher drawer system-wide. Launch it from inside Hollow.",
+        badge = "Hidden"
+    )
+}
+
+/**
+ * Clean decoy icon presets rendered by Hollow's system-wide PackageManager & SystemUI hooks.
+ */
+enum class DisguiseIconPreset(
+    val label: String,
+    val suggestedName: String
+) {
+    DEFAULT("Original Icon", ""),
+    CALCULATOR("Calculator", "Calculator"),
+    NOTES("Notes", "Notes"),
+    CALENDAR("Calendar", "Calendar"),
+    CLOCK("Clock", "Clock"),
+    WEATHER("Weather", "Weather"),
+    SYSTEM_UTILITY("System Service", "System Service")
+}
+
 enum class AuditAction(val label: String, val isSevere: Boolean) {
     REDIRECTED("Kept Separate", false),
     ENCRYPTED("Saved Privately", false),

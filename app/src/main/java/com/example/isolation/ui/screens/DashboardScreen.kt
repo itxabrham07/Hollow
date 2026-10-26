@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -54,6 +55,7 @@ import com.example.ui.theme.JakartaFontFamily
 fun DashboardScreen(
     viewModel: IsoVaultViewModel,
     onNavigateToApps: () -> Unit,
+    onNavigateToAppHider: () -> Unit = {},
     onNavigateToVault: () -> Unit,
     onNavigateToFileManager: () -> Unit = onNavigateToVault,
     onNavigateToGallery: () -> Unit = onNavigateToVault,
@@ -63,6 +65,7 @@ fun DashboardScreen(
     val scheme = MaterialTheme.colorScheme
     val isLsposedActive by viewModel.isLsposedActive.collectAsState()
     val isolatedCount by viewModel.isolatedCount.collectAsState()
+    val hiddenOrDisguisedCount by viewModel.hiddenOrDisguisedCount.collectAsState()
     val recentLogs by viewModel.recentAuditLogs.collectAsState()
     val totalBytesEncrypted by viewModel.totalEncryptedBytes.collectAsState()
 
@@ -163,6 +166,94 @@ fun DashboardScreen(
                                 imageVector = Icons.Default.ChevronRight,
                                 contentDescription = "Open Protected Apps",
                                 tint = scheme.onPrimaryContainer,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Independent Feature Card: Hide & Disguise Apps (System Framework & SystemUI Stealth)
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = scheme.surface),
+                shape = RoundedCornerShape(22.dp),
+                border = BorderStroke(1.dp, scheme.secondary.copy(alpha = 0.45f)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToAppHider() }
+                    .testTag("card_hide_disguise_apps")
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp, vertical = 16.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(scheme.secondaryContainer)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.VisibilityOff,
+                                contentDescription = null,
+                                tint = scheme.onSecondaryContainer,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column {
+                            Text(
+                                text = "Hide & Disguise Apps",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = scheme.onSurface,
+                                fontFamily = JakartaFontFamily
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (hiddenOrDisguisedCount == 0) {
+                                    "Hide apps or spoof names/icons via System & SystemUI"
+                                } else {
+                                    "$hiddenOrDisguisedCount app${if (hiddenOrDisguisedCount == 1) "" else "s"} hidden or disguised system-wide"
+                                },
+                                fontSize = 12.sp,
+                                color = scheme.onSurfaceVariant,
+                                fontFamily = JakartaFontFamily
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(scheme.secondaryContainer)
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "$hiddenOrDisguisedCount",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = scheme.onSecondaryContainer,
+                                fontFamily = JakartaFontFamily
+                            )
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = "Open Hide & Disguise Apps",
+                                tint = scheme.onSecondaryContainer,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
