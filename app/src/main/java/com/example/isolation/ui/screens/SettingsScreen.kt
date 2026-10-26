@@ -56,8 +56,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.isolation.model.HollowIconTheme
 import com.example.isolation.model.LauncherVisibilityMode
 import com.example.isolation.model.PickerPolicy
+import com.example.isolation.ui.components.HollowDynamicEmblem
 import com.example.isolation.ui.components.StatusBadge
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
 import com.example.ui.theme.JakartaFontFamily
@@ -376,6 +378,70 @@ fun SettingsScreen(
                         enabled = true,
                         onChange = { viewModel.setDynamicColor(it) }
                     )
+                    HorizontalDivider(color = scheme.outlineVariant)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Hollow Launcher Icon Style",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = scheme.onSurface,
+                        fontFamily = JakartaFontFamily
+                    )
+                    Text(
+                        text = "Switch between Dynamic Material You (adapts to wallpaper & themed icons) or signature Hollow styles",
+                        fontSize = 11.sp,
+                        color = scheme.onSurfaceVariant,
+                        fontFamily = JakartaFontFamily
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        HollowIconTheme.entries.forEach { themeOption ->
+                            val isSelected = settings.hollowIconTheme == themeOption
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSelected) {
+                                        scheme.primaryContainer.copy(alpha = 0.4f)
+                                    } else {
+                                        scheme.surfaceContainerLow
+                                    }
+                                ),
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(
+                                    width = if (isSelected) 1.5.dp else 1.dp,
+                                    color = if (isSelected) scheme.primary else scheme.outlineVariant
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { viewModel.setHollowIconTheme(themeOption) }
+                                    .testTag("icon_theme_${themeOption.name.lowercase()}")
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp, horizontal = 4.dp)
+                                ) {
+                                    HollowDynamicEmblem(
+                                        iconTheme = themeOption,
+                                        size = 36.dp
+                                    )
+                                    Spacer(modifier = Modifier.height(5.dp))
+                                    Text(
+                                        text = themeOption.label,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) scheme.primary else scheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        fontFamily = JakartaFontFamily
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

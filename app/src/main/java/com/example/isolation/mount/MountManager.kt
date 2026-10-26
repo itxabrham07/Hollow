@@ -631,10 +631,20 @@ object MountManager {
         val safeLaunchers = launchers.filter { pkgRegex.matches(it) }
 
         val sb = StringBuilder()
-        // 1. Ensure world-readable permissions on Hollow's SharedPreferences & Vector prefs bridge
+        // 1. Ensure world-readable permissions on Hollow's SharedPreferences & Vector prefs bridge,
+        //    and mirror to /data/system & /data/local/tmp so system_server (UID 1000) and launchers
+        //    can read stealth rules even when SELinux blocks cross-app XSharedPreferences.
         val dataPath = context.dataDir?.absolutePath ?: "/data/data/${context.packageName}"
+        val prefsXml = "$dataPath/shared_prefs/isovault_rules.xml"
         sb.appendLine("chmod 755 '$dataPath' '$dataPath/shared_prefs' 2>/dev/null || true")
-        sb.appendLine("chmod 644 '$dataPath/shared_prefs/isovault_rules.xml' 2>/dev/null || true")
+        sb.appendLine("chmod 644 '$prefsXml' 2>/dev/null || true")
+        sb.appendLine("if [ -f '$prefsXml' ]; then")
+        sb.appendLine("  cp -f '$prefsXml' /data/system/isovault_rules.xml 2>/dev/null || true")
+        sb.appendLine("  chown 1000:1000 /data/system/isovault_rules.xml 2>/dev/null || true")
+        sb.appendLine("  chmod 644 /data/system/isovault_rules.xml 2>/dev/null || true")
+        sb.appendLine("  cp -f '$prefsXml' /data/local/tmp/isovault_rules.xml 2>/dev/null || true")
+        sb.appendLine("  chmod 644 /data/local/tmp/isovault_rules.xml 2>/dev/null || true")
+        sb.appendLine("fi")
         sb.appendLine("chmod -R 755 /data/misc/*/prefs/${context.packageName} 2>/dev/null || true")
         sb.appendLine("chmod 644 /data/misc/*/prefs/${context.packageName}/*.xml 2>/dev/null || true")
 

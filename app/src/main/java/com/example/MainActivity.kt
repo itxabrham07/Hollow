@@ -55,6 +55,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.isolation.ui.components.HollowDynamicEmblem
 import com.example.isolation.ui.components.StatusBadge
 import com.example.isolation.ui.screens.AppHiderScreen
 import com.example.isolation.ui.screens.AppsScreen
@@ -131,20 +132,10 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(scheme.primaryContainer)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Shield,
-                                contentDescription = null,
-                                tint = scheme.onPrimaryContainer,
-                                modifier = Modifier.size(19.dp)
-                            )
-                        }
+                        HollowDynamicEmblem(
+                            iconTheme = settings.hollowIconTheme,
+                            size = 36.dp
+                        )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             text = "Hollow",

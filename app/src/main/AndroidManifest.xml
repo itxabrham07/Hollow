@@ -59,12 +59,56 @@
             </intent-filter>
         </activity>
 
+        <!-- Selectable Hollow Launcher Icon Theme Aliases -->
+        <activity-alias
+            android:name=".MainActivityCyberAlias"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_cyber"
+            android:roundIcon="@mipmap/ic_launcher_cyber"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".MainActivityCrimsonAlias"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_crimson"
+            android:roundIcon="@mipmap/ic_launcher_crimson"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".MainActivityMinimalAlias"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_minimal"
+            android:roundIcon="@mipmap/ic_launcher_minimal"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
         <!-- Native Launcher Disguise Aliases for Hollow itself -->
         <activity-alias
             android:name=".MainActivityCalculatorAlias"
             android:enabled="false"
             android:exported="true"
-            android:icon="@android:drawable/ic_dialog_dialer"
+            android:icon="@drawable/ic_disguise_calculator"
+            android:roundIcon="@drawable/ic_disguise_calculator"
             android:label="Calculator"
             android:targetActivity=".MainActivity">
             <intent-filter>
@@ -77,7 +121,8 @@
             android:name=".MainActivityNotesAlias"
             android:enabled="false"
             android:exported="true"
-            android:icon="@android:drawable/ic_menu_edit"
+            android:icon="@drawable/ic_disguise_notes"
+            android:roundIcon="@drawable/ic_disguise_notes"
             android:label="Notes"
             android:targetActivity=".MainActivity">
             <intent-filter>
@@ -90,7 +135,7 @@
         <service
             android:name="com.example.isolation.service.HollowStealthTileService"
             android:exported="true"
-            android:icon="@android:drawable/ic_dialog_dialer"
+            android:icon="@drawable/ic_disguise_calculator"
             android:label="Quick Calc"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>

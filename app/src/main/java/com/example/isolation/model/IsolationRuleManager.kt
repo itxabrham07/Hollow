@@ -108,11 +108,7 @@ object IsolationRuleManager {
             } catch (_: Throwable) {
             }
         }
-        // Fallback to Hollow's own APK vector drawables so system_server can always serve a real APK resource
-        val selfInfo = context.applicationInfo
-        val selfSrc = selfInfo.publicSourceDir ?: selfInfo.sourceDir ?: ""
-        val selfRes = presetDrawableResId(preset)
-        return Pair(selfSrc, selfRes)
+        return Pair("", 0)
     }
 
     fun drawableToBase64Png(drawable: Drawable?, sizePx: Int = 144): String {
@@ -154,8 +150,8 @@ object IsolationRuleManager {
      * `com.android.settings`, `com.android.vending`, and any launcher process can read the full
      * stealth map in a single fast lookup.
      *
-     * Format per line (10 pipe-delimited fields):
-     * pkg|visMode|iconPreset|hideRecents|hidePlayStore|spoofSettings|donorPkg|donorSourceDir|donorIconRes|customLabel
+     * Backwards-compatible format per line (10 pipe-delimited fields, with customLabel at index 4):
+     * 0:pkg | 1:visMode | 2:iconPreset | 3:hideRecents | 4:customLabel | 5:hidePlayStore | 6:spoofSettings | 7:donorPkg | 8:donorSourceDir | 9:donorIconRes
      */
     fun publishStealthTable(
         configs: List<AppIsolationConfig>,
@@ -168,7 +164,10 @@ object IsolationRuleManager {
 
         // 1. Hollow itself if disguised or hidden
         if (settings.hollowVisibilityMode != LauncherVisibilityMode.VISIBLE) {
-            val safeLabel = settings.hollowCustomName.replace("|", " ").replace("\n", " ").trim()
+            val rawLabel = settings.hollowCustomName.ifBlank {
+                settings.hollowIconPreset.suggestedName.ifBlank { "Calculator" }
+            }
+            val safeLabel = rawLabel.replace("|", " ").replace("\n", " ").trim()
             val (donorSrc, donorRes) = resolveDonorResourceInfo(
                 app,
                 settings.hollowIconPreset,
@@ -180,12 +179,12 @@ object IsolationRuleManager {
                     settings.hollowVisibilityMode.name,
                     settings.hollowIconPreset.name,
                     "1",
+                    safeLabel,
                     "0",
                     if (settings.hollowSpoofInSettings) "1" else "0",
                     settings.hollowCustomIconDonorPkg.replace("|", ""),
                     donorSrc.replace("|", ""),
-                    donorRes.toString(),
-                    safeLabel
+                    donorRes.toString()
                 ).joinToString("|")
             )
             if (settings.hollowCustomIconBase64.isNotBlank()) {
@@ -202,7 +201,12 @@ object IsolationRuleManager {
             val active = (cfg.isHiddenOrDisguised && cfg.launcherVisibilityMode != LauncherVisibilityMode.VISIBLE) ||
                     cfg.hideFromPlayStore
             if (active) {
-                val safeLabel = cfg.customLauncherLabel.replace("|", " ").replace("\n", " ").trim()
+                val rawLabel = if (cfg.launcherVisibilityMode == LauncherVisibilityMode.DISGUISED && cfg.customLauncherLabel.isBlank()) {
+                    cfg.disguiseIconPreset.suggestedName.ifBlank { "Calculator" }
+                } else {
+                    cfg.customLauncherLabel
+                }
+                val safeLabel = rawLabel.replace("|", " ").replace("\n", " ").trim()
                 val (donorSrc, donorRes) = resolveDonorResourceInfo(
                     app,
                     cfg.disguiseIconPreset,
@@ -214,12 +218,12 @@ object IsolationRuleManager {
                         cfg.launcherVisibilityMode.name,
                         cfg.disguiseIconPreset.name,
                         if (cfg.hideInSystemUiRecents) "1" else "0",
+                        safeLabel,
                         if (cfg.hideFromPlayStore) "1" else "0",
                         if (cfg.spoofInSettings) "1" else "0",
                         cfg.customIconDonorPkg.replace("|", ""),
                         donorSrc.replace("|", ""),
-                        donorRes.toString(),
-                        safeLabel
+                        donorRes.toString()
                     ).joinToString("|")
                 )
                 if (cfg.customIconBase64.isNotBlank()) {
@@ -267,7 +271,6 @@ object IsolationRuleManager {
             }
             val hideRecents = parts[3] == "1"
 
-            // Support both legacy 5-column format and new 10-column format
             val hidePlayStore: Boolean
             val spoofSettings: Boolean
             val donorPkg: String
@@ -275,30 +278,59 @@ object IsolationRuleManager {
             val donorIconRes: Int
             val customLabel: String
 
-            if (parts.size >= 10) {
+            // Detect transitional format where parts[4] & parts[5] were "0"/"1" flags and parts[8] was integer resId
+            val isTransitionalOrder = parts.size >= 10 &&
+                    (parts[4] == "0" || parts[4] == "1") &&
+                    (parts[5] == "0" || parts[5] == "1") &&
+                    (parts[8].toIntOrNull() != null) &&
+                    parts[9].toIntOrNull() == null
+
+            if (isTransitionalOrder) {
                 hidePlayStore = parts[4] == "1"
                 spoofSettings = parts[5] == "1"
                 donorPkg = parts[6]
                 donorSourceDir = parts[7]
                 donorIconRes = parts[8].toIntOrNull() ?: 0
-                customLabel = parts.subList(9, parts.size).joinToString("|")
+                customLabel = parts.subList(9, parts.size).joinToString(" ").trim()
+            } else if (parts.size >= 10) {
+                customLabel = parts[4].trim()
+                hidePlayStore = parts[5] == "1"
+                spoofSettings = parts[6] == "1"
+                donorPkg = parts[7]
+                donorSourceDir = parts[8]
+                donorIconRes = parts[9].toIntOrNull() ?: 0
             } else {
+                val rawLabel = if (parts.size >= 5) parts[4].trim() else ""
+                // Guard against numeric resource IDs or "0"/"1" flags leaking into customLabel
+                customLabel = if (rawLabel == "0" || rawLabel == "1" || (rawLabel.length >= 8 && rawLabel.all { it.isDigit() })) {
+                    preset.suggestedName.ifBlank { "Calculator" }
+                } else {
+                    rawLabel
+                }
                 hidePlayStore = false
                 spoofSettings = true
                 donorPkg = ""
                 donorSourceDir = ""
                 donorIconRes = 0
-                customLabel = if (parts.size >= 5) parts[4] else ""
             }
 
             if (visMode == LauncherVisibilityMode.VISIBLE && !hidePlayStore) continue
+
+            // Final sanity check: never allow a pure 8+ digit resource ID or single "0"/"1" flag as the label
+            val cleanLabel = if (visMode == LauncherVisibilityMode.DISGUISED &&
+                (customLabel.isBlank() || customLabel == "0" || customLabel == "1" || (customLabel.length >= 8 && customLabel.all { it.isDigit() }))
+            ) {
+                preset.suggestedName.ifBlank { "Calculator" }
+            } else {
+                customLabel
+            }
 
             val iconB64 = customIconLookup?.invoke(pkg).orEmpty()
 
             out[pkg] = StealthRule(
                 packageName = pkg,
                 visibilityMode = visMode,
-                customLabel = customLabel,
+                customLabel = cleanLabel,
                 iconPreset = preset,
                 hideInRecents = hideRecents,
                 hideFromPlayStore = hidePlayStore,

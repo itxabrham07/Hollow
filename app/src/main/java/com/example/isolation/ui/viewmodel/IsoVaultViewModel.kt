@@ -17,6 +17,7 @@ import com.example.isolation.data.entity.AppIsolationConfig
 import com.example.isolation.data.entity.VaultFileItem
 import com.example.isolation.model.AppSettings
 import com.example.isolation.model.DisguiseIconPreset
+import com.example.isolation.model.HollowIconTheme
 import com.example.isolation.model.IsolationMode
 import com.example.isolation.model.IsolationRuleManager
 import com.example.isolation.model.LauncherVisibilityMode
@@ -499,7 +500,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             val allConfigs = dao.getAllConfigsSync()
             IsolationRuleManager.publishStealthTable(allConfigs, _settings.value)
             notifyConfigChanged()
-            applyNativeHollowAlias(visibilityMode, iconPreset)
+            applyNativeHollowAlias(visibilityMode, iconPreset, _settings.value.hollowIconTheme)
             MountManager.refreshLaunchersAndStealthCaches(
                 app,
                 refreshPlayStore = false,
@@ -518,39 +519,77 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
 
     private fun applyNativeHollowAlias(
         visibilityMode: LauncherVisibilityMode,
-        iconPreset: DisguiseIconPreset
+        iconPreset: DisguiseIconPreset,
+        iconTheme: HollowIconTheme = _settings.value.hollowIconTheme
     ) {
         try {
             val pm = app.packageManager
             val mainComp = ComponentName(app, "com.example.MainActivity")
+            val cyberAlias = ComponentName(app, "com.example.MainActivityCyberAlias")
+            val crimsonAlias = ComponentName(app, "com.example.MainActivityCrimsonAlias")
+            val minimalAlias = ComponentName(app, "com.example.MainActivityMinimalAlias")
             val calcAlias = ComponentName(app, "com.example.MainActivityCalculatorAlias")
             val notesAlias = ComponentName(app, "com.example.MainActivityNotesAlias")
 
+            val allThemeAliases = listOf(cyberAlias, crimsonAlias, minimalAlias)
+            val allDisguiseAliases = listOf(calcAlias, notesAlias)
+
             when (visibilityMode) {
                 LauncherVisibilityMode.VISIBLE -> {
-                    pm.setComponentEnabledSetting(mainComp, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP)
-                    pm.setComponentEnabledSetting(calcAlias, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
-                    pm.setComponentEnabledSetting(notesAlias, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
+                    allDisguiseAliases.forEach {
+                        pm.setComponentEnabledSetting(it, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
+                    }
+                    val targetAliasClass = iconTheme.aliasClassName
+                    if (targetAliasClass == null) {
+                        pm.setComponentEnabledSetting(mainComp, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP)
+                        allThemeAliases.forEach {
+                            pm.setComponentEnabledSetting(it, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
+                        }
+                    } else {
+                        pm.setComponentEnabledSetting(mainComp, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
+                        allThemeAliases.forEach { alias ->
+                            val state = if (alias.className == targetAliasClass) {
+                                PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                            } else {
+                                PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                            }
+                            pm.setComponentEnabledSetting(alias, state, PackageManager.DONT_KILL_APP)
+                        }
+                    }
                 }
                 LauncherVisibilityMode.DISGUISED -> {
-                    val useNotes = iconPreset == DisguiseIconPreset.NOTES
-                    pm.setComponentEnabledSetting(mainComp, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
-                    pm.setComponentEnabledSetting(
-                        calcAlias,
-                        if (useNotes) PackageManager.COMPONENT_ENABLED_STATE_DISABLED else PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
-                        PackageManager.DONT_KILL_APP
-                    )
-                    pm.setComponentEnabledSetting(
-                        notesAlias,
-                        if (useNotes) PackageManager.COMPONENT_ENABLED_STATE_ENABLED else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                        PackageManager.DONT_KILL_APP
-                    )
+                    allThemeAliases.forEach {
+                        pm.setComponentEnabledSetting(it, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
+                    }
+                    val useCustomHookIcon = iconPreset == DisguiseIconPreset.CUSTOM_IMAGE ||
+                            iconPreset == DisguiseIconPreset.CLONED_APP
+                    if (useCustomHookIcon) {
+                        // Keep mainComp enabled so SystemStealthHook replaces its icon with the custom gallery/cloned bitmap
+                        pm.setComponentEnabledSetting(mainComp, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP)
+                        allDisguiseAliases.forEach {
+                            pm.setComponentEnabledSetting(it, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
+                        }
+                    } else {
+                        val useNotes = iconPreset == DisguiseIconPreset.NOTES
+                        pm.setComponentEnabledSetting(mainComp, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
+                        pm.setComponentEnabledSetting(
+                            calcAlias,
+                            if (useNotes) PackageManager.COMPONENT_ENABLED_STATE_DISABLED else PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                            PackageManager.DONT_KILL_APP
+                        )
+                        pm.setComponentEnabledSetting(
+                            notesAlias,
+                            if (useNotes) PackageManager.COMPONENT_ENABLED_STATE_ENABLED else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                            PackageManager.DONT_KILL_APP
+                        )
+                    }
                 }
                 LauncherVisibilityMode.HIDDEN -> {
                     // Keep main component enabled for SystemUI intent launch while SystemStealthHook filters it from launchers
                     pm.setComponentEnabledSetting(mainComp, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP)
-                    pm.setComponentEnabledSetting(calcAlias, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
-                    pm.setComponentEnabledSetting(notesAlias, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
+                    (allThemeAliases + allDisguiseAliases).forEach {
+                        pm.setComponentEnabledSetting(it, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
+                    }
                 }
             }
         } catch (_: Throwable) {}
@@ -601,6 +640,23 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
     fun setDarkTheme(enabled: Boolean) = updateSettings { it.copy(darkTheme = enabled) }
 
     fun setDynamicColor(enabled: Boolean) = updateSettings { it.copy(dynamicColor = enabled) }
+
+    fun setHollowIconTheme(theme: HollowIconTheme) {
+        updateSettings { it.copy(hollowIconTheme = theme) }
+        viewModelScope.launch(Dispatchers.IO) {
+            applyNativeHollowAlias(
+                visibilityMode = _settings.value.hollowVisibilityMode,
+                iconPreset = _settings.value.hollowIconPreset,
+                iconTheme = theme
+            )
+            MountManager.refreshLaunchersAndStealthCaches(
+                app,
+                refreshPlayStore = false,
+                refreshSettings = false
+            )
+        }
+        _statusMessage.value = "Hollow icon updated to ${theme.label} (${theme.subtitle})."
+    }
 
     fun setPickerPolicy(policy: PickerPolicy) {
         updateSettings { it.copy(pickerPolicy = policy) }

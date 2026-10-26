@@ -27,7 +27,9 @@ data class AppSettings(
     /** Spoof Hollow's own name & icon in System Settings / App Management. */
     val hollowSpoofInSettings: Boolean = true,
     /** Injects a direct stealth entry trigger into SystemUI (Quick Settings Clock/Header long-press). */
-    val systemUiTriggerEnabled: Boolean = true
+    val systemUiTriggerEnabled: Boolean = true,
+    /** Selected Hollow launcher icon style when Hollow is visible. */
+    val hollowIconTheme: HollowIconTheme = HollowIconTheme.DYNAMIC_MATERIAL_YOU
 )
 
 object SettingsStore {
@@ -44,6 +46,7 @@ object SettingsStore {
     private const val K_HOLLOW_DONOR_PKG = "hollow_donor_pkg"
     private const val K_HOLLOW_SPOOF_SETTINGS = "hollow_spoof_settings"
     private const val K_SYSTEMUI_TRIGGER = "systemui_trigger_enabled"
+    private const val K_HOLLOW_ICON_THEME = "hollow_icon_theme"
 
     fun load(context: Context): AppSettings {
         val p = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -68,6 +71,14 @@ object SettingsStore {
         } catch (_: IllegalArgumentException) {
             DisguiseIconPreset.CALCULATOR
         }
+        val iconTheme = try {
+            HollowIconTheme.valueOf(
+                p.getString(K_HOLLOW_ICON_THEME, HollowIconTheme.DYNAMIC_MATERIAL_YOU.name)
+                    ?: HollowIconTheme.DYNAMIC_MATERIAL_YOU.name
+            )
+        } catch (_: IllegalArgumentException) {
+            HollowIconTheme.DYNAMIC_MATERIAL_YOU
+        }
         return AppSettings(
             rootVolumesEnabled = p.getBoolean(K_ROOT, false),
             encryptVolumesAtRest = p.getBoolean(K_ENCRYPT, true),
@@ -80,7 +91,8 @@ object SettingsStore {
             hollowCustomIconBase64 = p.getString(K_HOLLOW_CUSTOM_ICON_B64, "") ?: "",
             hollowCustomIconDonorPkg = p.getString(K_HOLLOW_DONOR_PKG, "") ?: "",
             hollowSpoofInSettings = p.getBoolean(K_HOLLOW_SPOOF_SETTINGS, true),
-            systemUiTriggerEnabled = p.getBoolean(K_SYSTEMUI_TRIGGER, true)
+            systemUiTriggerEnabled = p.getBoolean(K_SYSTEMUI_TRIGGER, true),
+            hollowIconTheme = iconTheme
         )
     }
 
@@ -98,6 +110,7 @@ object SettingsStore {
             .putString(K_HOLLOW_DONOR_PKG, settings.hollowCustomIconDonorPkg)
             .putBoolean(K_HOLLOW_SPOOF_SETTINGS, settings.hollowSpoofInSettings)
             .putBoolean(K_SYSTEMUI_TRIGGER, settings.systemUiTriggerEnabled)
+            .putString(K_HOLLOW_ICON_THEME, settings.hollowIconTheme.name)
             .commit()
         // Hooked apps read the picker policy and SystemUI trigger through the rule channels.
         IsolationRuleManager.publishPickerPolicy(settings.pickerPolicy)

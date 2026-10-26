@@ -103,3 +103,35 @@ enum class PickerPolicy(val title: String, val description: String) {
         description = "The system picker is cancelled for isolated apps. They can only use their own in-app gallery, which is isolated."
     )
 }
+
+/**
+ * Selectable launcher icon styles for Hollow when visible in the home launcher.
+ * Supports Android 12+ dynamic wallpaper-reactive colors and Android 13+ monochrome themed icons.
+ */
+enum class HollowIconTheme(
+    val label: String,
+    val subtitle: String,
+    val aliasClassName: String?
+) {
+    DYNAMIC_MATERIAL_YOU(
+        label = "Dynamic",
+        subtitle = "Adapts to wallpaper & Material You",
+        aliasClassName = null // Uses default MainActivity with drawable-v31 dynamic vectors + monochrome
+    ),
+    CYBER_ECLIPSE(
+        label = "Cyber Cyan",
+        subtitle = "Obsidian & electric cyan portal",
+        aliasClassName = "com.example.MainActivityCyberAlias"
+    ),
+    CRIMSON_VOID(
+        label = "Crimson",
+        subtitle = "Carbon black & crimson ring",
+        aliasClassName = "com.example.MainActivityCrimsonAlias"
+    ),
+    OBSIDIAN_MINIMAL(
+        label = "Minimal",
+        subtitle = "Stealth monochrome titanium",
+        aliasClassName = "com.example.MainActivityMinimalAlias"
+    )
+}
+

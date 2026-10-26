@@ -1,6 +1,7 @@
 package com.example.isolation.ui.components
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -38,20 +40,135 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.isolation.model.AuditAction
+import com.example.isolation.model.HollowIconTheme
 import com.example.isolation.model.IsolationMode
 import com.example.ui.theme.ClaySecondary
 import com.example.ui.theme.JakartaFontFamily
 import com.example.ui.theme.LavenderAccent
+
+private data class EmblemPalette(
+    val bgColors: List<Color>,
+    val rimColors: List<Color>,
+    val ringColors: List<Color>,
+    val coreColor: Color
+)
+
+/**
+ * Renders the upgraded Hollow Eclipse & Hexagonal Vault emblem dynamically.
+ * Adapts to Material You dynamic theme or the selected HollowIconTheme preset.
+ */
+@Composable
+fun HollowDynamicEmblem(
+    iconTheme: HollowIconTheme = HollowIconTheme.DYNAMIC_MATERIAL_YOU,
+    size: Dp = 36.dp,
+    modifier: Modifier = Modifier
+) {
+    val scheme = MaterialTheme.colorScheme
+    val palette = when (iconTheme) {
+        HollowIconTheme.DYNAMIC_MATERIAL_YOU -> EmblemPalette(
+            bgColors = listOf(scheme.primaryContainer, scheme.secondaryContainer),
+            rimColors = listOf(scheme.primary, scheme.tertiary),
+            ringColors = listOf(scheme.primary, scheme.tertiary),
+            coreColor = scheme.onPrimaryContainer
+        )
+        HollowIconTheme.CYBER_ECLIPSE -> EmblemPalette(
+            bgColors = listOf(Color(0xFF060B18), Color(0xFF111C38)),
+            rimColors = listOf(Color(0xFF00F0FF), Color(0xFF6366F1)),
+            ringColors = listOf(Color(0xFF00F5D4), Color(0xFF00BBF9)),
+            coreColor = Color(0xFF00F5D4)
+        )
+        HollowIconTheme.CRIMSON_VOID -> EmblemPalette(
+            bgColors = listOf(Color(0xFF0B0508), Color(0xFF2A0D18)),
+            rimColors = listOf(Color(0xFFFF2E63), Color(0xFFFB923C)),
+            ringColors = listOf(Color(0xFFFF2E63), Color(0xFFE11D48)),
+            coreColor = Color(0xFFFFE4E6)
+        )
+        HollowIconTheme.OBSIDIAN_MINIMAL -> EmblemPalette(
+            bgColors = listOf(Color(0xFF0A0A0C), Color(0xFF18181C)),
+            rimColors = listOf(Color(0xFFE2E8F0), Color(0xFF94A3B8)),
+            ringColors = listOf(Color(0xFFF8FAFC), Color(0xFFCBD5E1)),
+            coreColor = Color(0xFF38BDF8)
+        )
+    }
+    val (bgColors, rimColors, ringColors, coreColor) = palette
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .size(size)
+            .clip(RoundedCornerShape(size * 0.30f))
+            .background(Brush.linearGradient(bgColors))
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = this.size.width
+            val h = this.size.height
+            val cx = w / 2f
+            val cy = h / 2f
+
+            // Hexagonal Vault Shield
+            val hexRadius = w * 0.38f
+            val hexPath = Path().apply {
+                moveTo(cx, cy - hexRadius)
+                lineTo(cx + hexRadius * 0.866f, cy - hexRadius * 0.5f)
+                lineTo(cx + hexRadius * 0.866f, cy + hexRadius * 0.5f)
+                lineTo(cx, cy + hexRadius)
+                lineTo(cx - hexRadius * 0.866f, cy + hexRadius * 0.5f)
+                lineTo(cx - hexRadius * 0.866f, cy - hexRadius * 0.5f)
+                close()
+            }
+
+            drawPath(
+                path = hexPath,
+                color = bgColors.first().copy(alpha = 0.75f)
+            )
+            drawPath(
+                path = hexPath,
+                brush = Brush.linearGradient(rimColors),
+                style = Stroke(
+                    width = w * 0.055f,
+                    cap = StrokeCap.Round,
+                    join = StrokeJoin.Round
+                )
+            )
+
+            // Hollow Eclipse Crescent Portal Ring
+            drawCircle(
+                brush = Brush.linearGradient(ringColors),
+                radius = w * 0.24f,
+                center = Offset(cx, cy)
+            )
+            drawCircle(
+                color = bgColors.first(),
+                radius = w * 0.17f,
+                center = Offset(cx + w * 0.038f, cy - h * 0.01f)
+            )
+
+            // Singularity Core Node
+            drawCircle(
+                color = coreColor,
+                radius = w * 0.055f,
+                center = Offset(cx - w * 0.06f, cy - h * 0.015f)
+            )
+        }
+    }
+}
 
 @Composable
 fun StatusBadge(

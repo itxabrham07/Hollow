@@ -1,6 +1,8 @@
 package com.example.isolation.hook
 
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.app.ActivityManager
 import android.app.AndroidAppHelper
 import android.content.ComponentName
 import android.content.Context
@@ -40,6 +42,8 @@ import de.robv.android.xposed.XSharedPreferences
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
+import java.io.File
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -47,13 +51,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Lock-free, non-blocking System-wide App Hider, Custom Name/Icon Disguise, Play Store Hider,
  * System Settings App Management Spoofer, and SystemUI Stealth Trigger.
- *
- * Designed specifically to prevent any main-thread or Binder-thread blocking in `system_server`
- * (`android`) and `com.android.systemui`:
- *  - Rules are read from a volatile in-memory snapshot (`cachedStealthMap`) in 0ms; background
- *    reloads happen strictly off-thread on a single daemon executor.
- *  - Hooks attach at most once per process (`attachedInProcess`) and use `ThreadLocal`
- *    re-entrancy guards on overloaded `PackageManagerService` / `ComputerEngine` methods.
  */
 object SystemStealthHook {
 
@@ -76,6 +73,12 @@ object SystemStealthHook {
     private var fallbackXSharedPrefs: XSharedPreferences? = null
 
     @Volatile
+    private var sysMirrorXPrefs: XSharedPreferences? = null
+
+    @Volatile
+    private var tmpMirrorXPrefs: XSharedPreferences? = null
+
+    @Volatile
     private var cachedHollowAppId: Int = -1
 
     @Volatile
@@ -86,6 +89,7 @@ object SystemStealthHook {
 
     private val attachedInProcess = AtomicBoolean(false)
     private val isRefreshing = AtomicBoolean(false)
+    private val hasLoadedInitialRules = AtomicBoolean(false)
 
     private val isInPmQueryHook = object : ThreadLocal<Boolean>() {
         override fun initialValue(): Boolean = false
@@ -95,13 +99,35 @@ object SystemStealthHook {
         override fun initialValue(): Boolean = false
     }
 
+    private val isInResDrawableHook = object : ThreadLocal<Boolean>() {
+        override fun initialValue(): Boolean = false
+    }
+
     private val refreshExecutor = Executors.newSingleThreadExecutor { r ->
         Thread(r, "Hollow-StealthPrefs").apply { isDaemon = true }
     }
 
     private val decoyBitmapCache = ConcurrentHashMap<DisguiseIconPreset, Bitmap>()
     private val customBitmapCache = ConcurrentHashMap<String, Bitmap>()
-    private val knownPackageIconRes = ConcurrentHashMap<String, Int>()
+    private val knownPackageIconRes = ConcurrentHashMap<String, MutableSet<Int>>()
+    private val resourcesToPkgMap = ConcurrentHashMap<Int, String>()
+
+    private fun recordPackageIconRes(pkg: String, vararg resIds: Int) {
+        if (pkg.isBlank()) return
+        val set = knownPackageIconRes.getOrPut(pkg) {
+            Collections.newSetFromMap(ConcurrentHashMap<Int, Boolean>())
+        }
+        for (id in resIds) {
+            if (id != 0) set.add(id)
+        }
+    }
+
+    private fun recordAppInfoIcons(appInfo: ApplicationInfo?) {
+        if (appInfo == null) return
+        val pkg = appInfo.packageName ?: return
+        val roundRes = try { XposedHelpers.getIntField(appInfo, "roundIconRes") } catch (_: Throwable) { 0 }
+        recordPackageIconRes(pkg, appInfo.icon, appInfo.logo, roundRes)
+    }
 
     fun attachForPackage(
         lpparam: XC_LoadPackage.LoadPackageParam,
@@ -134,6 +160,8 @@ object SystemStealthHook {
             fallbackXSharedPrefs = xSharedPrefs
         }
 
+        // Try immediate fast non-IPC load first, then schedule background refresh
+        tryLoadFromLocalFiles(xSharedPrefs)
         triggerAsyncRuleRefresh(xSharedPrefs, isSysServer)
 
         if (isSysServer) {
@@ -167,15 +195,100 @@ object SystemStealthHook {
         }
     }
 
+    private fun tryLoadFromPrefsInstance(prefs: XSharedPreferences?): Boolean {
+        if (prefs == null) return false
+        return try {
+            if (prefs.hasFileChanged()) {
+                prefs.reload()
+            }
+            val raw = prefs.getString(IsolationRuleManager.KEY_STEALTH_TABLE, null)
+            if (raw != null) {
+                cachedSystemUiTrigger = prefs.getBoolean(IsolationRuleManager.KEY_SYSTEMUI_TRIGGER, true)
+                val parsed = IsolationRuleManager.parseStealthTable(raw) { pkg ->
+                    prefs.getString(IsolationRuleManager.customIconKey(pkg), null)
+                }
+                updateCachesWithRules(parsed)
+                hasLoadedInitialRules.set(true)
+                true
+            } else {
+                false
+            }
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private fun tryLoadFromLocalFiles(xSharedPrefs: XSharedPreferences?): Boolean {
+        // 1. Standard LSPosed / Vector XSharedPreferences
+        if (tryLoadFromPrefsInstance(obtainXSharedPrefs(xSharedPrefs))) {
+            return true
+        }
+        // 2. Root-mirrored /data/system/isovault_rules.xml (always readable by system_server UID 1000)
+        try {
+            val sysFile = File("/data/system/isovault_rules.xml")
+            if (sysFile.canRead()) {
+                val sp = sysMirrorXPrefs ?: XSharedPreferences(sysFile).also { sysMirrorXPrefs = it }
+                if (tryLoadFromPrefsInstance(sp)) return true
+            }
+        } catch (_: Throwable) {}
+
+        // 3. Root-mirrored /data/local/tmp/isovault_rules.xml (readable by client apps & launchers)
+        try {
+            val tmpFile = File("/data/local/tmp/isovault_rules.xml")
+            if (tmpFile.canRead()) {
+                val sp = tmpMirrorXPrefs ?: XSharedPreferences(tmpFile).also { tmpMirrorXPrefs = it }
+                if (tryLoadFromPrefsInstance(sp)) return true
+            }
+        } catch (_: Throwable) {}
+
+        return false
+    }
+
+    private fun tryLoadFromProvider(): Boolean {
+        val app = try { AndroidAppHelper.currentApplication() } catch (_: Throwable) { null } ?: return false
+        return try {
+            val bundle = app.contentResolver.call(
+                Uri.parse(PROVIDER_URI),
+                "get_stealth_table",
+                null,
+                null
+            )
+            if (bundle != null) {
+                val raw = bundle.getString("stealthTable")
+                cachedSystemUiTrigger = bundle.getBoolean("systemUiTriggerEnabled", true)
+                val iconsBundle = bundle.getBundle("customIcons")
+                if (raw != null) {
+                    val parsed = IsolationRuleManager.parseStealthTable(raw) { pkg ->
+                        iconsBundle?.getString(pkg)
+                    }
+                    updateCachesWithRules(parsed)
+                    hasLoadedInitialRules.set(true)
+                    return true
+                }
+            }
+            false
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
     /**
-     * Always returns the current in-memory stealth map in 0ms without blocking the caller thread.
+     * Returns the current stealth rules map.
+     * On the very first hook invocation in a client process (e.g. when a Launcher starts up and
+     * immediately calls `getActivityList()`), if rules have not loaded yet and `Application` context
+     * is ready, loads synchronously once so the launcher never caches the un-disguised original list.
      */
     private fun getStealthRules(
         xSharedPrefs: XSharedPreferences?
     ): Map<String, IsolationRuleManager.StealthRule> {
+        val isSys = hostPackageName == "android" || Process.myUid() == Process.SYSTEM_UID
+        if (!hasLoadedInitialRules.get()) {
+            if (!tryLoadFromLocalFiles(xSharedPrefs) && !isSys) {
+                tryLoadFromProvider()
+            }
+        }
         val now = System.currentTimeMillis()
-        if ((now - lastStealthFetchMs) > 2000L) {
-            val isSys = hostPackageName == "android" || Process.myUid() == Process.SYSTEM_UID
+        if ((now - lastStealthFetchMs) > 1500L) {
             triggerAsyncRuleRefresh(xSharedPrefs, isSys)
         }
         return cachedStealthMap
@@ -187,54 +300,31 @@ object SystemStealthHook {
         try {
             refreshExecutor.execute {
                 try {
-                    var loadedFromXPrefs = false
-                    val prefs = obtainXSharedPrefs(xSharedPrefs)
-                    if (prefs != null) {
-                        if (prefs.hasFileChanged()) {
-                            prefs.reload()
-                        }
-                        val raw = prefs.getString(IsolationRuleManager.KEY_STEALTH_TABLE, null)
-                        cachedSystemUiTrigger = prefs.getBoolean(IsolationRuleManager.KEY_SYSTEMUI_TRIGGER, true)
-                        if (raw != null) {
-                            val parsed = IsolationRuleManager.parseStealthTable(raw) { pkg ->
-                                prefs.getString(IsolationRuleManager.customIconKey(pkg), null)
-                            }
-                            updateCachesWithRules(parsed)
-                            loadedFromXPrefs = true
-                        }
-                    }
-
-                    // For client apps (Launchers, Settings, Play Store), if SELinux blocks direct reading of
-                    // XSharedPreferences, fetch asynchronously via IsoVaultConfigProvider on this background thread.
-                    if (!isSysServer && (!loadedFromXPrefs || cachedStealthMap.isEmpty())) {
-                        val app = try { AndroidAppHelper.currentApplication() } catch (_: Throwable) { null }
-                        if (app != null) {
-                            val bundle = try {
-                                app.contentResolver.call(
-                                    Uri.parse(PROVIDER_URI),
-                                    "get_stealth_table",
-                                    null,
-                                    null
-                                )
-                            } catch (_: Throwable) {
-                                null
-                            }
-                            if (bundle != null) {
-                                val raw = bundle.getString("stealthTable")
-                                cachedSystemUiTrigger = bundle.getBoolean("systemUiTriggerEnabled", true)
-                                val iconsBundle = bundle.getBundle("customIcons")
-                                if (raw != null) {
-                                    val parsed = IsolationRuleManager.parseStealthTable(raw) { pkg ->
-                                        iconsBundle?.getString(pkg)
-                                    }
-                                    updateCachesWithRules(parsed)
+                    val loadedLocal = tryLoadFromLocalFiles(xSharedPrefs)
+                    if (!loadedLocal || cachedStealthMap.isEmpty()) {
+                        // In client apps (or in system_server after boot completes), fallback to ContentProvider
+                        val canQueryProvider = if (isSysServer) {
+                            try {
+                                val spCls = XposedHelpers.findClassIfExists("android.os.SystemProperties", null)
+                                val boot = spCls?.let {
+                                    XposedHelpers.callStaticMethod(it, "get", "sys.boot_completed") as? String
                                 }
-                            }
+                                boot == "1"
+                            } catch (_: Throwable) { false }
+                        } else {
+                            true
+                        }
+                        if (canQueryProvider) {
+                            tryLoadFromProvider()
                         }
                     }
                 } catch (_: Throwable) {
                 } finally {
-                    lastStealthFetchMs = System.currentTimeMillis()
+                    if (hasLoadedInitialRules.get()) {
+                        lastStealthFetchMs = System.currentTimeMillis()
+                    } else {
+                        lastStealthFetchMs = 0L
+                    }
                     isRefreshing.set(false)
                 }
             }
@@ -277,7 +367,7 @@ object SystemStealthHook {
         currentPkg: String,
         xSharedPrefs: XSharedPreferences?
     ) {
-        // A. Hook LauncherApps.getActivityList(String, UserHandle) -> used by all modern launchers
+        // A. Hook LauncherApps.getActivityList / resolveActivity / getApplicationInfo -> used by all modern launchers
         try {
             XposedBridge.hookAllMethods(
                 LauncherApps::class.java,
@@ -291,6 +381,24 @@ object SystemStealthHook {
                         val filtered = list.filter { item ->
                             val info = item as? LauncherActivityInfo ?: return@filter true
                             val targetPkg = info.componentName?.packageName ?: return@filter true
+                            try {
+                                val ai = XposedHelpers.callMethod(info, "getActivityInfo") as? ActivityInfo
+                                    ?: XposedHelpers.getObjectField(info, "mActivityInfo") as? ActivityInfo
+                                if (ai != null) {
+                                    recordPackageIconRes(targetPkg, ai.icon, ai.logo)
+                                    recordAppInfoIcons(ai.applicationInfo)
+                                    val rule = rules[targetPkg]
+                                    if (rule != null && shouldSpoofInCurrentClient(currentPkg, rule) && rule.customLabel.isNotBlank()) {
+                                        ai.nonLocalizedLabel = rule.customLabel
+                                        ai.labelRes = 0
+                                        ai.applicationInfo?.let { appInfo ->
+                                            appInfo.nonLocalizedLabel = rule.customLabel
+                                            appInfo.labelRes = 0
+                                        }
+                                    }
+                                }
+                            } catch (_: Throwable) {}
+
                             if (targetPkg == currentPkg) return@filter true
                             val rule = rules[targetPkg]
                             if (currentPkg == PLAY_STORE_PKG && rule?.hideFromPlayStore == true) {
@@ -306,13 +414,66 @@ object SystemStealthHook {
             )
         } catch (_: Throwable) {}
 
-        // B. Hook ApplicationPackageManager.queryIntentActivities / queryIntentActivitiesAsUser
         try {
-            val apmClass = XposedHelpers.findClassIfExists(
-                "android.app.ApplicationPackageManager",
-                lpparam.classLoader
+            XposedBridge.hookAllMethods(
+                LauncherApps::class.java,
+                "resolveActivity",
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val rules = getStealthRules(xSharedPrefs)
+                        if (rules.isEmpty()) return
+                        val info = param.result as? LauncherActivityInfo ?: return
+                        val targetPkg = info.componentName?.packageName ?: return
+                        val rule = rules[targetPkg] ?: return
+                        try {
+                            val ai = XposedHelpers.callMethod(info, "getActivityInfo") as? ActivityInfo
+                                ?: XposedHelpers.getObjectField(info, "mActivityInfo") as? ActivityInfo
+                            if (ai != null) {
+                                recordPackageIconRes(targetPkg, ai.icon, ai.logo)
+                                recordAppInfoIcons(ai.applicationInfo)
+                                if (shouldSpoofInCurrentClient(currentPkg, rule) && rule.customLabel.isNotBlank()) {
+                                    ai.nonLocalizedLabel = rule.customLabel
+                                    ai.labelRes = 0
+                                    ai.applicationInfo?.let { appInfo ->
+                                        appInfo.nonLocalizedLabel = rule.customLabel
+                                        appInfo.labelRes = 0
+                                    }
+                                }
+                            }
+                        } catch (_: Throwable) {}
+                    }
+                }
             )
-            if (apmClass != null) {
+        } catch (_: Throwable) {}
+
+        try {
+            XposedBridge.hookAllMethods(
+                LauncherApps::class.java,
+                "getApplicationInfo",
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val rules = getStealthRules(xSharedPrefs)
+                        if (rules.isEmpty()) return
+                        val appInfo = param.result as? ApplicationInfo ?: return
+                        val targetPkg = appInfo.packageName ?: return
+                        recordAppInfoIcons(appInfo)
+                        val rule = rules[targetPkg] ?: return
+                        if (shouldSpoofInCurrentClient(currentPkg, rule) && rule.customLabel.isNotBlank()) {
+                            appInfo.nonLocalizedLabel = rule.customLabel
+                            appInfo.labelRes = 0
+                        }
+                    }
+                }
+            )
+        } catch (_: Throwable) {}
+
+        // B. Hook ApplicationPackageManager.queryIntentActivities / queryIntentActivitiesAsUser
+        val apmClass = XposedHelpers.findClassIfExists(
+            "android.app.ApplicationPackageManager",
+            lpparam.classLoader
+        )
+        if (apmClass != null) {
+            try {
                 val queryHook = object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val rules = getStealthRules(xSharedPrefs)
@@ -322,6 +483,7 @@ object SystemStealthHook {
                         val categories = intent.categories
                         val isLauncherQuery = categories?.contains(Intent.CATEGORY_LAUNCHER) == true ||
                                 categories?.contains(Intent.CATEGORY_INFO) == true ||
+                                categories?.contains(Intent.CATEGORY_HOME) == true ||
                                 intent.action == Intent.ACTION_MAIN
                         if (!isLauncherQuery) return
 
@@ -337,6 +499,10 @@ object SystemStealthHook {
                             val targetPkg = ri.activityInfo?.packageName
                                 ?: ri.resolvePackageName
                                 ?: return@filter true
+                            ri.activityInfo?.let { ai ->
+                                recordPackageIconRes(targetPkg, ai.icon, ai.logo, ri.icon)
+                                recordAppInfoIcons(ai.applicationInfo)
+                            }
                             if (targetPkg == currentPkg) return@filter true
                             val rule = rules[targetPkg]
                             if (currentPkg == PLAY_STORE_PKG && rule?.hideFromPlayStore == true) {
@@ -357,8 +523,87 @@ object SystemStealthHook {
                 }
                 XposedBridge.hookAllMethods(apmClass, "queryIntentActivities", queryHook)
                 XposedBridge.hookAllMethods(apmClass, "queryIntentActivitiesAsUser", queryHook)
+            } catch (_: Throwable) {}
+
+            // B2. Client-side getApplicationInfo / getActivityInfo / getPackageInfo label & icon tracking
+            val clientInfoHook = object : XC_MethodHook() {
+                override fun afterHookedMethod(param: MethodHookParam) {
+                    val rules = getStealthRules(xSharedPrefs)
+                    if (rules.isEmpty()) return
+                    when (val res = param.result) {
+                        is ApplicationInfo -> {
+                            val targetPkg = res.packageName ?: return
+                            recordAppInfoIcons(res)
+                            val rule = rules[targetPkg] ?: return
+                            if (shouldSpoofInCurrentClient(currentPkg, rule) && rule.customLabel.isNotBlank()) {
+                                res.nonLocalizedLabel = rule.customLabel
+                                res.labelRes = 0
+                            }
+                        }
+                        is ActivityInfo -> {
+                            val targetPkg = res.packageName ?: return
+                            recordPackageIconRes(targetPkg, res.icon, res.logo)
+                            recordAppInfoIcons(res.applicationInfo)
+                            val rule = rules[targetPkg] ?: return
+                            if (shouldSpoofInCurrentClient(currentPkg, rule) && rule.customLabel.isNotBlank()) {
+                                res.nonLocalizedLabel = rule.customLabel
+                                res.labelRes = 0
+                                res.applicationInfo?.let { ai ->
+                                    ai.nonLocalizedLabel = rule.customLabel
+                                    ai.labelRes = 0
+                                }
+                            }
+                        }
+                        is PackageInfo -> {
+                            val targetPkg = res.packageName ?: return
+                            recordAppInfoIcons(res.applicationInfo)
+                            val rule = rules[targetPkg] ?: return
+                            if (shouldSpoofInCurrentClient(currentPkg, rule)) {
+                                val ruleHash = (rule.customLabel.hashCode() xor
+                                        rule.iconPreset.name.hashCode() xor
+                                        rule.donorPkg.hashCode() xor
+                                        rule.customIconBase64.hashCode()).toLong() and 0xFFFFL
+                                res.lastUpdateTime = res.lastUpdateTime + 1000L + ruleHash
+                                if (rule.customLabel.isNotBlank()) {
+                                    res.applicationInfo?.let { ai ->
+                                        ai.nonLocalizedLabel = rule.customLabel
+                                        ai.labelRes = 0
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
-        } catch (_: Throwable) {}
+            for (m in listOf("getApplicationInfo", "getActivityInfo", "getPackageInfo")) {
+                try {
+                    XposedBridge.hookAllMethods(apmClass, m, clientInfoHook)
+                } catch (_: Throwable) {}
+            }
+
+            // B3. Track Resources instances returned by getResourcesForApplication(ApplicationInfo / String)
+            try {
+                XposedBridge.hookAllMethods(
+                    apmClass,
+                    "getResourcesForApplication",
+                    object : XC_MethodHook() {
+                        override fun afterHookedMethod(param: MethodHookParam) {
+                            val resObj = param.result as? Resources ?: return
+                            val firstArg = param.args.firstOrNull() ?: return
+                            val targetPkg = when (firstArg) {
+                                is ApplicationInfo -> {
+                                    recordAppInfoIcons(firstArg)
+                                    firstArg.packageName
+                                }
+                                is String -> firstArg
+                                else -> null
+                            } ?: return
+                            resourcesToPkgMap[System.identityHashCode(resObj)] = targetPkg
+                        }
+                    }
+                )
+            } catch (_: Throwable) {}
+        }
 
         // C. Hook LauncherActivityInfo.getLabel() -> custom user-typed name in any launcher
         try {
@@ -371,7 +616,6 @@ object SystemStealthHook {
                         if (rules.isEmpty()) return
                         val info = param.thisObject as? LauncherActivityInfo ?: return
                         val targetPkg = info.componentName?.packageName ?: return
-                        if (targetPkg == currentPkg) return
                         val rule = rules[targetPkg] ?: return
                         if (shouldSpoofInCurrentClient(currentPkg, rule) && rule.customLabel.isNotBlank()) {
                             param.result = rule.customLabel
@@ -382,6 +626,8 @@ object SystemStealthHook {
         } catch (_: Throwable) {}
 
         // D. Hook PackageItemInfo.loadLabel(PackageManager) & ApplicationPackageManager.getApplicationLabel
+        // Note: We intentionally allow targetPkg == currentPkg when disguised so the app's own notifications,
+        // Recents TaskDescription, and toolbar titles use the clean disguised name.
         try {
             XposedBridge.hookAllMethods(
                 PackageItemInfo::class.java,
@@ -392,10 +638,7 @@ object SystemStealthHook {
                         if (rules.isEmpty()) return
                         val item = param.thisObject as? PackageItemInfo ?: return
                         val targetPkg = item.packageName ?: return
-                        if (targetPkg == currentPkg) return
-                        if (item.icon != 0) {
-                            knownPackageIconRes[targetPkg] = item.icon
-                        }
+                        recordPackageIconRes(targetPkg, item.icon, item.logo)
                         val rule = rules[targetPkg] ?: return
                         if (shouldSpoofInCurrentClient(currentPkg, rule) && rule.customLabel.isNotBlank()) {
                             param.result = rule.customLabel
@@ -405,10 +648,6 @@ object SystemStealthHook {
             )
         } catch (_: Throwable) {}
 
-        val apmClass = XposedHelpers.findClassIfExists(
-            "android.app.ApplicationPackageManager",
-            lpparam.classLoader
-        )
         if (apmClass != null) {
             try {
                 XposedBridge.hookAllMethods(
@@ -420,10 +659,7 @@ object SystemStealthHook {
                             if (rules.isEmpty()) return
                             val appInfo = param.args.firstOrNull() as? ApplicationInfo ?: return
                             val targetPkg = appInfo.packageName ?: return
-                            if (targetPkg == currentPkg) return
-                            if (appInfo.icon != 0) {
-                                knownPackageIconRes[targetPkg] = appInfo.icon
-                            }
+                            recordAppInfoIcons(appInfo)
                             val rule = rules[targetPkg] ?: return
                             if (shouldSpoofInCurrentClient(currentPkg, rule) && rule.customLabel.isNotBlank()) {
                                 param.result = rule.customLabel
@@ -441,27 +677,32 @@ object SystemStealthHook {
                     val firstArg = param.args.firstOrNull() ?: return
                     val targetPkg = when (firstArg) {
                         is String -> firstArg
-                        is ApplicationInfo -> firstArg.packageName
-                        is PackageItemInfo -> firstArg.packageName
+                        is ApplicationInfo -> {
+                            recordAppInfoIcons(firstArg)
+                            firstArg.packageName
+                        }
+                        is PackageItemInfo -> {
+                            recordPackageIconRes(firstArg.packageName ?: "", firstArg.icon, firstArg.logo)
+                            firstArg.packageName
+                        }
                         is ComponentName -> firstArg.packageName
                         is Intent -> firstArg.`package` ?: firstArg.component?.packageName
                         else -> null
                     } ?: return
-                    if (targetPkg == currentPkg) return
                     val rule = rules[targetPkg] ?: return
                     if (!shouldSpoofInCurrentClient(currentPkg, rule)) return
                     if (rule.iconPreset == DisguiseIconPreset.DEFAULT && rule.customIconBase64.isBlank()) return
 
                     // For getDrawable(String packageName, int resId, ApplicationInfo appInfo), only intercept
-                    // when loading the app's icon resource (not arbitrary internal drawables)
+                    // when loading the app's icon resource (not arbitrary internal UI drawables inside the app itself)
                     if (param.method.name == "getDrawable" && param.args.size >= 3) {
+                        if (targetPkg == currentPkg) return
                         val resId = param.args[1] as? Int ?: 0
                         val appInfo = param.args[2] as? ApplicationInfo
-                        val roundRes = if (appInfo != null) {
-                            try { XposedHelpers.getIntField(appInfo, "roundIconRes") } catch (_: Throwable) { 0 }
-                        } else 0
-                        val isIconRes = (appInfo != null && (resId == appInfo.icon || resId == appInfo.logo || (roundRes != 0 && resId == roundRes))) ||
-                                (knownPackageIconRes[targetPkg] != null && resId == knownPackageIconRes[targetPkg]) ||
+                        recordAppInfoIcons(appInfo)
+                        val knownSet = knownPackageIconRes[targetPkg]
+                        val isIconRes = (appInfo != null && (resId == appInfo.icon || resId == appInfo.logo)) ||
+                                (knownSet != null && knownSet.contains(resId)) ||
                                 (rule.donorIconRes != 0 && resId == rule.donorIconRes)
                         if (!isIconRes && appInfo != null && appInfo.icon != 0) {
                             return
@@ -497,7 +738,6 @@ object SystemStealthHook {
                     is ApplicationInfo -> obj.packageName
                     else -> null
                 } ?: return
-                if (targetPkg == currentPkg) return
                 val rule = rules[targetPkg] ?: return
                 if (!shouldSpoofInCurrentClient(currentPkg, rule)) return
                 if (rule.iconPreset == DisguiseIconPreset.DEFAULT && rule.customIconBase64.isBlank()) return
@@ -512,10 +752,42 @@ object SystemStealthHook {
             XposedBridge.hookAllMethods(PackageItemInfo::class.java, "loadUnbadgedIcon", itemIconHook)
         } catch (_: Throwable) {}
 
-        // E3. Hook Launcher3 / Pixel / OEM IconProvider.getIcon(ActivityInfo / LauncherActivityInfo, int)
+        // E3. Hook Resources.getDrawableForDensity & Resources.getDrawable for launchers that load
+        // icons via pm.getResourcesForApplication(appInfo).getDrawableForDensity(iconRes, density)
+        val resDrawableHook = object : XC_MethodHook() {
+            override fun beforeHookedMethod(param: MethodHookParam) {
+                if (isInResDrawableHook.get() == true) return
+                val resObj = param.thisObject as? Resources ?: return
+                val targetPkg = resourcesToPkgMap[System.identityHashCode(resObj)] ?: return
+                if (targetPkg == currentPkg) return
+                val resId = param.args.firstOrNull() as? Int ?: return
+                if (resId == 0) return
+                val knownSet = knownPackageIconRes[targetPkg]
+                if (knownSet != null && !knownSet.contains(resId)) return
+
+                val rules = getStealthRules(xSharedPrefs)
+                val rule = rules[targetPkg] ?: return
+                if (!shouldSpoofInCurrentClient(currentPkg, rule)) return
+                if (rule.iconPreset == DisguiseIconPreset.DEFAULT && rule.customIconBase64.isBlank()) return
+
+                isInResDrawableHook.set(true)
+                try {
+                    param.result = resolveDisguiseDrawable(rule)
+                } finally {
+                    isInResDrawableHook.set(false)
+                }
+            }
+        }
+        try {
+            XposedBridge.hookAllMethods(Resources::class.java, "getDrawableForDensity", resDrawableHook)
+            XposedBridge.hookAllMethods(Resources::class.java, "getDrawable", resDrawableHook)
+        } catch (_: Throwable) {}
+
+        // E4. Hook Launcher3 / Pixel / ColorOS / OEM IconProvider.getIcon
         val iconProviderClasses = listOf(
             "com.android.launcher3.icons.IconProvider",
-            "com.android.launcher3.IconProvider"
+            "com.android.launcher3.IconProvider",
+            "com.android.launcher3.icons.QuickstepIconProvider"
         )
         for (clsName in iconProviderClasses) {
             try {
@@ -544,6 +816,26 @@ object SystemStealthHook {
                 )
             } catch (_: Throwable) {}
         }
+
+        // F. Hook Activity.setTaskDescription so Recents screen cards use the disguised label
+        try {
+            XposedBridge.hookAllMethods(
+                Activity::class.java,
+                "setTaskDescription",
+                object : XC_MethodHook() {
+                    @Suppress("DEPRECATION")
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val rules = getStealthRules(xSharedPrefs)
+                        val rule = rules[currentPkg] ?: return
+                        if (rule.visibilityMode != LauncherVisibilityMode.DISGUISED || rule.customLabel.isBlank()) return
+                        val td = param.args.firstOrNull() as? ActivityManager.TaskDescription ?: return
+                        if (td.label != rule.customLabel) {
+                            param.args[0] = ActivityManager.TaskDescription(rule.customLabel)
+                        }
+                    }
+                }
+            )
+        } catch (_: Throwable) {}
     }
 
     /**
@@ -617,7 +909,7 @@ object SystemStealthHook {
     }
 
     /**
-     * System Server (`android`) hook on `LauncherAppsService$LauncherAppsImpl.getLauncherActivities`.
+     * System Server (`android`) hook on `LauncherAppsService$LauncherAppsImpl.getLauncherActivities` & `resolveActivity`.
      */
     private fun attachSystemServerLauncherAppsHooks(
         lpparam: XC_LoadPackage.LoadPackageParam,
@@ -641,7 +933,8 @@ object SystemStealthHook {
                         if (callingPkg == MODULE_PKG) return
                         val callingAppId = Binder.getCallingUid() % 100_000
                         val allowDonorResourceSwap = callingAppId >= Process.FIRST_APPLICATION_UID &&
-                                callingAppId != cachedHollowAppId
+                                callingAppId != cachedHollowAppId &&
+                                callingPkg != "com.android.systemui"
 
                         val rawResult = param.result ?: return
                         if (rawResult is List<*>) {
@@ -682,7 +975,8 @@ object SystemStealthHook {
                 is ResolveInfo -> item.activityInfo
                 is ActivityInfo -> item
                 else -> try {
-                    XposedHelpers.getObjectField(item, "mActivityInfo") as? ActivityInfo
+                    XposedHelpers.callMethod(item, "getActivityInfo") as? ActivityInfo
+                        ?: XposedHelpers.getObjectField(item, "mActivityInfo") as? ActivityInfo
                 } catch (_: Throwable) {
                     null
                 }
@@ -714,11 +1008,11 @@ object SystemStealthHook {
         allowDonorResourceSwap: Boolean
     ) {
         try {
+            // Only swap APK sourceDir for cloned apps with a valid donor APK (never point to Hollow's own APK)
             val swapRes = allowDonorResourceSwap &&
+                    rule.iconPreset == DisguiseIconPreset.CLONED_APP &&
                     rule.donorSourceDir.isNotBlank() &&
-                    rule.donorIconRes != 0 &&
-                    rule.iconPreset != DisguiseIconPreset.CUSTOM_IMAGE &&
-                    rule.iconPreset != DisguiseIconPreset.DEFAULT
+                    rule.donorIconRes != 0
 
             val clonedActivityInfo = ActivityInfo(originalInfo).apply {
                 if (rule.customLabel.isNotBlank()) {
@@ -743,6 +1037,8 @@ object SystemStealthHook {
                             publicSourceDir = rule.donorSourceDir
                             splitSourceDirs = null
                             splitPublicSourceDirs = null
+                            try { XposedHelpers.setObjectField(this, "resourceDirs", null) } catch (_: Throwable) {}
+                            try { XposedHelpers.setObjectField(this, "overlayPaths", null) } catch (_: Throwable) {}
                         }
                     }
                 }
@@ -766,10 +1062,9 @@ object SystemStealthHook {
             ri.labelRes = 0
         }
         if (allowDonorResourceSwap &&
+            rule.iconPreset == DisguiseIconPreset.CLONED_APP &&
             rule.donorSourceDir.isNotBlank() &&
-            rule.donorIconRes != 0 &&
-            rule.iconPreset != DisguiseIconPreset.CUSTOM_IMAGE &&
-            rule.iconPreset != DisguiseIconPreset.DEFAULT
+            rule.donorIconRes != 0
         ) {
             ri.icon = rule.donorIconRes
         }
@@ -778,8 +1073,8 @@ object SystemStealthHook {
     /**
      * System Server (`android`) hooks on `ComputerEngine` / `PackageManagerService` for:
      *  1. `queryIntentActivitiesInternal` (Launcher queries & donor icon resource swap)
-     *  2. `getInstalledApplications` & `getInstalledPackages` (Play Store hiding + Settings App Management spoofing)
-     *  3. `getApplicationInfo` & `getPackageInfo` (Play Store hiding + Settings App Management spoofing + Launcher IconCache invalidation)
+     *  2. `getInstalledApplications` & `getInstalledPackages` (Play Store hiding + Settings/Launcher label spoofing)
+     *  3. `getApplicationInfo`, `getActivityInfo` & `getPackageInfo` (Play Store hiding + Launcher/Settings label spoofing + IconCache invalidation)
      */
     private fun attachSystemServerPackageManagerHooks(
         lpparam: XC_LoadPackage.LoadPackageParam,
@@ -876,7 +1171,7 @@ object SystemStealthHook {
                     }
                 )
 
-                // 2. getInstalledApplications / getInstalledPackages (Play Store hiding & Settings App Management spoofing)
+                // 2. getInstalledApplications / getInstalledPackages
                 val listHook = object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val rules = getStealthRules(xSharedPrefs)
@@ -916,8 +1211,7 @@ object SystemStealthHook {
                                                 modified = true
                                                 continue
                                             }
-                                            if (rule.spoofInSettings &&
-                                                rule.visibilityMode == LauncherVisibilityMode.DISGUISED &&
+                                            if (rule.visibilityMode == LauncherVisibilityMode.DISGUISED &&
                                                 rule.customLabel.isNotBlank() &&
                                                 callingAppId != (item.uid % 100_000)
                                             ) {
@@ -985,7 +1279,7 @@ object SystemStealthHook {
                     } catch (_: Throwable) {}
                 }
 
-                // 3. getApplicationInfo / getPackageInfo (Single-package queries by Settings, Launcher IconCache, or Play Store)
+                // 3. getApplicationInfo / getActivityInfo / getPackageInfo
                 val singleInfoHook = object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val rules = getStealthRules(xSharedPrefs)
@@ -1007,13 +1301,34 @@ object SystemStealthHook {
                                         param.result = null
                                         return
                                     }
-                                    if (rule.spoofInSettings &&
-                                        rule.visibilityMode == LauncherVisibilityMode.DISGUISED &&
+                                    if (rule.visibilityMode == LauncherVisibilityMode.DISGUISED &&
                                         rule.customLabel.isNotBlank()
                                     ) {
                                         param.result = ApplicationInfo(res).apply {
                                             nonLocalizedLabel = rule.customLabel
                                             labelRes = 0
+                                        }
+                                    }
+                                }
+                                is ActivityInfo -> {
+                                    val pkg = res.packageName ?: return
+                                    val uid = res.applicationInfo?.uid ?: -1
+                                    if (pkg == MODULE_PKG && uid > 0) cachedHollowAppId = uid % 100_000
+                                    if (pkg == PLAY_STORE_PKG && uid > 0) cachedPlayStoreAppId = uid % 100_000
+                                    if (callingAppId == cachedHollowAppId || (uid > 0 && callingAppId == (uid % 100_000))) return
+                                    val rule = rules[pkg] ?: return
+                                    if (rule.visibilityMode == LauncherVisibilityMode.DISGUISED &&
+                                        rule.customLabel.isNotBlank()
+                                    ) {
+                                        param.result = ActivityInfo(res).apply {
+                                            nonLocalizedLabel = rule.customLabel
+                                            labelRes = 0
+                                            if (applicationInfo != null) {
+                                                applicationInfo = ApplicationInfo(applicationInfo).apply {
+                                                    nonLocalizedLabel = rule.customLabel
+                                                    labelRes = 0
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -1042,6 +1357,7 @@ object SystemStealthHook {
 
                 for (m in listOf(
                     "getApplicationInfo",
+                    "getActivityInfo",
                     "getPackageInfo"
                 )) {
                     try {
@@ -1070,7 +1386,7 @@ object SystemStealthHook {
                     rule.donorPkg.hashCode() xor
                     rule.customIconBase64.hashCode()).toLong() and 0xFFFFL
             copy.lastUpdateTime = original.lastUpdateTime + 1000L + ruleHash
-            if (rule.spoofInSettings && rule.customLabel.isNotBlank() && copy.applicationInfo != null) {
+            if (rule.customLabel.isNotBlank() && copy.applicationInfo != null) {
                 copy.applicationInfo = ApplicationInfo(copy.applicationInfo).apply {
                     nonLocalizedLabel = rule.customLabel
                     labelRes = 0
