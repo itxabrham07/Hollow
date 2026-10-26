@@ -41,3 +41,15 @@ enum class MountEngineStatus {
     ROOT_FUSE_ATTACHED,
     INACTIVE
 }
+
+/** What a hooked app may do when it opens the system photo / file picker. */
+enum class PickerPolicy(val title: String, val description: String) {
+    ALLOW(
+        title = "Allow",
+        description = "The system picker opens normally and shows your whole phone. The app only receives what you choose."
+    ),
+    BLOCK(
+        title = "Block",
+        description = "The system picker is cancelled for isolated apps. They can only use their own in-app gallery, which is isolated."
+    )
+}

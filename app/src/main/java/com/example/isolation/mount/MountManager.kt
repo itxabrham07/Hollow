@@ -4,8 +4,13 @@ import android.content.Context
 import android.os.Build
 import android.os.Environment
 import java.io.BufferedReader
+import com.example.isolation.crypto.AesVaultCipher
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.io.FileReader
+import java.io.OutputStream
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 data class MountEntry(
@@ -39,6 +44,12 @@ data class MountExecutionResult(
 object MountManager {
 
     const val VOLUME_MARKER = ".isovault_volume"
+    private const val LONG_TIMEOUT_SECONDS = 600L
+
+    private val locks = ConcurrentHashMap<String, Any>()
+
+    /** Every attach / detach / seal / unseal / purge of one app runs under this lock. */
+    private fun lockFor(packageName: String): Any = locks.getOrPut(packageName) { Any() }
     private const val EXTERNAL_ROOT = "/storage/emulated/0"
     private const val SU_TIMEOUT_SECONDS = 20L
 
@@ -93,11 +104,16 @@ object MountManager {
 
     private data class ShellResult(val exitCode: Int, val output: String, val timedOut: Boolean)
 
-    private fun runAsRoot(script: String): ShellResult {
+    private fun runAsRoot(script: String, timeoutSeconds: Long = SU_TIMEOUT_SECONDS): ShellResult {
+        // The script is an argument, not stdin, so no command in it can swallow the rest of it.
         val process = try {
-            ProcessBuilder("su").redirectErrorStream(true).start()
+            ProcessBuilder("su", "-c", script).redirectErrorStream(true).start()
         } catch (e: Exception) {
             return ShellResult(127, "su is not available: ${e.message}", false)
+        }
+        try {
+            process.outputStream.close()
+        } catch (_: Exception) {
         }
 
         val output = StringBuilder()
@@ -108,15 +124,7 @@ object MountManager {
             }
         }.apply { isDaemon = true; start() }
 
-        try {
-            process.outputStream.bufferedWriter().use { writer ->
-                writer.write(script)
-                writer.write("\nexit\n")
-            }
-        } catch (_: Exception) {
-        }
-
-        val deadline = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(SU_TIMEOUT_SECONDS)
+        val deadline = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(timeoutSeconds)
         var exit: Int? = null
         while (exit == null && System.currentTimeMillis() < deadline) {
             exit = try {
@@ -233,33 +241,285 @@ object MountManager {
 
     fun attachVolume(context: Context, packageName: String): MountExecutionResult {
         requirePackageName(packageName)
-        return execute("attach $packageName", attachShell(packageName, volumeDir(context, packageName).absolutePath))
+        return synchronized(lockFor(packageName)) {
+            File(context.filesDir, "vaults/$packageName").mkdirs()
+            execute("attach $packageName", attachShell(packageName, volumeDir(context, packageName).absolutePath))
+        }
     }
 
     fun detachVolume(context: Context, packageName: String): MountExecutionResult {
         requirePackageName(packageName)
-        return execute("detach $packageName", detachShell(packageName, volumeDir(context, packageName).absolutePath))
+        return synchronized(lockFor(packageName)) {
+            execute("detach $packageName", detachShell(packageName, volumeDir(context, packageName).absolutePath))
+        }
     }
 
     fun volumeStatus(context: Context, packageName: String): MountExecutionResult {
         requirePackageName(packageName)
-        return execute("status $packageName", statusShell(packageName, volumeDir(context, packageName).absolutePath))
+        return synchronized(lockFor(packageName)) {
+            execute("status $packageName", statusShell(packageName, volumeDir(context, packageName).absolutePath))
+        }
     }
 
-    /** Detaches the volume, then deletes it as root (the target app's UID owns its contents). */
+
+    // ---- Encrypted volumes: seal / unseal --------------------------------------------------
+    //
+    // A volume is plain files while it is in use (the app has to read and write it). Sealing
+    // stops the app, packs the volume with tar, encrypts the stream with AES-256-GCM (Keystore
+    // wrapped key), proves the archive decrypts completely and matches the packed size, makes it
+    // durable, and only then deletes the plaintext. Unsealing reverses it. While a volume is
+    // sealed there is no plaintext of it on the device.
+    //
+    // Sealed archives can only be opened with this app's Keystore key: clearing the manager's
+    // data or uninstalling it makes them permanently unreadable.
+
+    private const val ARCHIVE_NAME = "volume.sealed"
+    private const val SEALING_MARKER = ".sealing"
+
+    fun sealedArchive(context: Context, packageName: String): File =
+        File(context.filesDir, "vaults/$packageName/$ARCHIVE_NAME")
+
+    fun isSealed(context: Context, packageName: String): Boolean =
+        sealedArchive(context, packageName).isFile
+
+    private class DiscardingOutputStream : OutputStream() {
+        override fun write(b: Int) {}
+        override fun write(b: ByteArray, off: Int, len: Int) {}
+    }
+
+    private class SuProcess(val process: Process) {
+        val stderr = StringBuilder()
+        private val drain = Thread {
+            try {
+                process.errorStream.bufferedReader().forEachLine { stderr.appendLine(it) }
+            } catch (_: Exception) {
+            }
+        }.apply { isDaemon = true; start() }
+
+        fun finish(): Int {
+            val code = process.waitFor()
+            drain.join(1000)
+            return code
+        }
+
+        /** Kills the whole `su` child and collects what it printed. */
+        fun abort(): String {
+            process.destroyForcibly()
+            try {
+                process.waitFor()
+            } catch (_: InterruptedException) {
+            }
+            drain.join(1000)
+            return stderr.toString().trim()
+        }
+    }
+
+    private fun startSu(command: String): SuProcess =
+        SuProcess(ProcessBuilder("su", "-c", command).start())
+
+    private fun failure(label: String, message: String, code: Int = 1) =
+        MountExecutionResult(isSuccess = false, command = label, output = message, exitCode = code)
+
+    /** The volume directory, only if it really is <filesDir>/vaults/<pkg>/storage (no symlink tricks). */
+    private fun safeVolume(context: Context, packageName: String): File? {
+        val expected = File(File(context.filesDir.canonicalPath), "vaults/$packageName/storage").path
+        val actual = volumeDir(context, packageName)
+        return if (actual.canonicalPath == expected) actual else null
+    }
+
+    /** Stops the app and fails unless it is really gone. */
+    private fun stopAppShell(packageName: String, volume: String): String =
+        commonShell(packageName, volume) + "\n" +
+            "am force-stop \"${'$'}PKG\" </dev/null\n" +
+            "sleep 2\n" +
+            "[ -z \"${'$'}(pids_of)\" ] || { echo 'ERROR: app is still running'; exit 8; }\n"
+
+    /**
+     * Stops the app, encrypts its volume into [sealedArchive] and deletes the plaintext.
+     * The app is force-stopped first: sealing a volume that is being written would corrupt it.
+     * Nothing is deleted unless a complete, verified, durable archive exists.
+     */
+    fun sealVolume(context: Context, packageName: String): MountExecutionResult {
+        requirePackageName(packageName)
+        return synchronized(lockFor(packageName)) { sealLocked(context, packageName) }
+    }
+
+    private fun sealLocked(context: Context, packageName: String): MountExecutionResult {
+        val label = "seal $packageName"
+        val volume = safeVolume(context, packageName) ?: return failure(label, "Unexpected volume path.")
+        val archive = sealedArchive(context, packageName)
+        val part = File(archive.parentFile, "$ARCHIVE_NAME.part")
+        val sealing = File(archive.parentFile, SEALING_MARKER)
+
+        if (archive.exists()) return failure(label, "Already sealed.")
+        archive.parentFile?.mkdirs()
+        // Tells the boot service not to re-attach the app while it is being sealed.
+        try { sealing.createNewFile() } catch (_: Exception) {}
+
+        try {
+            val stop = runAsRoot(
+                stopAppShell(packageName, volume.absolutePath) +
+                    "[ -d \"${'$'}VOL\" ] || { echo 'ERROR: no volume to seal'; exit 9; }\n"
+            )
+            if (stop.exitCode != 0) return failure(label, "Could not stop the app: ${stop.output}", stop.exitCode)
+
+            part.delete()
+            var packedBytes = 0L
+            val tar = try {
+                startSu("exec tar -cf - -C '${volume.absolutePath}' .")
+            } catch (e: Exception) {
+                return failure(label, "su is not available: ${e.message}")
+            }
+            try {
+                tar.process.outputStream.close()
+                FileOutputStream(part).use { out ->
+                    packedBytes = AesVaultCipher.encryptStream(tar.process.inputStream, out)
+                    out.flush()
+                    out.fd.sync() // durable before anything is deleted
+                }
+            } catch (e: Exception) {
+                val err = tar.abort()
+                part.delete()
+                return failure(label, "Encryption failed, nothing was deleted: ${e.message} $err".trim())
+            }
+            val code = tar.finish()
+            if (code != 0) {
+                part.delete()
+                return failure(label, "tar failed (exit $code), nothing was deleted: ${tar.stderr}".trim(), code)
+            }
+
+            // Prove the archive is complete: every chunk authenticates and the size matches.
+            val verifiedBytes = try {
+                FileInputStream(part).use { AesVaultCipher.decryptStream(it, DiscardingOutputStream()) }
+            } catch (e: Exception) {
+                part.delete()
+                return failure(label, "Archive failed verification, nothing was deleted: ${e.message}")
+            }
+            if (verifiedBytes != packedBytes) {
+                part.delete()
+                return failure(label, "Archive size mismatch, nothing was deleted.")
+            }
+
+            if (archive.exists() || !part.renameTo(archive)) {
+                part.delete()
+                return failure(label, "Could not store the sealed archive; nothing was deleted.")
+            }
+
+            // Last chance: if the app came back while we were encrypting, the archive is stale.
+            val wipe = runAsRoot(
+                commonShell(packageName, volume.absolutePath) + "\n" +
+                    "[ -z \"${'$'}(pids_of)\" ] || { echo 'ERROR: app restarted while sealing'; exit 8; }\n" +
+                    "sync\n" +
+                    "[ ! -L \"${'$'}VOL\" ] || { echo 'ERROR: volume is a symlink'; exit 7; }\n" +
+                    "rm -rf \"${'$'}VOL\"\n" +
+                    "[ ! -e \"${'$'}VOL\" ] || { echo 'ERROR: plaintext not fully deleted'; exit 10; }\n",
+                LONG_TIMEOUT_SECONDS
+            )
+            if (wipe.exitCode == 8 || wipe.exitCode == 7) {
+                // The live volume is the newer truth. Drop the archive so it can never overwrite it.
+                archive.delete()
+                return failure(label, "Seal cancelled, volume left unchanged: ${wipe.output}", wipe.exitCode)
+            }
+            if (wipe.exitCode != 0) {
+                return failure(
+                    label,
+                    "The encrypted archive is complete, but deleting the plain files did not finish: ${wipe.output}. Detach again to retry.",
+                    wipe.exitCode
+                )
+            }
+            return MountExecutionResult(true, label, "Sealed (${archive.length()} bytes encrypted). No plaintext left.", 0)
+        } finally {
+            sealing.delete()
+        }
+    }
+
+    /**
+     * Decrypts the sealed archive back into the volume directory. No-op if not sealed.
+     * The archive is extracted next to the volume and swapped in, so an existing volume is never
+     * removed before a complete extract exists. File ownership and SELinux labels are applied by
+     * the attach step that always follows.
+     */
+    fun unsealVolume(context: Context, packageName: String): MountExecutionResult {
+        requirePackageName(packageName)
+        return synchronized(lockFor(packageName)) { unsealLocked(context, packageName) }
+    }
+
+    private fun unsealLocked(context: Context, packageName: String): MountExecutionResult {
+        val label = "unseal $packageName"
+        val archive = sealedArchive(context, packageName)
+        if (!archive.isFile) return MountExecutionResult(true, label, "Not sealed.", 0)
+        val volume = safeVolume(context, packageName) ?: return failure(label, "Unexpected volume path.")
+        val staging = File(volume.parentFile, "storage.new")
+
+        val prepare = runAsRoot("rm -rf '${staging.absolutePath}'; mkdir -p '${staging.absolutePath}'", LONG_TIMEOUT_SECONDS)
+        if (prepare.exitCode != 0) return failure(label, "Could not prepare the volume: ${prepare.output}", prepare.exitCode)
+
+        fun cleanup() { runAsRoot("rm -rf '${staging.absolutePath}'", LONG_TIMEOUT_SECONDS) }
+
+        val tar = try {
+            startSu("exec tar -xf - -C '${staging.absolutePath}'")
+        } catch (e: Exception) {
+            cleanup()
+            return failure(label, "su is not available: ${e.message}")
+        }
+        try {
+            tar.process.outputStream.use { dst ->
+                FileInputStream(archive).use { src -> AesVaultCipher.decryptStream(src, dst) }
+            }
+        } catch (e: Exception) {
+            val err = tar.abort()
+            cleanup()
+            return failure(label, "Decryption failed, the encrypted archive was kept: ${e.message} $err".trim())
+        }
+        val code = tar.finish()
+        if (code != 0) {
+            cleanup()
+            return failure(label, "tar failed (exit $code), the encrypted archive was kept: ${tar.stderr}".trim(), code)
+        }
+
+        val swap = runAsRoot(
+            "[ ! -L '${volume.absolutePath}' ] && rm -rf '${volume.absolutePath}' && mv '${staging.absolutePath}' '${volume.absolutePath}'",
+            LONG_TIMEOUT_SECONDS
+        )
+        if (swap.exitCode != 0) {
+            cleanup()
+            return failure(label, "Could not put the volume in place, the encrypted archive was kept: ${swap.output}", swap.exitCode)
+        }
+
+        // The extracted volume is now the single source of truth; the archive must not outlive it.
+        if (!archive.delete()) {
+            return failure(
+                label,
+                "Unlocked, but the old encrypted archive could not be removed. Delete ${archive.absolutePath} " +
+                    "before using this volume, or it would overwrite newer files on the next unlock."
+            )
+        }
+        return MountExecutionResult(true, label, "Unsealed.", 0)
+    }
+
+    /** Stops the app and deletes its whole volume directory, including any sealed archive. */
     fun purgeVolume(context: Context, packageName: String): MountExecutionResult {
         requirePackageName(packageName)
-        val base = File(context.filesDir, "vaults/$packageName").absolutePath
-        val volume = volumeDir(context, packageName).absolutePath
-        val script = detachShell(packageName, volume) + "\n" +
-            "case '$base' in */vaults/$packageName) rm -rf '$base' && echo purged ;; *) echo refused; exit 7 ;; esac"
-        return execute("purge $packageName", script)
+        return synchronized(lockFor(packageName)) {
+            val base = File(context.filesDir, "vaults/$packageName")
+            val expected = File(File(context.filesDir.canonicalPath), "vaults/$packageName").path
+            if (base.canonicalPath != expected) {
+                failure("purge $packageName", "Unexpected path, refusing to delete.")
+            } else {
+                val script = stopAppShell(packageName, volumeDir(context, packageName).absolutePath) + "\n" +
+                    "BASE='${base.absolutePath}'\n" +
+                    "[ ! -L \"${'$'}BASE\" ] || { echo 'ERROR: refusing to delete a symlink'; exit 7; }\n" +
+                    "rm -rf \"${'$'}BASE\"\n" +
+                    "[ ! -e \"${'$'}BASE\" ] && echo purged || { echo 'ERROR: not fully deleted'; exit 10; }\n"
+                execute("purge $packageName", script, LONG_TIMEOUT_SECONDS)
+            }
+        }
     }
 
-    private fun execute(label: String, script: String): MountExecutionResult {
-        val result = runAsRoot(script)
+    private fun execute(label: String, script: String, timeoutSeconds: Long = SU_TIMEOUT_SECONDS): MountExecutionResult {
+        val result = runAsRoot(script, timeoutSeconds)
         val output = when {
-            result.timedOut -> "Timed out after ${SU_TIMEOUT_SECONDS}s\n${result.output}"
+            result.timedOut -> "Timed out after ${timeoutSeconds}s\n${result.output}"
             else -> result.output
         }
         return MountExecutionResult(
@@ -296,6 +556,7 @@ object MountManager {
         sb.appendLine("  [ -d \"\$app\" ] || return 1")
         sb.appendLine("  uid=\$(stat -c %u \"\$app\")")
         sb.appendLine("  ctx=\$(ls -dZ \"\$app\" | awk '{print \$1}')")
+        sb.appendLine("  mgr=\$(stat -c %u '${context.filesDir.absolutePath}'); mkdir -p \"\$(dirname \"\$vol\")\"; chown \"\$mgr:\$mgr\" \"\$(dirname \"\$vol\")\"")
         sb.appendLine("  mkdir -p \"\$vol\" \"\$vol/Android/data/\$pkg\" \"\$vol/Android/media/\$pkg\"")
         sb.appendLine("  : > \"\$vol/$VOLUME_MARKER\"")
         sb.appendLine("  chown -R \"\$uid:\$uid\" \"\$vol\"; chmod 700 \"\$vol\"")
@@ -305,11 +566,17 @@ object MountManager {
         sb.appendLine("while true; do")
         for (pkg in valid) {
             val vol = volumeDir(context, pkg).absolutePath
+            val sealed = sealedArchive(context, pkg).absolutePath
+            val sealing = File(sealedArchive(context, pkg).parentFile, SEALING_MARKER).absolutePath
+            // A sealed volume can only be opened by the manager app (it holds the Keystore key),
+            // and a volume that is being sealed must not be re-attached.
+            sb.appendLine("  if [ ! -f '$sealed' ] && [ ! -f '$sealing' ]; then")
             sb.appendLine("  [ -f '$vol/$VOLUME_MARKER' ] || prepare_volume '$pkg' '$vol'")
             sb.appendLine("  for p in /proc/[0-9]*; do")
             sb.appendLine("    n=\$(tr '\\0' '\\n' < \"\$p/cmdline\" 2>/dev/null | head -n1)")
             sb.appendLine("    case \"\$n\" in '$pkg'|'$pkg':*) attach_pid '$pkg' '$vol' \"\${p#/proc/}\" ;; esac")
             sb.appendLine("  done")
+            sb.appendLine("  fi")
         }
         sb.appendLine("  sleep 2")
         sb.appendLine("done")

@@ -27,7 +27,10 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -44,6 +47,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.isolation.model.PickerPolicy
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
 import com.example.ui.theme.ForestPrimary
 import com.example.ui.theme.FrauncesFontFamily
@@ -62,6 +66,8 @@ fun SettingsScreen(
     onOpenDiagnostics: () -> Unit = {}
 ) {
     val isLsposedActive by viewModel.isLsposedActive.collectAsState()
+    val settings by viewModel.settings.collectAsState()
+    val rootStatus by viewModel.rootStatus.collectAsState()
 
     LazyColumn(
         modifier = Modifier
@@ -147,6 +153,113 @@ fun SettingsScreen(
                         title = "Force-stop and reopen the app",
                         desc = "When you reopen Snapchat or WhatsApp, its gallery will be clean and private."
                     )
+                }
+            }
+        }
+
+        // Isolation controls
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = WarmIvory),
+                shape = RoundedCornerShape(22.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, WarmStone),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text(
+                        text = "Isolation Controls",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 17.sp,
+                        fontFamily = FrauncesFontFamily,
+                        color = InkPrimary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    ToggleRow(
+                        title = "Root volumes",
+                        description = "Lets you attach a private volume to an app (Apps > app > Attach Volume). Needs root.",
+                        checked = settings.rootVolumesEnabled,
+                        enabled = true,
+                        onChange = { viewModel.setRootVolumesEnabled(it) }
+                    )
+                    HorizontalDivider(color = WarmStone)
+                    ToggleRow(
+                        title = "Encrypt volumes when detached",
+                        description = "Detach stops the app, encrypts its volume (AES-256) and deletes the plain files. " +
+                            "Attach decrypts it again. While an app is using its volume the files are plain.",
+                        checked = settings.encryptVolumesAtRest,
+                        enabled = settings.rootVolumesEnabled,
+                        onChange = { viewModel.setEncryptVolumesAtRest(it) }
+                    )
+                    HorizontalDivider(color = WarmStone)
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "System photo / file picker",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = InkPrimary,
+                        fontFamily = JakartaFontFamily
+                    )
+                    Text(
+                        text = settings.pickerPolicy.description,
+                        fontSize = 12.sp,
+                        color = InkSecondary,
+                        fontFamily = JakartaFontFamily
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                        for (policy in PickerPolicy.values()) {
+                            val selected = settings.pickerPolicy == policy
+                            if (selected) {
+                                Button(
+                                    onClick = { viewModel.setPickerPolicy(policy) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = ForestPrimary, contentColor = Color.White),
+                                    shape = RoundedCornerShape(50),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(policy.title, fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
+                                }
+                            } else {
+                                OutlinedButton(
+                                    onClick = { viewModel.setPickerPolicy(policy) },
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, WarmStone),
+                                    shape = RoundedCornerShape(50),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(policy.title, color = InkPrimary, fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    HorizontalDivider(color = WarmStone)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Root status",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = InkPrimary,
+                                fontFamily = JakartaFontFamily
+                            )
+                            Text(text = rootStatus, fontSize = 12.sp, color = InkSecondary, fontFamily = JakartaFontFamily)
+                        }
+                        OutlinedButton(
+                            onClick = { viewModel.checkRoot() },
+                            border = androidx.compose.foundation.BorderStroke(1.dp, WarmStone),
+                            shape = RoundedCornerShape(50)
+                        ) {
+                            Text("Check root", color = InkPrimary, fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                 }
             }
         }
@@ -274,6 +387,40 @@ fun SettingsScreen(
         item {
             Spacer(modifier = Modifier.height(20.dp))
         }
+    }
+}
+
+@Composable
+fun ToggleRow(
+    title: String,
+    description: String,
+    checked: Boolean,
+    enabled: Boolean,
+    onChange: (Boolean) -> Unit
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 10.dp)
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (enabled) InkPrimary else InkSecondary,
+                fontFamily = JakartaFontFamily
+            )
+            Text(text = description, fontSize = 12.sp, color = InkSecondary, fontFamily = JakartaFontFamily)
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = onChange,
+            enabled = enabled,
+            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = ForestPrimary)
+        )
     }
 }
 

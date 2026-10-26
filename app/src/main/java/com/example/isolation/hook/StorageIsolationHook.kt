@@ -15,12 +15,15 @@ import android.graphics.ImageDecoder
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import android.util.Log
 import com.example.isolation.model.AuditAction
 import com.example.isolation.model.IsolationMode
 import com.example.isolation.model.IsolationRuleManager
+import com.example.isolation.model.PickerPolicy
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.IXposedHookZygoteInit
 import de.robv.android.xposed.XC_MethodHook
@@ -274,7 +277,8 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
                     val pollution = bundle.getBoolean("blockPollution", true)
                     val whitelistStr = bundle.getString("whitelistedFolders", "") ?: ""
                     val whitelist = whitelistStr.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
-                    return IsolationRuleManager.AppRule(pkg, isolated, mode, pollution, whitelist)
+                    val picker = parsePickerPolicy(bundle.getString("pickerPolicy"))
+                    return IsolationRuleManager.AppRule(pkg, isolated, mode, pollution, whitelist, picker)
                 }
             }
         } catch (_: Throwable) {}
@@ -293,7 +297,8 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
                 val pollution = prefs.getBoolean("${pkg}_pollution", true)
                 val whitelistStr = prefs.getString("${pkg}_whitelist", "") ?: ""
                 val whitelist = whitelistStr.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
-                return IsolationRuleManager.AppRule(pkg, isolated, mode, pollution, whitelist)
+                val picker = parsePickerPolicy(prefs.getString(IsolationRuleManager.KEY_PICKER_POLICY, null))
+                return IsolationRuleManager.AppRule(pkg, isolated, mode, pollution, whitelist, picker)
             }
         } catch (_: Throwable) {}
 
@@ -306,6 +311,30 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             blockRootPollution = true,
             whitelistedFolders = emptySet()
         )
+    }
+
+    private fun parsePickerPolicy(name: String?): PickerPolicy =
+        try { PickerPolicy.valueOf(name ?: "ALLOW") } catch (_: IllegalArgumentException) { PickerPolicy.ALLOW }
+
+    /**
+     * Cancels a picker the app tried to open: the app is told the user backed out, exactly as if
+     * they had pressed back in the picker.
+     */
+    private fun cancelPicker(activity: Activity, requestCode: Int) {
+        Handler(Looper.getMainLooper()).post {
+            try {
+                XposedHelpers.callMethod(
+                    activity,
+                    "onActivityResult",
+                    arrayOf<Class<*>>(Int::class.javaPrimitiveType!!, Int::class.javaPrimitiveType!!, Intent::class.java),
+                    requestCode,
+                    Activity.RESULT_CANCELED,
+                    null
+                )
+            } catch (t: Throwable) {
+                XposedBridge.log("[IsoVault] Could not deliver picker cancel: ${t.message}")
+            }
+        }
     }
 
     private fun isGalleryWhitelisted(rule: IsolationRuleManager.AppRule): Boolean {
@@ -871,6 +900,25 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
                             val rule = resolveRuleForPackage(pkg)
                             if (!rule.isIsolated || rule.mode == IsolationMode.READ_ONLY) return
                             if (isGalleryWhitelisted(rule)) return
+
+                            if (rule.pickerPolicy == PickerPolicy.BLOCK) {
+                                val activity = param.thisObject as? Activity
+                                val requestCode = param.args.getOrNull(1) as? Int
+                                if (activity != null && requestCode != null && requestCode >= 0) {
+                                    param.result = null // the picker never opens
+                                    cancelPicker(activity, requestCode)
+                                    XposedBridge.log("[IsoVault] Blocked system picker in $pkg")
+                                    reportAuditToManager(
+                                        pkg = pkg,
+                                        requestedPath = "Picker://${intent.action ?: "PICK"}",
+                                        resolvedPath = "IsoVault://picker_blocked",
+                                        action = AuditAction.BLOCKED,
+                                        operation = "PICKER_BLOCKED",
+                                        details = "System picker blocked by IsoVault settings"
+                                    )
+                                    return
+                                }
+                            }
 
                             val sandboxRoot = getOrCreateSandboxRoot(pkg)
                             val picturesDir = File(sandboxRoot, "Pictures").apply { mkdirs() }

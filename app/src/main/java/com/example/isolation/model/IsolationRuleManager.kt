@@ -23,8 +23,19 @@ object IsolationRuleManager {
         val isIsolated: Boolean,
         val mode: IsolationMode,
         val blockRootPollution: Boolean,
-        val whitelistedFolders: Set<String>
+        val whitelistedFolders: Set<String>,
+        val pickerPolicy: PickerPolicy = PickerPolicy.ALLOW
     )
+
+    const val KEY_PICKER_POLICY = "global_picker_policy"
+
+    fun publishPickerPolicy(policy: PickerPolicy) {
+        val app = IsoVaultApp.instanceOrNull() ?: return
+        try {
+            getReadableSharedPrefs(app).edit().putString(KEY_PICKER_POLICY, policy.name).commit()
+        } catch (_: Throwable) {
+        }
+    }
 
     /**
      * Checks if Vector / LSPosed has hooked Context.getSharedPreferences(MODE_WORLD_READABLE).

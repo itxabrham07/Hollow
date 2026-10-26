@@ -3,6 +3,7 @@ package com.example
 import android.app.Application
 import com.example.isolation.data.IsoVaultDatabase
 import com.example.isolation.model.IsolationRuleManager
+import com.example.isolation.model.SettingsStore
 import com.example.isolation.pkg.AppPackageRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +27,7 @@ class IsoVaultApp : Application() {
     }
 
     private suspend fun republishRules() {
+        IsolationRuleManager.publishPickerPolicy(SettingsStore.load(this).pickerPolicy)
         for (cfg in database.isolationDao().getAllConfigs().first()) {
             val whitelist = cfg.whitelistedFolders.split(',').map { it.trim() }.filter { it.isNotBlank() }.toSet()
             if (cfg.isIsolated) {
