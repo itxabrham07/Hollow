@@ -11,7 +11,10 @@ import com.example.isolation.data.entity.AccessAuditLog
 import com.example.isolation.data.entity.AppIsolationConfig
 import com.example.isolation.data.entity.VaultFileItem
 import com.example.isolation.model.IsolationMode
+import com.example.isolation.model.AppSettings
 import com.example.isolation.model.IsolationRuleManager
+import com.example.isolation.model.PickerPolicy
+import com.example.isolation.model.SettingsStore
 import com.example.isolation.mount.MountEntry
 import com.example.isolation.mount.MountExecutionResult
 import com.example.isolation.mount.MountManager
@@ -87,6 +90,12 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 IsolationRuleManager.isXSharedPrefsHooked(app)
     )
     val isLsposedActive = _isLsposedActive.asStateFlow()
+
+    private val _settings = MutableStateFlow(SettingsStore.load(app))
+    val settings = _settings.asStateFlow()
+
+    private val _rootStatus = MutableStateFlow("Not checked")
+    val rootStatus = _rootStatus.asStateFlow()
 
     private val _terminalLogs = MutableStateFlow<List<String>>(emptyList())
     val terminalLogs = _terminalLogs.asStateFlow()
@@ -256,6 +265,30 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    // ---- Settings --------------------------------------------------------------------------
+
+    private fun updateSettings(transform: (AppSettings) -> AppSettings) {
+        val next = transform(_settings.value)
+        _settings.value = next
+        viewModelScope.launch(Dispatchers.IO) { SettingsStore.save(app, next) }
+    }
+
+    fun setRootVolumesEnabled(enabled: Boolean) = updateSettings { it.copy(rootVolumesEnabled = enabled) }
+
+    fun setEncryptVolumesAtRest(enabled: Boolean) = updateSettings { it.copy(encryptVolumesAtRest = enabled) }
+
+    fun setPickerPolicy(policy: PickerPolicy) {
+        updateSettings { it.copy(pickerPolicy = policy) }
+        _statusMessage.value = "System picker: ${policy.title}. Force-stop isolated apps to apply."
+    }
+
+    fun checkRoot() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _rootStatus.value = "Checking..."
+            _rootStatus.value = if (MountManager.isRootAvailable()) "Root access granted" else "No root access"
+        }
+    }
+
     // ---- Encrypted locker ------------------------------------------------------------------
 
     private suspend fun storeInLocker(displayName: String, mimeType: String, write: (java.io.OutputStream) -> Long) {
@@ -391,18 +424,51 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
         _statusMessage.value = if (result.isSuccess) success else "$failure (exit ${result.exitCode})"
     }
 
-    /** Mounts the app's private volume over its storage root. Needs root and a running app. */
+    private fun rootFeatureEnabled(): Boolean {
+        if (_settings.value.rootVolumesEnabled) return true
+        _statusMessage.value = "Turn on Root volumes in Settings first."
+        return false
+    }
+
+    /**
+     * Unlocks the app's volume if it is sealed, then mounts it over the app's storage root.
+     * Needs root and a running app.
+     */
     fun attachVolume(packageName: String) {
         viewModelScope.launch(Dispatchers.IO) {
+            if (!rootFeatureEnabled()) return@launch
+
+            if (MountManager.isSealed(app, packageName)) {
+                val unsealed = MountManager.unsealVolume(app, packageName)
+                if (!unsealed.isSuccess) {
+                    reportMount(unsealed, "", "Could not unlock the encrypted volume")
+                    return@launch
+                }
+                appendTerminalLog("Encrypted volume unlocked for $packageName")
+            }
+
             val result = MountManager.attachVolume(app, packageName)
             reportMount(result, "Volume attached to $packageName.", "Attach failed")
+            if (!result.isSuccess && result.exitCode == 5) {
+                _statusMessage.value = "Open the app first, then press Attach again. Its volume is unlocked (not encrypted) until you detach."
+            }
         }
     }
 
+    /**
+     * Unmounts the volume. With "Encrypt volumes when detached" on, the app is then stopped and
+     * its volume is sealed (encrypted, plaintext deleted).
+     */
     fun detachVolume(packageName: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            val result = MountManager.detachVolume(app, packageName)
-            reportMount(result, "Volume detached from $packageName.", "Detach failed")
+            if (!rootFeatureEnabled()) return@launch
+
+            val detached = MountManager.detachVolume(app, packageName)
+            reportMount(detached, "Volume detached from $packageName.", "Detach failed")
+            if (!detached.isSuccess || !_settings.value.encryptVolumesAtRest) return@launch
+
+            val sealed = MountManager.sealVolume(app, packageName)
+            reportMount(sealed, "Volume of $packageName is now encrypted. The app was stopped.", "Could not encrypt the volume")
         }
     }
 
@@ -410,11 +476,13 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
     fun runRootCheck() {
         viewModelScope.launch(Dispatchers.IO) {
             val root = MountManager.isRootAvailable()
+            _rootStatus.value = if (root) "Root access granted" else "No root access"
             appendTerminalLog(if (root) "Root access: granted" else "Root access: not available (volumes disabled, hooks still work)")
             if (!root) return@launch
             for (cfg in configs.value.filter { it.isIsolated }) {
-                val result = MountManager.volumeStatus(app, cfg.packageName)
-                appendTerminalLog("${cfg.appName}: ${result.output.replace('\n', ' ')}")
+                val sealed = MountManager.isSealed(app, cfg.packageName)
+                val state = if (sealed) "encrypted (sealed)" else MountManager.volumeStatus(app, cfg.packageName).output.replace('\n', ' ')
+                appendTerminalLog("${cfg.appName}: $state")
             }
         }
     }

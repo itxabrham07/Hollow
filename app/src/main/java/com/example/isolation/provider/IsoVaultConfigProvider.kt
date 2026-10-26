@@ -71,7 +71,8 @@ class IsoVaultConfigProvider : ContentProvider() {
         val isolated: Boolean,
         val mode: String,
         val whitelist: String,
-        val blockPollution: Boolean
+        val blockPollution: Boolean,
+        val pickerPolicy: String
     )
 
     private fun loadRule(pkg: String): RuleSnapshot {
@@ -91,7 +92,8 @@ class IsoVaultConfigProvider : ContentProvider() {
                 isolated = config.isIsolated,
                 mode = config.isolationMode.name,
                 whitelist = config.whitelistedFolders,
-                blockPollution = config.blockRootPollution
+                blockPollution = config.blockRootPollution,
+                pickerPolicy = globalPickerPolicy()
             )
         }
 
@@ -104,8 +106,15 @@ class IsoVaultConfigProvider : ContentProvider() {
             isolated = if (configured) prefs?.getBoolean("${pkg}_isolated", true) ?: true else true,
             mode = prefs?.getString("${pkg}_mode", IsolationMode.ENCRYPTED_VAULT.name) ?: IsolationMode.ENCRYPTED_VAULT.name,
             whitelist = prefs?.getString("${pkg}_whitelist", "") ?: "",
-            blockPollution = prefs?.getBoolean("${pkg}_pollution", true) ?: true
+            blockPollution = prefs?.getBoolean("${pkg}_pollution", true) ?: true,
+            pickerPolicy = globalPickerPolicy()
         )
+    }
+
+    private fun globalPickerPolicy(): String {
+        val ctx = context ?: return "ALLOW"
+        return IsolationRuleManager.getReadableSharedPrefs(ctx)
+            .getString(IsolationRuleManager.KEY_PICKER_POLICY, "ALLOW") ?: "ALLOW"
     }
 
     override fun query(
@@ -152,6 +161,7 @@ class IsoVaultConfigProvider : ContentProvider() {
                 result.putString("mode", rule.mode)
                 result.putString("whitelistedFolders", rule.whitelist)
                 result.putBoolean("blockPollution", rule.blockPollution)
+                result.putString("pickerPolicy", rule.pickerPolicy)
             }
 
             METHOD_RECORD_AUDIT -> {
