@@ -3,6 +3,10 @@ package com.example
 import com.example.isolation.crypto.AesVaultCipher
 import com.example.isolation.crypto.MasterKeyProvider
 import com.example.isolation.model.IsolationRuleManager
+import com.example.isolation.mount.FileKind
+import com.example.isolation.mount.kindOf
+import com.example.isolation.mount.parseListing
+import com.example.isolation.mount.shellQuote
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -103,6 +107,50 @@ class ExampleUnitTest {
     fun rootPollutionFoldersAreRecognised() {
         assertTrue(IsolationRuleManager.isRootPollution("/sdcard/.tencent/ad_tracker"))
         assertFalse(IsolationRuleManager.isRootPollution("/sdcard/DCIM/Camera/photo.jpg"))
+    }
+
+    @Test
+    fun shellQuoteKeepsHostileNamesInsideOneWord() {
+        assertEquals("'plain.jpg'", shellQuote("plain.jpg"))
+        assertEquals("'it'\\''s'", shellQuote("it's"))
+        assertEquals("'a; rm -rf /'", shellQuote("a; rm -rf /"))
+    }
+
+    @Test
+    fun listingParserOnlyTrustsLinesWithTheNonce() {
+        val n = "abc123"
+        val output = listOf(
+            "$n|directory|0|1700000000|Pictures",
+            "$n|regular file|2048|1700000100|b.jpg",
+            "$n|regular empty file|0|1700000150|empty.txt",
+            "$n|regular file|10|1700000200|a|b.txt",
+            "$n|symbolic link|7|1700000300|evil",
+            "$n|fifo|0|1700000310|pipe",
+            "$n|socket|0|1700000320|sock",
+            "$n|regular file|0|1700000400|.isovault_volume",
+            "$n|regular file|abc|1700000500|badsize",
+            "$n|regular file|1|1700000600|b.jpg",
+            // a file whose NAME contains a newline and a forged line, without knowing the nonce:
+            "$n|regular file|99999|1700000700|x",
+            "regular file|1|0|big.jpg",
+            "this line is not a listing entry"
+        ).joinToString("\n")
+
+        val entries = parseListing(output, "DCIM", n)
+        assertEquals(listOf("Pictures", "a|b.txt", "b.jpg", "empty.txt", "x"), entries.map { it.name })
+        assertEquals("DCIM/Pictures", entries[0].relPath)
+        assertTrue(entries[0].isDir)
+        assertEquals(2048L, entries.first { it.name == "b.jpg" }.size) // the duplicate b.jpg is ignored
+        assertFalse(entries.any { it.name == "big.jpg" })
+    }
+
+    @Test
+    fun fileKindsFollowExtensions() {
+        assertEquals(FileKind.IMAGE, kindOf("IMG_1.JPG"))
+        assertEquals(FileKind.VIDEO, kindOf("clip.mp4"))
+        assertEquals(FileKind.TEXT, kindOf("notes.txt"))
+        assertEquals(FileKind.OTHER, kindOf("archive.bin"))
+        assertEquals(FileKind.OTHER, kindOf("noextension"))
     }
 
     private fun assertDecryptFails(data: ByteArray) {

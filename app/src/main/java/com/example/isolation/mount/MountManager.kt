@@ -44,7 +44,7 @@ data class MountExecutionResult(
 object MountManager {
 
     const val VOLUME_MARKER = ".isovault_volume"
-    private const val LONG_TIMEOUT_SECONDS = 600L
+    internal const val LONG_TIMEOUT_SECONDS = 600L
 
     private val locks = ConcurrentHashMap<String, Any>()
 
@@ -102,9 +102,9 @@ object MountManager {
 
     // ---- Root execution --------------------------------------------------------------------
 
-    private data class ShellResult(val exitCode: Int, val output: String, val timedOut: Boolean)
+    internal data class ShellResult(val exitCode: Int, val output: String, val timedOut: Boolean)
 
-    private fun runAsRoot(script: String, timeoutSeconds: Long = SU_TIMEOUT_SECONDS): ShellResult {
+    internal fun runAsRoot(script: String, timeoutSeconds: Long = SU_TIMEOUT_SECONDS): ShellResult {
         // The script is an argument, not stdin, so no command in it can swallow the rest of it.
         val process = try {
             ProcessBuilder("su", "-c", script).redirectErrorStream(true).start()
