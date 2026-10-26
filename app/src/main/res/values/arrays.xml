@@ -2,6 +2,7 @@
 <resources>
     <string-array name="xposed_scope">
         <item>android</item>
+        <item>system</item>
         <item>com.android.systemui</item>
         <item>com.aistudio.isovault.xrvf</item>
         <item>com.snapchat.android</item>

@@ -40,7 +40,7 @@
             android:value="Storage isolation, SystemUI stealth hider, app disguise engine, and encrypted vault for Android" />
         <meta-data
             android:name="xposedminversion"
-            android:value="82" />
+            android:value="93" />
         <meta-data
             android:name="xposedsharedprefs"
             android:value="true" />
@@ -97,6 +97,17 @@
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
             </intent-filter>
         </service>
+
+        <receiver
+            android:name="com.example.isolation.service.HollowSecretCodeReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.SECRET_CODE" />
+                <data
+                    android:host="465569"
+                    android:scheme="android_secret_code" />
+            </intent-filter>
+        </receiver>
 
         <provider
             android:name="com.example.isolation.provider.IsoVaultConfigProvider"

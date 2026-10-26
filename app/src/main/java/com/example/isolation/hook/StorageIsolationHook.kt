@@ -211,8 +211,9 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             SystemStealthHook.attachForPackage(lpparam, pkg, xSharedPrefs)
         } catch (_: Throwable) {}
 
-        // Core system packages only run stealth/SystemUI hooks, never storage isolation hooks
-        if (pkg == "android" || pkg.startsWith("com.android.systemui")) {
+        // Core system packages only run stealth/SystemUI hooks, never storage isolation hooks.
+        // Note: Vector's LoadedApkHookers.kt passes "android" for system_server and "system" for android:ui.
+        if (pkg == "android" || pkg == "system" || pkg.startsWith("com.android.systemui")) {
             return
         }
         if (pkg.startsWith("com.android.providers.") ||
@@ -316,11 +317,15 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             }
         } catch (_: Throwable) {}
 
-        // 3. Default: isolate. (There is deliberately no rule file on shared storage: a hooked app
-        //    could write to it and turn its own isolation off.)
+        // 3. Default: isolate regular apps in scope, but do not isolate home launchers by default
+        //    if the user only added the launcher to Vector scope for App Hider / Disguise hooks.
+        val isLauncherPkg = pkg.contains("launcher", ignoreCase = true) ||
+                pkg == "com.miui.home" ||
+                pkg == "com.bbk.launcher2" ||
+                pkg == "net.oneplus.launcher"
         return IsolationRuleManager.AppRule(
             packageName = pkg,
-            isIsolated = true,
+            isIsolated = !isLauncherPkg,
             mode = IsolationMode.ENCRYPTED_VAULT,
             blockRootPollution = true,
             whitelistedFolders = emptySet()

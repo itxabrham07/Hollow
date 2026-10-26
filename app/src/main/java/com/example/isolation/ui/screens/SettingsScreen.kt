@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,8 +19,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhotoLibrary
@@ -29,11 +32,13 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -48,8 +53,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.isolation.model.LauncherVisibilityMode
 import com.example.isolation.model.PickerPolicy
 import com.example.isolation.ui.components.StatusBadge
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
@@ -65,51 +72,144 @@ fun SettingsScreen(
     val settings by viewModel.settings.collectAsState()
     val rootStatus by viewModel.rootStatus.collectAsState()
     var showSetupGuideDialog by remember { mutableStateOf(false) }
+    var showHollowStealthDialog by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp)
             .testTag("settings_screen"),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = "Settings",
                 fontWeight = FontWeight.Bold,
-                fontSize = 20.sp,
+                fontSize = 19.sp,
                 fontFamily = JakartaFontFamily,
                 color = scheme.onBackground
             )
             Text(
-                text = "Configure system photo picker behavior, appearance, and volume isolation.",
-                fontSize = 12.sp,
+                text = "Hollow stealth, system picker policy, appearance, and volume mounts.",
+                fontSize = 11.sp,
                 color = scheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 fontFamily = JakartaFontFamily
             )
         }
 
-        // 1. Dedicated System Photo & File Picker Settings Card
+        // 1. Hollow Self-Stealth & SystemUI Entry (Moved from AppHiderScreen to Settings)
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = scheme.surface),
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(18.dp),
+                border = BorderStroke(1.dp, scheme.primary.copy(alpha = 0.4f)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showHollowStealthDialog = true }
+                    .testTag("card_hollow_self_stealth")
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(scheme.primaryContainer)
+                    ) {
+                        Icon(
+                            imageVector = presetIconVector(settings.hollowIconPreset),
+                            contentDescription = null,
+                            tint = scheme.onPrimaryContainer,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Hide / Disguise Hollow",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = scheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            fontFamily = JakartaFontFamily
+                        )
+                        Text(
+                            text = when (settings.hollowVisibilityMode) {
+                                LauncherVisibilityMode.VISIBLE ->
+                                    if (settings.systemUiTriggerEnabled) "Visible • SystemUI Clock/Date trigger on"
+                                    else "Visible in launcher • Tap to hide or disguise"
+                                LauncherVisibilityMode.DISGUISED ->
+                                    "Disguised as \"${settings.hollowCustomName}\" • SystemUI ready"
+                                LauncherVisibilityMode.HIDDEN ->
+                                    "Hidden • Open via SystemUI Clock or *#*#465569#*#*"
+                            },
+                            fontSize = 11.sp,
+                            color = scheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            fontFamily = JakartaFontFamily
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    FilledTonalButton(
+                        onClick = { showHollowStealthDialog = true },
+                        shape = RoundedCornerShape(50),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = when (settings.hollowVisibilityMode) {
+                                LauncherVisibilityMode.VISIBLE -> "Visible"
+                                LauncherVisibilityMode.DISGUISED -> "Disguised"
+                                LauncherVisibilityMode.HIDDEN -> "Hidden"
+                            },
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = JakartaFontFamily
+                        )
+                    }
+                }
+            }
+        }
+
+        // 2. Compact System Photo & File Picker Settings Card
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = scheme.surface),
+                shape = RoundedCornerShape(18.dp),
                 border = BorderStroke(1.dp, scheme.outlineVariant),
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
                             Box(
                                 contentAlignment = Alignment.Center,
                                 modifier = Modifier
-                                    .size(36.dp)
+                                    .size(34.dp)
                                     .clip(CircleShape)
                                     .background(scheme.primaryContainer)
                             ) {
@@ -117,134 +217,128 @@ fun SettingsScreen(
                                     imageVector = Icons.Default.PhotoLibrary,
                                     contentDescription = null,
                                     tint = scheme.onPrimaryContainer,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(17.dp)
                                 )
                             }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = "System Photo & File Picker",
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp,
+                                    fontSize = 14.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                     fontFamily = JakartaFontFamily,
                                     color = scheme.onSurface
                                 )
                                 Text(
-                                    text = "Control what happens when isolated apps request a photo or file",
+                                    text = if (settings.pickerPolicy == PickerPolicy.ALLOW) {
+                                        "Picked photos copy safely to app sandbox"
+                                    } else {
+                                        "System picker blocked for isolated apps"
+                                    },
                                     fontSize = 11.sp,
                                     color = scheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                     fontFamily = JakartaFontFamily
                                 )
                             }
                         }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        StatusBadge(
+                            text = if (settings.pickerPolicy == PickerPolicy.ALLOW) "Sandbox Copy" else "Blocked",
+                            color = scheme.primary
+                        )
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    for (policy in PickerPolicy.values()) {
-                        val selected = settings.pickerPolicy == policy
-                        Card(
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (selected) scheme.primaryContainer.copy(alpha = 0.35f) else scheme.surfaceContainerLow
-                            ),
-                            shape = RoundedCornerShape(14.dp),
-                            border = BorderStroke(
-                                1.dp,
-                                if (selected) scheme.primary else scheme.outlineVariant
-                            ),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .clickable { viewModel.setPickerPolicy(policy) }
-                                .testTag("picker_policy_${policy.name.lowercase()}")
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(12.dp)
-                            ) {
-                                RadioButton(
-                                    selected = selected,
-                                    onClick = { viewModel.setPickerPolicy(policy) }
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = if (policy == PickerPolicy.ALLOW) {
-                                                "Allow System Picker (Recommended)"
-                                            } else {
-                                                "Block System Picker"
-                                            },
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontSize = 14.sp,
-                                            color = scheme.onSurface,
-                                            fontFamily = JakartaFontFamily
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = policy.description,
-                                        fontSize = 12.sp,
-                                        color = scheme.onSurfaceVariant,
-                                        fontFamily = JakartaFontFamily
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-                    HorizontalDivider(color = scheme.outlineVariant)
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            tint = scheme.primary,
-                            modifier = Modifier.size(18.dp)
+                        val allowSelected = settings.pickerPolicy == PickerPolicy.ALLOW
+                        FilterChip(
+                            selected = allowSelected,
+                            onClick = { viewModel.setPickerPolicy(PickerPolicy.ALLOW) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            },
+                            label = {
+                                Text(
+                                    text = "Allow Picker",
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontFamily = JakartaFontFamily,
+                                    fontWeight = if (allowSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            },
+                            shape = RoundedCornerShape(50),
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = scheme.primaryContainer,
+                                selectedLabelColor = scheme.onPrimaryContainer
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("picker_policy_allow")
                         )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Atomic Sandbox Copy for Picked Photos",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = scheme.onSurface,
-                                fontFamily = JakartaFontFamily
-                            )
-                            Text(
-                                text = "Selected photos are safely copied into the app's private Pictures sandbox so your full gallery remains hidden.",
-                                fontSize = 11.sp,
-                                color = scheme.onSurfaceVariant,
-                                fontFamily = JakartaFontFamily
-                            )
-                        }
-                        StatusBadge(text = "Active", color = scheme.primary)
+
+                        val blockSelected = settings.pickerPolicy == PickerPolicy.BLOCK
+                        FilterChip(
+                            selected = blockSelected,
+                            onClick = { viewModel.setPickerPolicy(PickerPolicy.BLOCK) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Block,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            },
+                            label = {
+                                Text(
+                                    text = "Block Picker",
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontFamily = JakartaFontFamily,
+                                    fontWeight = if (blockSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            },
+                            shape = RoundedCornerShape(50),
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = scheme.primaryContainer,
+                                selectedLabelColor = scheme.onPrimaryContainer
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("picker_policy_block")
+                        )
                     }
                 }
             }
         }
 
-        // 2. Appearance Card (Dark theme default)
+        // 3. Appearance Card (Dark theme default)
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = scheme.surface),
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(18.dp),
                 border = BorderStroke(1.dp, scheme.outlineVariant),
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .size(36.dp)
+                                .size(32.dp)
                                 .clip(CircleShape)
                                 .background(scheme.primaryContainer)
                         ) {
@@ -252,24 +346,24 @@ fun SettingsScreen(
                                 imageVector = Icons.Default.Palette,
                                 contentDescription = null,
                                 tint = scheme.onPrimaryContainer,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(16.dp)
                             )
                         }
-                        Spacer(modifier = Modifier.width(12.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             text = "Appearance",
                             fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
+                            fontSize = 14.sp,
                             fontFamily = JakartaFontFamily,
                             color = scheme.onSurface
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
 
                     ToggleRow(
                         title = "Dark theme",
-                        description = "Default dark appearance for comfortable viewing",
+                        description = "Default dark appearance",
                         checked = settings.darkTheme,
                         enabled = true,
                         onChange = { viewModel.setDarkTheme(it) }
@@ -286,24 +380,24 @@ fun SettingsScreen(
             }
         }
 
-        // 3. Volume Isolation & Root Settings
+        // 4. Volume Isolation & Root Settings
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = scheme.surface),
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(18.dp),
                 border = BorderStroke(1.dp, scheme.outlineVariant),
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
                     Text(
                         text = "Volume Isolation",
                         fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
+                        fontSize = 14.sp,
                         fontFamily = JakartaFontFamily,
                         color = scheme.onSurface
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
 
                     ToggleRow(
                         title = "Private volumes (Root)",
@@ -324,17 +418,16 @@ fun SettingsScreen(
             }
         }
 
-        // 4. Setup Guide Hidden Behind a Button + System Diagnostics
+        // 5. Setup Guide Hidden Behind a Button + System Diagnostics
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = scheme.surface),
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(18.dp),
                 border = BorderStroke(1.dp, scheme.outlineVariant),
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    // Setup Guide Row (Hidden behind button)
+                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -347,7 +440,7 @@ fun SettingsScreen(
                             Box(
                                 contentAlignment = Alignment.Center,
                                 modifier = Modifier
-                                    .size(36.dp)
+                                    .size(32.dp)
                                     .clip(CircleShape)
                                     .background(scheme.secondaryContainer)
                             ) {
@@ -355,22 +448,26 @@ fun SettingsScreen(
                                     imageVector = Icons.Default.HelpOutline,
                                     contentDescription = null,
                                     tint = scheme.onSecondaryContainer,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = "Setup & Xposed Guide",
-                                    fontSize = 14.sp,
+                                    fontSize = 13.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = scheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                     fontFamily = JakartaFontFamily
                                 )
                                 Text(
-                                    text = if (isLsposedActive) "Module active in LSPosed" else "How to activate Hollow in 3 steps",
-                                    fontSize = 12.sp,
+                                    text = if (isLsposedActive) "Module active in LSPosed" else "How to activate in 3 steps",
+                                    fontSize = 11.sp,
                                     color = scheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                     fontFamily = JakartaFontFamily
                                 )
                             }
@@ -379,15 +476,21 @@ fun SettingsScreen(
                         OutlinedButton(
                             onClick = { showSetupGuideDialog = true },
                             shape = RoundedCornerShape(50),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                             modifier = Modifier.testTag("btn_open_setup_guide")
                         ) {
-                            Text("View Guide", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                text = "View Guide",
+                                fontSize = 12.sp,
+                                fontFamily = JakartaFontFamily,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     HorizontalDivider(color = scheme.outlineVariant)
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     // Root Access Check
                     Row(
@@ -398,29 +501,37 @@ fun SettingsScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = "Root access",
-                                fontSize = 14.sp,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = scheme.onSurface,
                                 fontFamily = JakartaFontFamily
                             )
                             Text(
                                 text = rootStatus,
-                                fontSize = 12.sp,
+                                fontSize = 11.sp,
                                 color = scheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 fontFamily = JakartaFontFamily
                             )
                         }
                         OutlinedButton(
                             onClick = { viewModel.checkRoot() },
-                            shape = RoundedCornerShape(50)
+                            shape = RoundedCornerShape(50),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                         ) {
-                            Text("Check", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                text = "Check",
+                                fontSize = 12.sp,
+                                fontFamily = JakartaFontFamily,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     HorizontalDivider(color = scheme.outlineVariant)
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     // Advanced System Details
                     Row(
@@ -429,7 +540,7 @@ fun SettingsScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { onOpenDiagnostics() }
-                            .padding(vertical = 4.dp)
+                            .padding(vertical = 2.dp)
                             .testTag("nav_mounts")
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -437,12 +548,12 @@ fun SettingsScreen(
                                 imageVector = Icons.Default.Tune,
                                 contentDescription = null,
                                 tint = scheme.primary,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
                                 text = "Advanced System Details",
-                                fontSize = 14.sp,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = scheme.onSurface,
                                 fontFamily = JakartaFontFamily
@@ -460,8 +571,27 @@ fun SettingsScreen(
         }
 
         item {
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
         }
+    }
+
+    if (showHollowStealthDialog) {
+        HollowSelfStealthDialog(
+            currentMode = settings.hollowVisibilityMode,
+            currentCustomName = settings.hollowCustomName,
+            currentIconPreset = settings.hollowIconPreset,
+            currentSystemUiTrigger = settings.systemUiTriggerEnabled,
+            onDismiss = { showHollowStealthDialog = false },
+            onSave = { mode, customName, iconPreset, sysUiTrigger ->
+                viewModel.updateHollowStealthConfig(
+                    visibilityMode = mode,
+                    customName = customName,
+                    iconPreset = iconPreset,
+                    systemUiTriggerEnabled = sysUiTrigger
+                )
+                showHollowStealthDialog = false
+            }
+        )
     }
 
     // Setup Guide Modal Dialog (opened only when clicking "View Guide")
@@ -545,19 +675,26 @@ fun ToggleRow(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp)
+            .padding(vertical = 6.dp)
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                fontSize = 14.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = if (enabled) scheme.onSurface else scheme.onSurfaceVariant,
                 fontFamily = JakartaFontFamily
             )
-            Text(text = description, fontSize = 12.sp, color = scheme.onSurfaceVariant, fontFamily = JakartaFontFamily)
+            Text(
+                text = description,
+                fontSize = 11.sp,
+                color = scheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontFamily = JakartaFontFamily
+            )
         }
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(10.dp))
         Switch(
             checked = checked,
             onCheckedChange = onChange,

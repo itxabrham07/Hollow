@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -33,13 +34,11 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -91,13 +90,11 @@ fun AppHiderScreen(
 ) {
     val scheme = MaterialTheme.colorScheme
     val allApps by viewModel.allInstalledApps.collectAsState()
-    val settings by viewModel.settings.collectAsState()
 
     var showAllAppsMode by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var includeSystemApps by remember { mutableStateOf(false) }
     var selectedAppForStealth by remember { mutableStateOf<InstalledAppInfo?>(null) }
-    var showHollowStealthDialog by remember { mutableStateOf(false) }
 
     val activeStealthApps = remember(allApps) {
         allApps.filter { it.isHiddenOrDisguised && it.launcherVisibilityMode != LauncherVisibilityMode.VISIBLE }
@@ -126,9 +123,9 @@ fun AppHiderScreen(
             .padding(horizontal = 16.dp)
             .testTag("app_hider_screen")
     ) {
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(2.dp))
 
-        // Top Header with Back Button and Single "+ Add Apps" Action
+        // Compact Top Header
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -141,7 +138,7 @@ fun AppHiderScreen(
                 if (onBack != null) {
                     IconButton(
                         onClick = onBack,
-                        modifier = Modifier.size(38.dp)
+                        modifier = Modifier.size(36.dp)
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -149,42 +146,54 @@ fun AppHiderScreen(
                             tint = scheme.onBackground
                         )
                     }
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
                 }
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = if (showAllAppsMode) "Select Apps to Hide / Disguise" else "Hide & Disguise Apps",
-                        fontSize = 19.sp,
+                        text = if (showAllAppsMode) "Select Apps" else "Hide & Disguise",
+                        fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = scheme.onBackground,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         fontFamily = JakartaFontFamily
                     )
                     Text(
                         text = if (showAllAppsMode) {
-                            "Independent from Storage Protection • Works in any launcher"
+                            "Tap any app to hide or spoof its name & icon"
                         } else {
-                            "${activeStealthApps.size} app${if (activeStealthApps.size == 1) "" else "s"} hidden or disguised via System & SystemUI"
+                            "${activeStealthApps.size} app${if (activeStealthApps.size == 1) "" else "s"} hidden or disguised"
                         },
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         color = scheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         fontFamily = JakartaFontFamily
                     )
                 }
             }
 
+            Spacer(modifier = Modifier.width(8.dp))
+
             if (!showAllAppsMode) {
                 FilledTonalButton(
                     onClick = { showAllAppsMode = true },
                     shape = RoundedCornerShape(50),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                     modifier = Modifier.testTag("btn_add_stealth_apps")
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
                         contentDescription = null,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Add Apps", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Add Apps",
+                        fontSize = 13.sp,
+                        fontFamily = JakartaFontFamily,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             } else {
                 OutlinedButton(
@@ -192,113 +201,38 @@ fun AppHiderScreen(
                         showAllAppsMode = false
                         searchQuery = ""
                     },
-                    shape = RoundedCornerShape(50)
+                    shape = RoundedCornerShape(50),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Check,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Done", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // Hollow Self-Stealth & SystemUI Direct Injection Banner
-        Card(
-            colors = CardDefaults.cardColors(containerColor = scheme.surface),
-            shape = RoundedCornerShape(20.dp),
-            border = BorderStroke(1.dp, scheme.primary.copy(alpha = 0.4f)),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { showHollowStealthDialog = true }
-                .testTag("card_hollow_self_stealth")
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(14.dp)
-            ) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(scheme.primaryContainer)
-                ) {
-                    Icon(
-                        imageVector = presetIconVector(settings.hollowIconPreset),
-                        contentDescription = null,
-                        tint = scheme.onPrimaryContainer,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "Hollow Stealth & SystemUI Entry",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = scheme.onSurface,
-                            fontFamily = JakartaFontFamily
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(scheme.primaryContainer)
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = when (settings.hollowVisibilityMode) {
-                                    LauncherVisibilityMode.VISIBLE -> "Visible"
-                                    LauncherVisibilityMode.DISGUISED -> "As \"${settings.hollowCustomName}\""
-                                    LauncherVisibilityMode.HIDDEN -> "Hidden"
-                                },
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = scheme.onPrimaryContainer,
-                                fontFamily = JakartaFontFamily
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = if (settings.systemUiTriggerEnabled) {
-                            "SystemUI Trigger Active: Long-press Quick Settings Clock/Header or use Quick Calc tile to open Hollow"
-                        } else {
-                            "Tap to hide or disguise Hollow itself and configure SystemUI Quick Settings entry"
-                        },
-                        fontSize = 11.sp,
-                        color = scheme.onSurfaceVariant,
-                        fontFamily = JakartaFontFamily
-                    )
-                }
-                IconButton(onClick = { showHollowStealthDialog = true }) {
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = "Configure Hollow Stealth",
-                        tint = scheme.primary
+                        text = "Done",
+                        fontSize = 13.sp,
+                        fontFamily = JakartaFontFamily,
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        if (showAllAppsMode || activeStealthApps.size > 3 || searchQuery.isNotBlank()) {
+        if (showAllAppsMode || activeStealthApps.isNotEmpty() || searchQuery.isNotBlank()) {
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
                 placeholder = {
                     Text(
-                        text = "Search apps by name or custom label...",
+                        text = "Search apps...",
                         color = scheme.onSurfaceVariant,
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         fontFamily = JakartaFontFamily
                     )
                 },
@@ -306,7 +240,8 @@ fun AppHiderScreen(
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = "Search",
-                        tint = scheme.onSurfaceVariant
+                        tint = scheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
                     )
                 },
                 trailingIcon = {
@@ -315,7 +250,8 @@ fun AppHiderScreen(
                             Icon(
                                 imageVector = Icons.Default.Clear,
                                 contentDescription = "Clear",
-                                tint = scheme.onSurfaceVariant
+                                tint = scheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
@@ -332,111 +268,128 @@ fun AppHiderScreen(
                     .fillMaxWidth()
                     .testTag("stealth_search_input")
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
         }
 
         if (showAllAppsMode) {
-            Row(
+            LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                FilterChip(
-                    selected = !includeSystemApps,
-                    onClick = { includeSystemApps = false },
-                    label = { Text("Downloaded Apps", fontFamily = JakartaFontFamily) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = scheme.primaryContainer,
-                        selectedLabelColor = scheme.onPrimaryContainer
+                item {
+                    FilterChip(
+                        selected = !includeSystemApps,
+                        onClick = { includeSystemApps = false },
+                        label = {
+                            Text(
+                                text = "Downloaded",
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                fontFamily = JakartaFontFamily
+                            )
+                        },
+                        shape = RoundedCornerShape(50),
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = scheme.primaryContainer,
+                            selectedLabelColor = scheme.onPrimaryContainer
+                        )
                     )
-                )
-                FilterChip(
-                    selected = includeSystemApps,
-                    onClick = { includeSystemApps = true },
-                    label = { Text("Include System Apps", fontFamily = JakartaFontFamily) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = scheme.primaryContainer,
-                        selectedLabelColor = scheme.onPrimaryContainer
+                }
+                item {
+                    FilterChip(
+                        selected = includeSystemApps,
+                        onClick = { includeSystemApps = true },
+                        label = {
+                            Text(
+                                text = "Include System",
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                fontFamily = JakartaFontFamily
+                            )
+                        },
+                        shape = RoundedCornerShape(50),
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = scheme.primaryContainer,
+                            selectedLabelColor = scheme.onPrimaryContainer
+                        )
                     )
-                )
+                }
             }
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
         }
 
-        if (displayedApps.isEmpty()) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-            ) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = scheme.surface),
-                    shape = RoundedCornerShape(24.dp),
-                    border = BorderStroke(1.dp, scheme.outlineVariant),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(28.dp)
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (displayedApps.isEmpty()) {
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = scheme.surface),
+                        shape = RoundedCornerShape(20.dp),
+                        border = BorderStroke(1.dp, scheme.outlineVariant),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp)
                     ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(64.dp)
-                                .clip(CircleShape)
-                                .background(scheme.primaryContainer)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(24.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.VisibilityOff,
-                                contentDescription = null,
-                                tint = scheme.onPrimaryContainer,
-                                modifier = Modifier.size(30.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(14.dp))
-                        Text(
-                            text = if (searchQuery.isNotBlank()) {
-                                "No matching apps found"
-                            } else {
-                                "No hidden or disguised apps yet"
-                            },
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = scheme.onSurface,
-                            fontFamily = JakartaFontFamily
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Hide apps completely from every launcher drawer or disguise their launcher name and icon via System Framework & SystemUI hooks.",
-                            fontSize = 13.sp,
-                            color = scheme.onSurfaceVariant,
-                            fontFamily = JakartaFontFamily
-                        )
-                        if (!showAllAppsMode) {
-                            Spacer(modifier = Modifier.height(18.dp))
-                            Button(
-                                onClick = { showAllAppsMode = true },
-                                shape = RoundedCornerShape(50)
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(52.dp)
+                                    .clip(CircleShape)
+                                    .background(scheme.primaryContainer)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Add,
+                                    imageVector = Icons.Default.VisibilityOff,
                                     contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
+                                    tint = scheme.onPrimaryContainer,
+                                    modifier = Modifier.size(26.dp)
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Select Apps to Hide or Disguise", fontFamily = JakartaFontFamily)
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = if (searchQuery.isNotBlank()) {
+                                    "No matching apps found"
+                                } else {
+                                    "No hidden or disguised apps yet"
+                                },
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = scheme.onSurface,
+                                fontFamily = JakartaFontFamily
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Hide apps from every launcher drawer or spoof their launcher name and icon.",
+                                fontSize = 12.sp,
+                                color = scheme.onSurfaceVariant,
+                                fontFamily = JakartaFontFamily
+                            )
+                            if (!showAllAppsMode) {
+                                Spacer(modifier = Modifier.height(14.dp))
+                                Button(
+                                    onClick = { showAllAppsMode = true },
+                                    shape = RoundedCornerShape(50)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Select Apps to Hide / Disguise", fontFamily = JakartaFontFamily)
+                                }
                             }
                         }
                     }
                 }
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
+            } else {
                 items(displayedApps, key = { it.packageName }) { appInfo ->
                     StealthAppCard(
                         appInfo = appInfo,
@@ -464,25 +417,6 @@ fun AppHiderScreen(
             }
         )
     }
-
-    if (showHollowStealthDialog) {
-        HollowSelfStealthDialog(
-            currentMode = settings.hollowVisibilityMode,
-            currentCustomName = settings.hollowCustomName,
-            currentIconPreset = settings.hollowIconPreset,
-            currentSystemUiTrigger = settings.systemUiTriggerEnabled,
-            onDismiss = { showHollowStealthDialog = false },
-            onSave = { mode, customName, iconPreset, sysUiTrigger ->
-                viewModel.updateHollowStealthConfig(
-                    visibilityMode = mode,
-                    customName = customName,
-                    iconPreset = iconPreset,
-                    systemUiTriggerEnabled = sysUiTrigger
-                )
-                showHollowStealthDialog = false
-            }
-        )
-    }
 }
 
 @Composable
@@ -496,7 +430,7 @@ private fun StealthAppCard(
 
     Card(
         colors = CardDefaults.cardColors(containerColor = scheme.surface),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(16.dp),
         border = BorderStroke(
             width = 1.dp,
             color = if (isActive) scheme.primary.copy(alpha = 0.45f) else scheme.outlineVariant
@@ -506,107 +440,110 @@ private fun StealthAppCard(
             .fillMaxWidth()
             .clickable { onConfigure() }
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                val iconBitmap = remember(appInfo.packageName, appInfo.icon) {
-                    try {
-                        appInfo.icon?.toBitmap(width = 96, height = 96)?.asImageBitmap()
-                    } catch (_: Exception) {
-                        null
-                    }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+        ) {
+            val iconBitmap = remember(appInfo.packageName, appInfo.icon) {
+                try {
+                    appInfo.icon?.toBitmap(width = 96, height = 96)?.asImageBitmap()
+                } catch (_: Exception) {
+                    null
                 }
-                if (iconBitmap != null) {
-                    Image(
-                        bitmap = iconBitmap,
-                        contentDescription = appInfo.appName,
-                        modifier = Modifier
-                            .size(46.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                    )
-                } else {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(46.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(scheme.primaryContainer)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.VisibilityOff,
-                            contentDescription = null,
-                            tint = scheme.onPrimaryContainer
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = appInfo.appName,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = scheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        fontFamily = JakartaFontFamily
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = when (appInfo.launcherVisibilityMode) {
-                            LauncherVisibilityMode.HIDDEN ->
-                                "Hidden from all launchers & app drawers"
-                            LauncherVisibilityMode.DISGUISED -> {
-                                val shownName = appInfo.customLauncherLabel.ifBlank {
-                                    appInfo.disguiseIconPreset.suggestedName.ifBlank { "Calculator" }
-                                }
-                                "Disguised as \"$shownName\" (${appInfo.disguiseIconPreset.label} icon)"
-                            }
-                            LauncherVisibilityMode.VISIBLE ->
-                                "Visible normally in launcher • Tap to hide or disguise"
-                        },
-                        fontSize = 12.sp,
-                        color = if (isActive) scheme.primary else scheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        fontFamily = JakartaFontFamily
-                    )
-                }
-
-                if (isActive) {
-                    IconButton(
-                        onClick = onLaunch,
-                        modifier = Modifier.testTag("btn_launch_${appInfo.packageName}")
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                            contentDescription = "Launch ${appInfo.appName}",
-                            tint = scheme.primary
-                        )
-                    }
-                }
-
-                FilledTonalButton(
-                    onClick = onConfigure,
-                    shape = RoundedCornerShape(50),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+            }
+            if (iconBitmap != null) {
+                Image(
+                    bitmap = iconBitmap,
+                    contentDescription = appInfo.appName,
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                )
+            } else {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(scheme.primaryContainer)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Tune,
+                        imageVector = Icons.Default.VisibilityOff,
                         contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = if (isActive) appInfo.launcherVisibilityMode.badge else "Configure",
-                        fontSize = 12.sp,
-                        fontFamily = JakartaFontFamily,
-                        fontWeight = FontWeight.SemiBold
+                        tint = scheme.onPrimaryContainer,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
+            }
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = appInfo.appName,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = scheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontFamily = JakartaFontFamily
+                )
+                Text(
+                    text = when (appInfo.launcherVisibilityMode) {
+                        LauncherVisibilityMode.HIDDEN ->
+                            "Hidden from all launchers"
+                        LauncherVisibilityMode.DISGUISED -> {
+                            val shownName = appInfo.customLauncherLabel.ifBlank {
+                                appInfo.disguiseIconPreset.suggestedName.ifBlank { "Calculator" }
+                            }
+                            "As \"$shownName\" (${appInfo.disguiseIconPreset.label})"
+                        }
+                        LauncherVisibilityMode.VISIBLE ->
+                            "Visible • Tap to hide or disguise"
+                    },
+                    fontSize = 11.sp,
+                    color = if (isActive) scheme.primary else scheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontFamily = JakartaFontFamily
+                )
+            }
+
+            if (isActive) {
+                IconButton(
+                    onClick = onLaunch,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .testTag("btn_launch_${appInfo.packageName}")
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                        contentDescription = "Launch ${appInfo.appName}",
+                        tint = scheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            FilledTonalButton(
+                onClick = onConfigure,
+                shape = RoundedCornerShape(50),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Tune,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = if (isActive) appInfo.launcherVisibilityMode.badge else "Set",
+                    fontSize = 11.sp,
+                    fontFamily = JakartaFontFamily,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
         }
     }
@@ -818,7 +755,7 @@ private fun AppStealthConfigDialog(
 }
 
 @Composable
-private fun HollowSelfStealthDialog(
+internal fun HollowSelfStealthDialog(
     currentMode: LauncherVisibilityMode,
     currentCustomName: String,
     currentIconPreset: DisguiseIconPreset,
@@ -875,7 +812,7 @@ private fun HollowSelfStealthDialog(
                                 fontFamily = JakartaFontFamily
                             )
                             Text(
-                                text = "Long-press the Clock or Date in SystemUI Quick Settings (or tap the 'Quick Calc' tile) to open Hollow even when completely hidden.",
+                                text = "Long-press the Clock or Date in SystemUI Quick Settings, tap 'Quick Calc' tile, or dial *#*#465569#*#* to open Hollow when hidden.",
                                 fontSize = 11.sp,
                                 color = scheme.onSurfaceVariant,
                                 fontFamily = JakartaFontFamily
@@ -988,7 +925,7 @@ private fun HollowSelfStealthDialog(
 }
 
 @Composable
-private fun presetIconVector(preset: DisguiseIconPreset): ImageVector {
+internal fun presetIconVector(preset: DisguiseIconPreset): ImageVector {
     return when (preset) {
         DisguiseIconPreset.DEFAULT -> Icons.Default.Shield
         DisguiseIconPreset.CALCULATOR -> Icons.Default.Calculate
