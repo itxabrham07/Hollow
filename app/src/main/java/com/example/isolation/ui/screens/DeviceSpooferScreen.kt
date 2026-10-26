@@ -15,11 +15,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -29,29 +29,29 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Casino
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Fingerprint
-import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -77,279 +77,43 @@ import com.example.isolation.pkg.InstalledAppInfo
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
 import com.example.ui.theme.JakartaFontFamily
 
+private enum class PrivacyAppFilter {
+    SPOOFED_ONLY,
+    USER_APPS,
+    SYSTEM_APPS,
+    ALL
+}
+
 @Composable
 fun DeviceSpooferScreen(
     viewModel: IsoVaultViewModel,
     onBack: () -> Unit = {}
 ) {
-    BackHandler { onBack() }
-
     val scheme = MaterialTheme.colorScheme
     val allApps by viewModel.allInstalledApps.collectAsState()
 
     var searchQuery by remember { mutableStateOf("") }
-    var showAddAppsDialog by remember { mutableStateOf(false) }
+    var showAllAppsMode by remember { mutableStateOf(false) }
+    var activeFilter by remember { mutableStateOf(PrivacyAppFilter.SPOOFED_ONLY) }
     var editingApp by remember { mutableStateOf<InstalledAppInfo?>(null) }
 
-    val enrolledApps = remember(allApps, searchQuery) {
-        allApps.filter { app ->
-            val isEnrolled = app.isIdentitySpoofed
-            val matchesSearch = searchQuery.isBlank() ||
-                    app.appName.contains(searchQuery, ignoreCase = true) ||
-                    app.packageName.contains(searchQuery, ignoreCase = true) ||
-                    app.spoofModel.contains(searchQuery, ignoreCase = true)
-            isEnrolled && matchesSearch
+    BackHandler {
+        when {
+            editingApp != null -> editingApp = null
+            showAllAppsMode -> {
+                showAllAppsMode = false
+                activeFilter = PrivacyAppFilter.SPOOFED_ONLY
+                searchQuery = ""
+            }
+            else -> onBack()
         }
     }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp)
-            .testTag("device_spoofer_screen"),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(bottom = 28.dp)
-    ) {
-        item {
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    IconButton(
-                        onClick = onBack,
-                        modifier = Modifier.testTag("device_spoofer_back_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = scheme.onBackground
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Column {
-                        Text(
-                            text = "Privacy",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = scheme.onBackground,
-                            fontFamily = JakartaFontFamily
-                        )
-                        Text(
-                            text = "Device identity spoofing, IMEI, DRM & privacy shields",
-                            fontSize = 12.sp,
-                            color = scheme.onSurfaceVariant,
-                            fontFamily = JakartaFontFamily
-                        )
-                    }
-                }
-                Button(
-                    onClick = { showAddAppsDialog = true },
-                    shape = RoundedCornerShape(12.dp),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                    modifier = Modifier.testTag("btn_add_spoof_app")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Add App",
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Add App",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = JakartaFontFamily
-                    )
-                }
-            }
-        }
-
-        // Info Banner Card
-        item {
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = scheme.tertiaryContainer.copy(alpha = 0.38f)
-                ),
-                shape = RoundedCornerShape(20.dp),
-                border = BorderStroke(1.dp, scheme.tertiary.copy(alpha = 0.4f)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(scheme.tertiaryContainer)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Fingerprint,
-                            contentDescription = null,
-                            tint = scheme.onTertiaryContainer,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(14.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Hardware & Telemetry Isolation",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = scheme.onSurface,
-                            fontFamily = JakartaFontFamily
-                        )
-                        Spacer(modifier = Modifier.height(3.dp))
-                        Text(
-                            text = "Spoofs Android ID, IMEI, IMSI, Advertising ID, GSF ID, Widevine DRM, Wi-Fi MAC, Build props, and hides Root/LSPosed, ADB & VPN per app.",
-                            fontSize = 11.sp,
-                            color = scheme.onSurfaceVariant,
-                            fontFamily = JakartaFontFamily,
-                            lineHeight = 15.sp
-                        )
-                    }
-                }
-            }
-        }
-
-        if (enrolledApps.isNotEmpty() || searchQuery.isNotBlank()) {
-            item {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = {
-                        Text(
-                            text = "Search spoofed apps...",
-                            fontSize = 13.sp,
-                            fontFamily = JakartaFontFamily
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Search"
-                        )
-                    },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { searchQuery = "" }) {
-                                Icon(
-                                    imageVector = Icons.Default.Clear,
-                                    contentDescription = "Clear search"
-                                )
-                            }
-                        }
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("device_spoofer_search_input")
-                )
-            }
-        }
-
-        if (enrolledApps.isEmpty()) {
-            item {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = scheme.surface),
-                    shape = RoundedCornerShape(22.dp),
-                    border = BorderStroke(1.dp, scheme.outlineVariant),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp, vertical = 32.dp)
-                    ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(56.dp)
-                                .clip(CircleShape)
-                                .background(scheme.primaryContainer.copy(alpha = 0.55f))
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.PhoneAndroid,
-                                contentDescription = null,
-                                tint = scheme.primary,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(14.dp))
-                        Text(
-                            text = "No Apps Spoofed Yet",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = scheme.onSurface,
-                            fontFamily = JakartaFontFamily
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Select any installed app to assign it a virtual hardware profile (Pixel 9 Pro, Galaxy S24 Ultra, etc.), randomized IMEI/Android ID/DRM ID, and Root/VPN/ADB privacy shields.",
-                            fontSize = 12.sp,
-                            color = scheme.onSurfaceVariant,
-                            fontFamily = JakartaFontFamily,
-                            lineHeight = 17.sp
-                        )
-                        Spacer(modifier = Modifier.height(18.dp))
-                        Button(
-                            onClick = { showAddAppsDialog = true },
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.testTag("empty_state_add_spoof_app")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Add,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Select App to Spoof Identity",
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = JakartaFontFamily
-                            )
-                        }
-                    }
-                }
-            }
-        } else {
-            items(enrolledApps, key = { it.packageName }) { appInfo ->
-                SpoofedAppCard(
-                    appInfo = appInfo,
-                    onConfigure = { editingApp = appInfo },
-                    onRemove = { viewModel.removeAppIdentitySpoof(appInfo) }
-                )
-            }
-        }
-    }
-
-    if (showAddAppsDialog) {
-        SelectAppForIdentitySpoofDialog(
-            allApps = allApps,
-            onDismiss = { showAddAppsDialog = false },
-            onSelectApp = { selected ->
-                showAddAppsDialog = false
-                editingApp = selected
-            }
-        )
-    }
-
+    // If user is configuring a specific app's identity, show full-size configuration screen
     editingApp?.let { target ->
-        ConfigureDeviceIdentityDialog(
+        ConfigureDeviceIdentityFullScreen(
             appInfo = target,
-            onDismiss = { editingApp = null },
+            onBack = { editingApp = null },
             onSave = { preset, brand, model, device, androidId, imei, adId, mac, carrier, simOp, serial, hideRoot, hideAdb, hideVpn, blockClip ->
                 viewModel.saveAppIdentitySpoofConfig(
                     appInfo = target,
@@ -377,6 +141,372 @@ fun DeviceSpooferScreen(
                 editingApp = null
             }
         )
+        return
+    }
+
+    val spoofedAppsCount = remember(allApps) {
+        allApps.count { it.isIdentitySpoofed }
+    }
+
+    val displayedApps = remember(allApps, searchQuery, showAllAppsMode, activeFilter) {
+        allApps.filter { app ->
+            val matchesFilter = when (activeFilter) {
+                PrivacyAppFilter.SPOOFED_ONLY -> app.isIdentitySpoofed
+                PrivacyAppFilter.USER_APPS -> !app.isSystemApp
+                PrivacyAppFilter.SYSTEM_APPS -> app.isSystemApp
+                PrivacyAppFilter.ALL -> true
+            }
+            val matchesSearch = searchQuery.isBlank() ||
+                    app.appName.contains(searchQuery, ignoreCase = true) ||
+                    app.packageName.contains(searchQuery, ignoreCase = true) ||
+                    app.spoofModel.contains(searchQuery, ignoreCase = true)
+            matchesFilter && matchesSearch
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
+            .testTag("device_spoofer_screen")
+    ) {
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // Top Header (matches Hide App & Storage Isolate full-screen header)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                IconButton(
+                    onClick = {
+                        if (showAllAppsMode) {
+                            showAllAppsMode = false
+                            activeFilter = PrivacyAppFilter.SPOOFED_ONLY
+                            searchQuery = ""
+                        } else {
+                            onBack()
+                        }
+                    },
+                    modifier = Modifier
+                        .size(36.dp)
+                        .testTag("device_spoofer_back_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = scheme.onBackground
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (showAllAppsMode) "Select Apps" else "Privacy",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = scheme.onBackground,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        fontFamily = JakartaFontFamily
+                    )
+                    Text(
+                        text = if (showAllAppsMode) {
+                            "Tap any app or switch to spoof IMEI, Android ID, DRM & Root/VPN"
+                        } else {
+                            "$spoofedAppsCount app${if (spoofedAppsCount == 1) "" else "s"} using virtual hardware identity"
+                        },
+                        fontSize = 12.sp,
+                        color = scheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        fontFamily = JakartaFontFamily
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            if (!showAllAppsMode) {
+                Button(
+                    onClick = {
+                        showAllAppsMode = true
+                        activeFilter = PrivacyAppFilter.USER_APPS
+                    },
+                    shape = RoundedCornerShape(50),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                    modifier = Modifier.testTag("btn_add_spoof_app")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Add Apps",
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Add Apps",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = JakartaFontFamily
+                    )
+                }
+            } else {
+                OutlinedButton(
+                    onClick = {
+                        showAllAppsMode = false
+                        activeFilter = PrivacyAppFilter.SPOOFED_ONLY
+                        searchQuery = ""
+                    },
+                    shape = RoundedCornerShape(50),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                    modifier = Modifier.testTag("btn_done_spoof_select")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Done",
+                        fontSize = 13.sp,
+                        fontFamily = JakartaFontFamily,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Full-width Search Input
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            placeholder = {
+                Text(
+                    text = if (showAllAppsMode) "Search installed apps..." else "Search spoofed apps...",
+                    color = scheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontFamily = JakartaFontFamily
+                )
+            },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = "Search",
+                    tint = scheme.onSurfaceVariant
+                )
+            },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { searchQuery = "" }) {
+                        Icon(
+                            imageVector = Icons.Default.Clear,
+                            contentDescription = "Clear search",
+                            tint = scheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(50),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = scheme.primary,
+                unfocusedBorderColor = scheme.outlineVariant,
+                focusedContainerColor = scheme.surface,
+                unfocusedContainerColor = scheme.surface
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("device_spoofer_search_input")
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        val filterChipColors = FilterChipDefaults.filterChipColors(
+            selectedContainerColor = scheme.primaryContainer,
+            selectedLabelColor = scheme.onPrimaryContainer,
+            containerColor = scheme.surface,
+            labelColor = scheme.onSurfaceVariant
+        )
+
+        // Filter Chips row (identical to Storage Isolate & Hide App)
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            item {
+                FilterChip(
+                    selected = activeFilter == PrivacyAppFilter.SPOOFED_ONLY,
+                    onClick = {
+                        activeFilter = PrivacyAppFilter.SPOOFED_ONLY
+                        showAllAppsMode = false
+                    },
+                    label = { Text("Spoofed ($spoofedAppsCount)", fontFamily = JakartaFontFamily) },
+                    shape = RoundedCornerShape(50),
+                    colors = filterChipColors
+                )
+            }
+            item {
+                FilterChip(
+                    selected = activeFilter == PrivacyAppFilter.USER_APPS,
+                    onClick = {
+                        activeFilter = PrivacyAppFilter.USER_APPS
+                        showAllAppsMode = true
+                    },
+                    label = { Text("Downloaded", fontFamily = JakartaFontFamily) },
+                    shape = RoundedCornerShape(50),
+                    colors = filterChipColors
+                )
+            }
+            item {
+                FilterChip(
+                    selected = activeFilter == PrivacyAppFilter.SYSTEM_APPS,
+                    onClick = {
+                        activeFilter = PrivacyAppFilter.SYSTEM_APPS
+                        showAllAppsMode = true
+                    },
+                    label = { Text("System", fontFamily = JakartaFontFamily) },
+                    shape = RoundedCornerShape(50),
+                    colors = filterChipColors
+                )
+            }
+            item {
+                FilterChip(
+                    selected = activeFilter == PrivacyAppFilter.ALL,
+                    onClick = {
+                        activeFilter = PrivacyAppFilter.ALL
+                        showAllAppsMode = true
+                    },
+                    label = { Text("All (${allApps.size})", fontFamily = JakartaFontFamily) },
+                    shape = RoundedCornerShape(50),
+                    colors = filterChipColors
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (displayedApps.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(horizontal = 28.dp)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(68.dp)
+                            .clip(CircleShape)
+                            .background(scheme.primaryContainer)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Fingerprint,
+                            contentDescription = null,
+                            tint = scheme.onPrimaryContainer,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        text = if (activeFilter == PrivacyAppFilter.SPOOFED_ONLY && searchQuery.isBlank()) {
+                            "No spoofed apps yet"
+                        } else {
+                            "No matching apps found"
+                        },
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = scheme.onSurface,
+                        fontFamily = JakartaFontFamily
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Tap '+ Add Apps' to choose apps and assign virtual hardware profiles (Pixel 9 Pro, Galaxy S24 Ultra), randomized IMEI/Android ID/DRM, and Root/VPN shields.",
+                        fontSize = 13.sp,
+                        color = scheme.onSurfaceVariant,
+                        fontFamily = JakartaFontFamily
+                    )
+                    if (!showAllAppsMode) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = {
+                                showAllAppsMode = true
+                                activeFilter = PrivacyAppFilter.USER_APPS
+                            },
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier.testTag("empty_state_add_spoof_app")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Select Apps to Spoof Identity",
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = JakartaFontFamily
+                            )
+                        }
+                    }
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(bottom = 28.dp)
+            ) {
+                items(displayedApps, key = { it.packageName }) { appInfo ->
+                    SpoofedAppCard(
+                        appInfo = appInfo,
+                        onConfigure = { editingApp = appInfo },
+                        onToggleSpoof = { enabled ->
+                            if (enabled) {
+                                // Quick-enable with randomized profile or open full config
+                                val preset = if (appInfo.deviceProfilePreset == DeviceProfilePreset.CUSTOM) {
+                                    DeviceProfilePreset.PIXEL_9_PRO
+                                } else {
+                                    appInfo.deviceProfilePreset
+                                }
+                                viewModel.saveAppIdentitySpoofConfig(
+                                    appInfo = appInfo,
+                                    enabled = true,
+                                    preset = preset,
+                                    brand = appInfo.spoofBrand.ifBlank { preset.brand },
+                                    model = appInfo.spoofModel.ifBlank { preset.model },
+                                    device = appInfo.spoofDevice.ifBlank { preset.device },
+                                    androidId = appInfo.spoofAndroidId.ifBlank { IsolationRuleManager.generateAndroidId() },
+                                    imei = appInfo.spoofImei.ifBlank { IsolationRuleManager.generateLuhnImei() },
+                                    advertisingId = appInfo.spoofAdvertisingId.ifBlank { IsolationRuleManager.generateAdvertisingId() },
+                                    macAddress = appInfo.spoofMacAddress.ifBlank { IsolationRuleManager.generateMacAddress() },
+                                    carrierName = appInfo.spoofCarrierName.ifBlank { "T-Mobile" },
+                                    simOperator = appInfo.spoofSimOperator.ifBlank { "310260" },
+                                    serial = appInfo.spoofSerial.ifBlank { IsolationRuleManager.generateSerial() },
+                                    hideRootAndXposed = appInfo.hideRootAndXposed,
+                                    hideAdbAndDevOptions = appInfo.hideAdbAndDevOptions,
+                                    hideVpnAndProxy = appInfo.hideVpnAndProxy,
+                                    blockClipboardRead = appInfo.blockClipboardRead
+                                )
+                            } else {
+                                viewModel.removeAppIdentitySpoof(appInfo)
+                            }
+                        }
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -384,16 +514,23 @@ fun DeviceSpooferScreen(
 private fun SpoofedAppCard(
     appInfo: InstalledAppInfo,
     onConfigure: () -> Unit,
-    onRemove: () -> Unit
+    onToggleSpoof: (Boolean) -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
+    val isSpoofed = appInfo.isIdentitySpoofed
     val displayBrand = appInfo.spoofBrand.ifBlank { appInfo.deviceProfilePreset.brand }
     val displayModel = appInfo.spoofModel.ifBlank { appInfo.deviceProfilePreset.model }
 
     Card(
-        colors = CardDefaults.cardColors(containerColor = scheme.surface),
-        shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, scheme.primary.copy(alpha = 0.4f)),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSpoofed) scheme.primaryContainer.copy(alpha = 0.22f) else scheme.surface
+        ),
+        shape = RoundedCornerShape(18.dp),
+        border = BorderStroke(
+            1.dp,
+            if (isSpoofed) scheme.primary.copy(alpha = 0.45f) else scheme.outlineVariant
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onConfigure() }
@@ -402,7 +539,7 @@ private fun SpoofedAppCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(14.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -444,94 +581,110 @@ private fun SpoofedAppCard(
                         }
                     }
                     Spacer(modifier = Modifier.width(12.dp))
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = appInfo.appName,
                             fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = FontWeight.SemiBold,
                             color = scheme.onSurface,
                             fontFamily = JakartaFontFamily,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        Text(
-                            text = appInfo.packageName,
-                            fontSize = 11.sp,
-                            color = scheme.onSurfaceVariant,
-                            fontFamily = JakartaFontFamily,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        if (isSpoofed) {
+                            Text(
+                                text = "$displayBrand $displayModel • Tap to customize",
+                                fontSize = 12.sp,
+                                color = scheme.primary,
+                                fontWeight = FontWeight.Medium,
+                                fontFamily = JakartaFontFamily,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        } else {
+                            Text(
+                                text = "Not spoofed • Tap to configure identity",
+                                fontSize = 12.sp,
+                                color = scheme.onSurfaceVariant,
+                                fontFamily = JakartaFontFamily,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 }
 
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(scheme.primaryContainer)
-                        .padding(horizontal = 10.dp, vertical = 5.dp)
-                ) {
-                    Text(
-                        text = "$displayBrand $displayModel",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = scheme.onPrimaryContainer,
-                        fontFamily = JakartaFontFamily
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Identifier summary pills
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-            ) {
-                IdentityMetaChip("AID: ${appInfo.spoofAndroidId.take(8)}…")
-                IdentityMetaChip("IMEI: ${appInfo.spoofImei.take(6)}…${appInfo.spoofImei.takeLast(3)}")
-                IdentityMetaChip("MAC: ${appInfo.spoofMacAddress}")
-                if (appInfo.hideRootAndXposed) IdentityMetaChip("Root/LSPosed Hidden")
-                if (appInfo.hideAdbAndDevOptions) IdentityMetaChip("ADB Hidden")
-                if (appInfo.hideVpnAndProxy) IdentityMetaChip("VPN Hidden")
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-            Row(
-                horizontalArrangement = Arrangement.End,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                TextButton(
-                    onClick = onRemove,
-                    modifier = Modifier.testTag("btn_restore_identity_${appInfo.packageName}")
-                ) {
-                    Text(
-                        text = "Restore Real ID",
-                        fontSize = 12.sp,
-                        fontFamily = JakartaFontFamily
-                    )
-                }
                 Spacer(modifier = Modifier.width(8.dp))
-                FilledTonalButton(
-                    onClick = onConfigure,
-                    shape = RoundedCornerShape(12.dp),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                    modifier = Modifier.testTag("btn_edit_identity_${appInfo.packageName}")
+
+                Switch(
+                    checked = isSpoofed,
+                    onCheckedChange = { onToggleSpoof(it) },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = scheme.onPrimary,
+                        checkedTrackColor = scheme.primary
+                    ),
+                    modifier = Modifier.testTag("switch_spoof_${appInfo.packageName}")
+                )
+            }
+
+            if (isSpoofed) {
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Tune,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Edit Identity",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = JakartaFontFamily
-                    )
+                    if (appInfo.spoofAndroidId.isNotBlank()) {
+                        IdentityMetaChip("AID: ${appInfo.spoofAndroidId.take(8)}…")
+                    }
+                    if (appInfo.spoofImei.isNotBlank()) {
+                        IdentityMetaChip("IMEI: ${appInfo.spoofImei.take(6)}…${appInfo.spoofImei.takeLast(3)}")
+                    }
+                    if (appInfo.spoofMacAddress.isNotBlank()) {
+                        IdentityMetaChip("MAC: ${appInfo.spoofMacAddress}")
+                    }
+                    if (appInfo.hideRootAndXposed) IdentityMetaChip("Root/LSPosed Hidden")
+                    if (appInfo.hideAdbAndDevOptions) IdentityMetaChip("ADB Hidden")
+                    if (appInfo.hideVpnAndProxy) IdentityMetaChip("VPN Hidden")
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    horizontalArrangement = Arrangement.End,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    TextButton(
+                        onClick = { onToggleSpoof(false) },
+                        modifier = Modifier.testTag("btn_restore_identity_${appInfo.packageName}")
+                    ) {
+                        Text(
+                            text = "Restore Real ID",
+                            fontSize = 12.sp,
+                            fontFamily = JakartaFontFamily
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    FilledTonalButton(
+                        onClick = onConfigure,
+                        shape = RoundedCornerShape(50),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                        modifier = Modifier.testTag("btn_edit_identity_${appInfo.packageName}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Configure Identity",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = JakartaFontFamily
+                        )
+                    }
                 }
             }
         }
@@ -557,143 +710,9 @@ private fun IdentityMetaChip(label: String) {
 }
 
 @Composable
-private fun SelectAppForIdentitySpoofDialog(
-    allApps: List<InstalledAppInfo>,
-    onDismiss: () -> Unit,
-    onSelectApp: (InstalledAppInfo) -> Unit
-) {
-    val scheme = MaterialTheme.colorScheme
-    var query by remember { mutableStateOf("") }
-    var includeSystem by remember { mutableStateOf(false) }
-
-    val filtered = remember(allApps, query, includeSystem) {
-        allApps.filter { app ->
-            val sysOk = includeSystem || !app.isSystemApp
-            val qOk = query.isBlank() ||
-                    app.appName.contains(query, ignoreCase = true) ||
-                    app.packageName.contains(query, ignoreCase = true)
-            sysOk && qOk
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Column {
-                Text(
-                    text = "Select App to Spoof",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = JakartaFontFamily
-                )
-                Text(
-                    text = "Assign a virtual hardware fingerprint & privacy shields",
-                    fontSize = 12.sp,
-                    color = scheme.onSurfaceVariant,
-                    fontFamily = JakartaFontFamily
-                )
-            }
-        },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    placeholder = { Text("Search app name or package...", fontSize = 13.sp) },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = "Show system apps",
-                        fontSize = 12.sp,
-                        color = scheme.onSurfaceVariant,
-                        fontFamily = JakartaFontFamily
-                    )
-                    Switch(
-                        checked = includeSystem,
-                        onCheckedChange = { includeSystem = it }
-                    )
-                }
-                Spacer(modifier = Modifier.height(6.dp))
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 340.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    items(filtered, key = { it.packageName }) { app ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable { onSelectApp(app) }
-                                .padding(vertical = 8.dp, horizontal = 6.dp)
-                        ) {
-                            val bmp = remember(app.packageName, app.icon) {
-                                try {
-                                    app.icon?.toBitmap(72, 72)?.asImageBitmap()
-                                } catch (_: Throwable) { null }
-                            }
-                            if (bmp != null) {
-                                Image(
-                                    bitmap = bmp,
-                                    contentDescription = app.appName,
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(RoundedCornerShape(9.dp))
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Default.PhoneAndroid,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(36.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = app.appName,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontFamily = JakartaFontFamily,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = app.packageName,
-                                    fontSize = 11.sp,
-                                    color = scheme.onSurfaceVariant,
-                                    fontFamily = JakartaFontFamily,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Close", fontFamily = JakartaFontFamily)
-            }
-        }
-    )
-}
-
-@Composable
-private fun ConfigureDeviceIdentityDialog(
+private fun ConfigureDeviceIdentityFullScreen(
     appInfo: InstalledAppInfo,
-    onDismiss: () -> Unit,
+    onBack: () -> Unit,
     onSave: (
         preset: DeviceProfilePreset,
         brand: String,
@@ -731,229 +750,75 @@ private fun ConfigureDeviceIdentityDialog(
     var hideVpn by remember { mutableStateOf(appInfo.hideVpnAndProxy) }
     var blockClip by remember { mutableStateOf(appInfo.blockClipboardRead) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Column {
-                Text(
-                    text = appInfo.appName,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = JakartaFontFamily
-                )
-                Text(
-                    text = "Device Identity & Privacy Spoofing",
-                    fontSize = 12.sp,
-                    color = scheme.onSurfaceVariant,
-                    fontFamily = JakartaFontFamily
-                )
-            }
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 470.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
+            .testTag("configure_identity_fullscreen")
+    ) {
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // Top Bar
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
             ) {
-                // 1-Tap Randomize All Identifiers Button
-                FilledTonalButton(
-                    onClick = {
-                        val presets = DeviceProfilePreset.entries.filter { it != DeviceProfilePreset.CUSTOM }
-                        val randomPreset = presets.random()
-                        preset = randomPreset
-                        brand = randomPreset.brand
-                        model = randomPreset.model
-                        device = randomPreset.device
-                        androidId = IsolationRuleManager.generateAndroidId()
-                        imei = IsolationRuleManager.generateLuhnImei()
-                        adId = IsolationRuleManager.generateAdvertisingId()
-                        mac = IsolationRuleManager.generateMacAddress()
-                        serial = IsolationRuleManager.generateSerial()
-                        val (cName, cCode) = IsolationRuleManager.generateRandomCarrier()
-                        carrier = cName
-                        simOp = cCode
-                    },
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("btn_randomize_all_identity")
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier.size(36.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Casino,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = scheme.onBackground
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                }
+                Spacer(modifier = Modifier.width(6.dp))
+                val iconBitmap = remember(appInfo.packageName, appInfo.icon) {
+                    try {
+                        appInfo.icon?.toBitmap(80, 80)?.asImageBitmap()
+                    } catch (_: Throwable) {
+                        null
+                    }
+                }
+                if (iconBitmap != null) {
+                    Image(
+                        bitmap = iconBitmap,
+                        contentDescription = appInfo.appName,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                }
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Randomize Full Device Identity",
+                        text = appInfo.appName,
+                        fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
+                        color = scheme.onBackground,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        fontFamily = JakartaFontFamily
+                    )
+                    Text(
+                        text = appInfo.packageName,
+                        fontSize = 11.sp,
+                        color = scheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         fontFamily = JakartaFontFamily
                     )
                 }
-
-                // Hardware Profile Preset Selector
-                Text(
-                    text = "Hardware Model Preset",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = scheme.onSurface,
-                    fontFamily = JakartaFontFamily
-                )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                ) {
-                    DeviceProfilePreset.entries.forEach { item ->
-                        FilterChip(
-                            selected = preset == item,
-                            onClick = {
-                                preset = item
-                                if (item != DeviceProfilePreset.CUSTOM) {
-                                    brand = item.brand
-                                    model = item.model
-                                    device = item.device
-                                }
-                            },
-                            label = {
-                                Text(
-                                    text = item.label,
-                                    fontSize = 12.sp,
-                                    fontFamily = JakartaFontFamily
-                                )
-                            }
-                        )
-                    }
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = brand,
-                        onValueChange = {
-                            brand = it
-                            preset = DeviceProfilePreset.CUSTOM
-                        },
-                        label = { Text("Brand", fontSize = 11.sp) },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                    OutlinedTextField(
-                        value = model,
-                        onValueChange = {
-                            model = it
-                            preset = DeviceProfilePreset.CUSTOM
-                        },
-                        label = { Text("Model", fontSize = 11.sp) },
-                        singleLine = true,
-                        modifier = Modifier.weight(1.3f)
-                    )
-                }
-
-                HorizontalDivider(color = scheme.outlineVariant)
-
-                Text(
-                    text = "Unique Hardware & Ad Identifiers",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = scheme.onSurface,
-                    fontFamily = JakartaFontFamily
-                )
-
-                IdentifierFieldWithRandomize(
-                    label = "Android ID (16-hex) & Widevine DRM Seed",
-                    value = androidId,
-                    onValueChange = { androidId = it },
-                    onRandomize = { androidId = IsolationRuleManager.generateAndroidId() }
-                )
-
-                IdentifierFieldWithRandomize(
-                    label = "IMEI / MEID (15-digit Luhn Valid)",
-                    value = imei,
-                    onValueChange = { imei = it },
-                    onRandomize = { imei = IsolationRuleManager.generateLuhnImei() }
-                )
-
-                IdentifierFieldWithRandomize(
-                    label = "Google Advertising ID (AAID)",
-                    value = adId,
-                    onValueChange = { adId = it },
-                    onRandomize = { adId = IsolationRuleManager.generateAdvertisingId() }
-                )
-
-                IdentifierFieldWithRandomize(
-                    label = "Wi-Fi & Bluetooth MAC Address",
-                    value = mac,
-                    onValueChange = { mac = it },
-                    onRandomize = { mac = IsolationRuleManager.generateMacAddress() }
-                )
-
-                IdentifierFieldWithRandomize(
-                    label = "Hardware Serial (Build.SERIAL)",
-                    value = serial,
-                    onValueChange = { serial = it },
-                    onRandomize = { serial = IsolationRuleManager.generateSerial() }
-                )
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = carrier,
-                        onValueChange = { carrier = it },
-                        label = { Text("SIM Carrier", fontSize = 11.sp) },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                    OutlinedTextField(
-                        value = simOp,
-                        onValueChange = { simOp = it },
-                        label = { Text("MCC/MNC", fontSize = 11.sp) },
-                        singleLine = true,
-                        modifier = Modifier.weight(0.8f)
-                    )
-                }
-
-                HorizontalDivider(color = scheme.outlineVariant)
-
-                Text(
-                    text = "Environment & Privacy Shields",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = scheme.onSurface,
-                    fontFamily = JakartaFontFamily
-                )
-
-                PrivacyShieldToggleRow(
-                    title = "Hide Root, Magisk, KernelSU & LSPosed",
-                    subtitle = "Blocks root/Xposed package queries, stacktraces & spoofs release-keys",
-                    checked = hideRoot,
-                    onCheckedChange = { hideRoot = it }
-                )
-
-                PrivacyShieldToggleRow(
-                    title = "Hide Developer Options & USB Debugging",
-                    subtitle = "Spoofs adb_enabled=0 & development_settings_enabled=0",
-                    checked = hideAdb,
-                    onCheckedChange = { hideAdb = it }
-                )
-
-                PrivacyShieldToggleRow(
-                    title = "Hide VPN & Proxy Status",
-                    subtitle = "Hides tun0/wg0 interfaces & TRANSPORT_VPN capability",
-                    checked = hideVpn,
-                    onCheckedChange = { hideVpn = it }
-                )
-
-                PrivacyShieldToggleRow(
-                    title = "Block Background Clipboard Snooping",
-                    subtitle = "Prevents this app from silently reading copied text",
-                    checked = blockClip,
-                    onCheckedChange = { blockClip = it }
-                )
             }
-        },
-        confirmButton = {
+
+            Spacer(modifier = Modifier.width(8.dp))
+
             Button(
                 onClick = {
                     onSave(
@@ -974,25 +839,336 @@ private fun ConfigureDeviceIdentityDialog(
                         blockClip
                     )
                 },
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(50),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 modifier = Modifier.testTag("btn_save_identity_spoof")
             ) {
-                Text("Save & Apply", fontWeight = FontWeight.Bold, fontFamily = JakartaFontFamily)
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Save",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = JakartaFontFamily
+                )
             }
-        },
-        dismissButton = {
-            Row {
-                if (appInfo.isIdentitySpoofed) {
-                    TextButton(onClick = onDisable) {
-                        Text("Disable", color = scheme.error, fontFamily = JakartaFontFamily)
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // 1-Tap Randomize All Card
+            FilledTonalButton(
+                onClick = {
+                    val presets = DeviceProfilePreset.entries.filter { it != DeviceProfilePreset.CUSTOM }
+                    val randomPreset = presets.random()
+                    preset = randomPreset
+                    brand = randomPreset.brand
+                    model = randomPreset.model
+                    device = randomPreset.device
+                    androidId = IsolationRuleManager.generateAndroidId()
+                    imei = IsolationRuleManager.generateLuhnImei()
+                    adId = IsolationRuleManager.generateAdvertisingId()
+                    mac = IsolationRuleManager.generateMacAddress()
+                    serial = IsolationRuleManager.generateSerial()
+                    val (cName, cCode) = IsolationRuleManager.generateRandomCarrier()
+                    carrier = cName
+                    simOp = cCode
+                },
+                shape = RoundedCornerShape(16.dp),
+                contentPadding = PaddingValues(vertical = 12.dp, horizontal = 16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("btn_randomize_all_identity")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Casino,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "1-Tap Randomize Full Device Identity",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    fontFamily = JakartaFontFamily
+                )
+            }
+
+            // Section 1: Hardware Model Preset Card
+            Card(
+                colors = CardDefaults.cardColors(containerColor = scheme.surface),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(1.dp, scheme.outlineVariant),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "Hardware Model Preset",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = scheme.onSurface,
+                        fontFamily = JakartaFontFamily
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                    ) {
+                        DeviceProfilePreset.entries.forEach { item ->
+                            FilterChip(
+                                selected = preset == item,
+                                onClick = {
+                                    preset = item
+                                    if (item != DeviceProfilePreset.CUSTOM) {
+                                        brand = item.brand
+                                        model = item.model
+                                        device = item.device
+                                    }
+                                },
+                                label = {
+                                    Text(
+                                        text = item.label,
+                                        fontSize = 12.sp,
+                                        fontFamily = JakartaFontFamily
+                                    )
+                                },
+                                shape = RoundedCornerShape(50)
+                            )
+                        }
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = brand,
+                            onValueChange = {
+                                brand = it
+                                preset = DeviceProfilePreset.CUSTOM
+                            },
+                            label = { Text("Brand", fontSize = 11.sp) },
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = model,
+                            onValueChange = {
+                                model = it
+                                preset = DeviceProfilePreset.CUSTOM
+                            },
+                            label = { Text("Model", fontSize = 11.sp) },
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.weight(1.3f)
+                        )
                     }
                 }
-                TextButton(onClick = onDismiss) {
-                    Text("Cancel", fontFamily = JakartaFontFamily)
+            }
+
+            // Section 2: Unique Hardware & Ad Identifiers Card
+            Card(
+                colors = CardDefaults.cardColors(containerColor = scheme.surface),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(1.dp, scheme.outlineVariant),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "Unique Hardware & Ad Identifiers",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = scheme.onSurface,
+                        fontFamily = JakartaFontFamily
+                    )
+
+                    IdentifierFieldWithRandomize(
+                        label = "Android ID (16-hex) & Widevine DRM Seed",
+                        value = androidId,
+                        onValueChange = { androidId = it },
+                        onRandomize = { androidId = IsolationRuleManager.generateAndroidId() }
+                    )
+
+                    IdentifierFieldWithRandomize(
+                        label = "IMEI / MEID (15-digit Luhn Valid)",
+                        value = imei,
+                        onValueChange = { imei = it },
+                        onRandomize = { imei = IsolationRuleManager.generateLuhnImei() }
+                    )
+
+                    IdentifierFieldWithRandomize(
+                        label = "Google Advertising ID (AAID)",
+                        value = adId,
+                        onValueChange = { adId = it },
+                        onRandomize = { adId = IsolationRuleManager.generateAdvertisingId() }
+                    )
+
+                    IdentifierFieldWithRandomize(
+                        label = "Wi-Fi & Bluetooth MAC Address",
+                        value = mac,
+                        onValueChange = { mac = it },
+                        onRandomize = { mac = IsolationRuleManager.generateMacAddress() }
+                    )
+
+                    IdentifierFieldWithRandomize(
+                        label = "Hardware Serial (Build.SERIAL)",
+                        value = serial,
+                        onValueChange = { serial = it },
+                        onRandomize = { serial = IsolationRuleManager.generateSerial() }
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = carrier,
+                            onValueChange = { carrier = it },
+                            label = { Text("SIM Carrier", fontSize = 11.sp) },
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = simOp,
+                            onValueChange = { simOp = it },
+                            label = { Text("MCC/MNC", fontSize = 11.sp) },
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.weight(0.8f)
+                        )
+                    }
+                }
+            }
+
+            // Section 3: Environment & Privacy Shields Card
+            Card(
+                colors = CardDefaults.cardColors(containerColor = scheme.surface),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(1.dp, scheme.outlineVariant),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "Environment & Privacy Shields",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = scheme.onSurface,
+                        fontFamily = JakartaFontFamily
+                    )
+
+                    PrivacyShieldToggleRow(
+                        title = "Hide Root, Magisk, KernelSU & LSPosed",
+                        subtitle = "Blocks root/Xposed package queries, stacktraces & spoofs release-keys",
+                        checked = hideRoot,
+                        onCheckedChange = { hideRoot = it }
+                    )
+
+                    HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+
+                    PrivacyShieldToggleRow(
+                        title = "Hide Developer Options & USB Debugging",
+                        subtitle = "Spoofs adb_enabled=0 & development_settings_enabled=0",
+                        checked = hideAdb,
+                        onCheckedChange = { hideAdb = it }
+                    )
+
+                    HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+
+                    PrivacyShieldToggleRow(
+                        title = "Hide VPN & Proxy Status",
+                        subtitle = "Hides tun0/wg0 interfaces & TRANSPORT_VPN capability",
+                        checked = hideVpn,
+                        onCheckedChange = { hideVpn = it }
+                    )
+
+                    HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+
+                    PrivacyShieldToggleRow(
+                        title = "Block Background Clipboard Snooping",
+                        subtitle = "Prevents this app from silently reading copied text",
+                        checked = blockClip,
+                        onCheckedChange = { blockClip = it }
+                    )
+                }
+            }
+
+            // Bottom Action Row
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 24.dp)
+            ) {
+                if (appInfo.isIdentitySpoofed) {
+                    OutlinedButton(
+                        onClick = onDisable,
+                        shape = RoundedCornerShape(50),
+                        border = BorderStroke(1.dp, scheme.error.copy(alpha = 0.5f)),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = "Restore Real ID",
+                            color = scheme.error,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = JakartaFontFamily
+                        )
+                    }
+                }
+                Button(
+                    onClick = {
+                        onSave(
+                            preset,
+                            brand,
+                            model,
+                            device,
+                            androidId,
+                            imei,
+                            adId,
+                            mac,
+                            carrier,
+                            simOp,
+                            serial,
+                            hideRoot,
+                            hideAdb,
+                            hideVpn,
+                            blockClip
+                        )
+                    },
+                    shape = RoundedCornerShape(50),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = "Save & Apply",
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = JakartaFontFamily
+                    )
                 }
             }
         }
-    )
+    }
 }
 
 @Composable
@@ -1016,6 +1192,7 @@ private fun IdentifierFieldWithRandomize(
             }
         },
         singleLine = true,
+        shape = RoundedCornerShape(14.dp),
         modifier = Modifier.fillMaxWidth()
     )
 }

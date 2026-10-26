@@ -26,7 +26,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
@@ -37,7 +39,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -90,15 +91,25 @@ fun AppsScreen(
     val selectedApp by viewModel.selectedAppForDetail.collectAsState()
     val configs by viewModel.configs.collectAsState()
 
-    var showAddAppsSheet by remember { mutableStateOf(false) }
+    val isSelectAppsMode = activeFilter != AppListFilter.ISOLATED_ONLY
 
-    // Default to Protected Apps (ISOLATED_ONLY) whenever opening this screen
+    BackHandler(enabled = selectedApp != null || isSelectAppsMode || onBack != null) {
+        when {
+            selectedApp != null -> viewModel.selectAppForDetail(null)
+            isSelectAppsMode -> {
+                viewModel.setFilter(AppListFilter.ISOLATED_ONLY)
+                viewModel.setSearchQuery("")
+            }
+            onBack != null -> onBack()
+        }
+    }
+
+    // Default to Storage Isolate (ISOLATED_ONLY) whenever opening this screen
     LaunchedEffect(Unit) {
         viewModel.setFilter(AppListFilter.ISOLATED_ONLY)
     }
 
     val detailSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val addAppsSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val protectedAppsCount = remember(allInstalledApps) {
         allInstalledApps.count { it.isIsolated }
@@ -125,8 +136,17 @@ fun AppsScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f)
                 ) {
-                    if (onBack != null) {
-                        IconButton(onClick = onBack) {
+                    if (onBack != null || isSelectAppsMode) {
+                        IconButton(
+                            onClick = {
+                                if (isSelectAppsMode) {
+                                    viewModel.setFilter(AppListFilter.ISOLATED_ONLY)
+                                    viewModel.setSearchQuery("")
+                                } else {
+                                    onBack?.invoke()
+                                }
+                            }
+                        ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = "Back",
@@ -134,41 +154,76 @@ fun AppsScreen(
                             )
                         }
                     }
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Storage Isolate",
+                            text = if (isSelectAppsMode) "Select Apps" else "Storage Isolate",
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = JakartaFontFamily,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             color = scheme.onBackground
                         )
                         Text(
-                            text = "$protectedAppsCount app${if (protectedAppsCount == 1) "" else "s"} isolated from your personal storage",
+                            text = if (isSelectAppsMode) {
+                                "Switch on any app to isolate its storage and gallery access"
+                            } else {
+                                "$protectedAppsCount app${if (protectedAppsCount == 1) "" else "s"} isolated from your personal storage"
+                            },
                             fontSize = 12.sp,
                             color = scheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             fontFamily = JakartaFontFamily
                         )
                     }
                 }
 
-                Button(
-                    onClick = { showAddAppsSheet = true },
-                    shape = RoundedCornerShape(50),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                    modifier = Modifier.testTag("btn_add_apps_top")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Add Apps",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        fontFamily = JakartaFontFamily
-                    )
+                Spacer(modifier = Modifier.width(8.dp))
+
+                if (!isSelectAppsMode) {
+                    Button(
+                        onClick = { viewModel.setFilter(AppListFilter.USER_APPS) },
+                        shape = RoundedCornerShape(50),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        modifier = Modifier.testTag("btn_add_apps_top")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Add Apps",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = JakartaFontFamily
+                        )
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = {
+                            viewModel.setFilter(AppListFilter.ISOLATED_ONLY)
+                            viewModel.setSearchQuery("")
+                        },
+                        shape = RoundedCornerShape(50),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        modifier = Modifier.testTag("btn_done_isolate_select")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Done",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = JakartaFontFamily
+                        )
+                    }
                 }
             }
 
@@ -179,7 +234,7 @@ fun AppsScreen(
                 onValueChange = { viewModel.setSearchQuery(it) },
                 placeholder = {
                     Text(
-                        "Search isolated apps...",
+                        if (isSelectAppsMode) "Search installed apps..." else "Search isolated apps...",
                         color = scheme.onSurfaceVariant,
                         fontSize = 13.sp,
                         fontFamily = JakartaFontFamily
@@ -299,19 +354,21 @@ fun AppsScreen(
                             color = scheme.onSurfaceVariant,
                             fontFamily = JakartaFontFamily
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Button(
-                            onClick = { showAddAppsSheet = true },
-                            shape = RoundedCornerShape(50),
-                            modifier = Modifier.testTag("btn_add_apps_empty")
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Add Apps to Isolate",
-                                fontFamily = JakartaFontFamily,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                        if (!isSelectAppsMode) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Button(
+                                onClick = { viewModel.setFilter(AppListFilter.USER_APPS) },
+                                shape = RoundedCornerShape(50),
+                                modifier = Modifier.testTag("btn_add_apps_empty")
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Add Apps to Isolate",
+                                    fontFamily = JakartaFontFamily,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
                     }
                 }
@@ -326,116 +383,6 @@ fun AppsScreen(
                             appInfo = appInfo,
                             onToggleIsolation = { enable -> viewModel.toggleAppIsolation(appInfo, enable) },
                             onClick = { viewModel.selectAppForDetail(appInfo) }
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    // "+ Add Apps" Picker Sheet
-    if (showAddAppsSheet) {
-        var pickerSearch by remember { mutableStateOf("") }
-        var showSystemAppsInPicker by remember { mutableStateOf(false) }
-
-        val candidateApps = remember(allInstalledApps, pickerSearch, showSystemAppsInPicker) {
-            allInstalledApps.filter { app ->
-                val matchesTab = if (showSystemAppsInPicker) app.isSystemApp else !app.isSystemApp
-                val matchesQuery = pickerSearch.isBlank() ||
-                        app.appName.contains(pickerSearch, ignoreCase = true) ||
-                        app.packageName.contains(pickerSearch, ignoreCase = true)
-                matchesTab && matchesQuery
-            }
-        }
-
-        ModalBottomSheet(
-            onDismissRequest = { showAddAppsSheet = false },
-            sheetState = addAppsSheetState,
-            containerColor = scheme.surface,
-            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(580.dp)
-                    .padding(horizontal = 20.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column {
-                        Text(
-                            text = "Add Apps to Protect",
-                            fontSize = 19.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = JakartaFontFamily,
-                            color = scheme.onSurface
-                        )
-                        Text(
-                            text = "Switch on any app to isolate its storage and gallery access.",
-                            fontSize = 12.sp,
-                            color = scheme.onSurfaceVariant,
-                            fontFamily = JakartaFontFamily
-                        )
-                    }
-                    IconButton(onClick = { showAddAppsSheet = false }) {
-                        Icon(Icons.Default.Close, contentDescription = "Close")
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                OutlinedTextField(
-                    value = pickerSearch,
-                    onValueChange = { pickerSearch = it },
-                    placeholder = { Text("Search installed apps...", fontSize = 13.sp, fontFamily = JakartaFontFamily) },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    trailingIcon = {
-                        if (pickerSearch.isNotEmpty()) {
-                            IconButton(onClick = { pickerSearch = "" }) {
-                                Icon(Icons.Default.Close, contentDescription = "Clear")
-                            }
-                        }
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(50),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = !showSystemAppsInPicker,
-                        onClick = { showSystemAppsInPicker = false },
-                        label = { Text("Downloaded Apps", fontFamily = JakartaFontFamily) },
-                        shape = RoundedCornerShape(50)
-                    )
-                    FilterChip(
-                        selected = showSystemAppsInPicker,
-                        onClick = { showSystemAppsInPicker = true },
-                        label = { Text("System Apps", fontFamily = JakartaFontFamily) },
-                        shape = RoundedCornerShape(50)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(bottom = 24.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    items(candidateApps, key = { it.packageName }) { appInfo ->
-                        AppItemCard(
-                            appInfo = appInfo,
-                            onToggleIsolation = { enable -> viewModel.toggleAppIsolation(appInfo, enable) },
-                            onClick = {
-                                showAddAppsSheet = false
-                                viewModel.selectAppForDetail(appInfo)
-                            }
                         )
                     }
                 }
