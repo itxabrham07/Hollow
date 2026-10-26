@@ -220,13 +220,15 @@ When Hollow itself is set to **Hidden** (`LauncherVisibilityMode.HIDDEN`), the u
 ## 3. Mandatory Golden Rules for Future Hook Development
 
 1. **Always Guard Against Hook Recursion (`ThreadLocal<Boolean>`)**:
-   - Inside any `File`, `ContentResolver`, `SQLiteSession`, or `libcore.io` hook, check `if (isHandlingHook.get() == true) return` before executing any file or IPC logic, and reset it in a `finally` block.
+   - Inside any `File`, `ContentResolver`, `SQLiteSession`, `libcore.io`, or overloaded `ComputerEngine.queryIntentActivitiesInternal` hook, check `if (isHandlingHook.get() == true) return` before executing any logic, and reset it in a `finally` block.
 2. **Never Mutate Shared `PackageManager` Objects In-Place in `system_server`**:
    - In `system_server` (`ComputerEngine`, `PackageManagerService`, `LauncherAppsService`, `ActivityTaskSupervisor`), `ActivityInfo`, `ApplicationInfo`, and `ResolveInfo` instances may come from PackageManager's in-memory cache. Always clone (`ActivityInfo(original)`, `ApplicationInfo(original)`, `ResolveInfo(original)`) before setting `nonLocalizedLabel`, `labelRes = 0`, or `flags`.
-3. **Never Run Storage Hooks in System Processes or Unconfigured Launchers**:
-   - Always exempt `android`, `system`, `com.android.systemui*`, `com.android.providers.*`, `documentsui`, and `com.android.externalstorage` from storage hooks.
-   - If a home launcher is in Vector's scope solely for stealth/disguise hooks and hasn't been explicitly isolated by the user, default `isIsolated` to `false` so the launcher's wallpaper/backup files aren't sandboxed.
-4. **Never Perform Synchronous `ContentResolver` IPC Inside `system_server`**:
-   - When `currentPkg == "android"` or `Process.myUid() == Process.SYSTEM_UID`, only read rules from `XSharedPreferences` with the `hasFetchedOnce` + `2500ms` TTL cache.
+3. **Strict `processName` + `UID` Filtering & Single-Attach Per Process (Anti-Freeze Rule)**:
+   - When `System Framework` (`android`) is enabled in LSPosed/Vector, `handleLoadPackage` also fires for secondary system packages loaded inside `system_server` (e.g., `com.android.inputdevices`, `com.android.location.fused`, `com.android.server.telecom`, `com.android.keychain` where `lpparam.processName == "android"` and `UID == 1000`).
+   - Always check `Process.myUid() < Process.FIRST_APPLICATION_UID`, `lpparam.processName == "android"`, `lpparam.processName.startsWith("com.android.systemui")`, and `lpparam.isFirstApplication`, and guard hook attachment with an `AtomicBoolean` (`compareAndSet(false, true)`) so `BootClassLoader` hooks are never attached inside `system_server` or stacked multiple times in one process.
+4. **Never Block UI or `system_server` Threads on `XSharedPreferences` or `ContentResolver` IPC**:
+   - Never instantiate `XSharedPreferences` inside `initZygote()`.
+   - Never call `ContentResolver.call()` or synchronous `XSharedPreferences.reload()` on hooked threads inside `system_server` or `com.android.systemui` (which causes deadlocks during Direct Boot lockscreen and screen wake). Always return the volatile in-memory rule map in `0ms` and refresh `XSharedPreferences` asynchronously on a single daemon background thread.
 5. **Preserve Direct Launch & Self-Query Exemptions**:
    - Never hide `MODULE_PKG` or any hidden app when the query originates from `MODULE_PKG` (`callingAppId == cachedHollowAppId`), nor when `targetPkg == currentPkg`.
+

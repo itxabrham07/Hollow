@@ -176,16 +176,53 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
         override fun getExtras(): Bundle = Bundle.EMPTY
     }
 
+    @Volatile
     private var xSharedPrefs: XSharedPreferences? = null
 
+    private val storageHooksAttachedInProcess = java.util.concurrent.atomic.AtomicBoolean(false)
+
     override fun initZygote(startupParam: IXposedHookZygoteInit.StartupParam?) {
-        try {
-            xSharedPrefs = XSharedPreferences(MODULE_PKG, IsolationRuleManager.PREFS_NAME).apply {
-                makeWorldReadable()
-            }
-        } catch (_: Throwable) {}
+        // Never instantiate XSharedPreferences inside initZygote — spawning disk-loader threads
+        // or calling SELinux services during early Zygote / system_server bootstrap can hang boot.
         Log.i(TAG, "[IsoVault] Zygote initialized on Vector / LSPosed.")
-        XposedBridge.log("[IsoVault] Zygote initialized on Vector / LSPosed.")
+    }
+
+    private fun isCoreSystemProcessOrPackage(
+        lpparam: XC_LoadPackage.LoadPackageParam,
+        pkg: String
+    ): Boolean {
+        val proc = lpparam.processName ?: pkg
+        val uid = android.os.Process.myUid()
+        val appId = uid % 100_000
+
+        // Never run storage isolation inside system_server (UID 1000) or any non-app UID (< 10000)
+        if (appId < android.os.Process.FIRST_APPLICATION_UID || appId == android.os.Process.SYSTEM_UID) {
+            return true
+        }
+        if (pkg == "android" || pkg == "system" || proc == "android" || proc == "system" || proc == "system_server") {
+            return true
+        }
+        if (pkg.startsWith("com.android.systemui") || proc.startsWith("com.android.systemui")) {
+            return true
+        }
+        if (pkg.startsWith("com.android.providers.") ||
+            pkg.startsWith("com.android.server.") ||
+            pkg.startsWith("com.android.internal.") ||
+            pkg.startsWith("com.android.location.") ||
+            pkg == "com.android.settings" ||
+            pkg == "com.android.phone" ||
+            pkg == "com.android.nfc" ||
+            pkg == "com.android.bluetooth" ||
+            pkg == "com.android.shell" ||
+            pkg == "com.android.inputdevices" ||
+            pkg == "com.android.keychain" ||
+            pkg.contains("documentsui") ||
+            pkg == "com.android.externalstorage" ||
+            pkg == "com.google.android.providers.media.module"
+        ) {
+            return true
+        }
+        return false
     }
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
@@ -205,25 +242,30 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
         }
 
         // Attach System-Wide App Hider, Custom Name/Icon Disguise & Direct SystemUI Injection
-        // Works inside System Framework (`android`), `com.android.systemui`, and any existing or
-        // newly installed launcher process.
+        // Runs non-blockingly and only once per process.
         try {
             SystemStealthHook.attachForPackage(lpparam, pkg, xSharedPrefs)
         } catch (_: Throwable) {}
 
-        // Core system packages only run stealth/SystemUI hooks, never storage isolation hooks.
-        // Note: Vector's LoadedApkHookers.kt passes "android" for system_server and "system" for android:ui.
-        if (pkg == "android" || pkg == "system" || pkg.startsWith("com.android.systemui")) {
+        // Strictly block storage isolation hooks from ever attaching inside system_server,
+        // SystemUI, shared UID 1000 sub-packages, or core system packages.
+        if (isCoreSystemProcessOrPackage(lpparam, pkg)) {
             return
         }
-        if (pkg.startsWith("com.android.providers.") ||
-            pkg.contains("documentsui") ||
-            pkg == "com.android.externalstorage" ||
-            pkg == "com.google.android.providers.media.module") return
+
+        // Only attach storage hooks to the primary package of an application process, and only once per process
+        val proc = lpparam.processName ?: pkg
+        if (!lpparam.isFirstApplication && proc != pkg) {
+            return
+        }
 
         val rule = resolveRuleForPackage(pkg)
         if (!rule.isIsolated) {
             XposedBridge.log("[IsoVault] Skipping storage hooks for $pkg (not isolated)")
+            return
+        }
+
+        if (!storageHooksAttachedInProcess.compareAndSet(false, true)) {
             return
         }
 

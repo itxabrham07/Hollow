@@ -1,7 +1,6 @@
 package com.example.isolation.hook
 
 import android.annotation.SuppressLint
-import android.app.AndroidAppHelper
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -20,7 +19,6 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
-import android.net.Uri
 import android.os.Binder
 import android.os.Process
 import android.view.View
@@ -33,34 +31,24 @@ import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * System-wide App Hider, Custom Name/Icon Disguise, and Direct SystemUI Injection engine,
- * architected to match Vector (`Vector-master`):
+ * Lock-free, non-blocking System-wide App Hider, Custom Name/Icon Disguise, and SystemUI Stealth Trigger.
  *
- *  1. Hooks `system_server` (`lpparam.packageName == "android"` via `LegacyDelegateImpl.onSystemServerLoaded`):
- *     - `LauncherAppsService$LauncherAppsImpl.getLauncherActivities`: Filters hidden apps and injects
- *       `nonLocalizedLabel = customLabel` into `ActivityInfo`/`ApplicationInfo` across Binder so
- *       **any existing or newly installed launcher** (even one not in Vector's scope) automatically
- *       hides apps and displays custom user-typed names.
- *     - `ComputerEngine` / `PackageManagerService.queryIntentActivitiesInternal`: Filters hidden apps
- *       and spoofs labels on `ResolveInfo.activityInfo` while exempting Hollow's own queries and
- *       direct package launches.
- *     - `ActivityTaskSupervisor.resolveActivity` (modeled on Vector's `ParasiticManagerSystemHooker`):
- *       Resolves stealth launch intents (`LAUNCH_HOLLOW`) and applies `FLAG_EXCLUDE_FROM_RECENTS`
- *       when recents masking is enabled.
- *  2. Hooks `com.android.systemui` directly:
- *     - Hooks `onAttachedToWindow` and `performLongClick` on Quick Settings / Status Bar `Clock`,
- *       `DateView`, and `QuickStatusBarHeader` (preventing SystemUI controllers from overwriting
- *       the listener) and collapses the notification shade before launching Hollow.
- *  3. Hooks `LauncherApps`, `ApplicationPackageManager`, and `PackageItemInfo` in client processes
- *     so custom decoy icons and labels render in launchers, Share sheets (`system` / `android:ui`),
- *     and SystemUI Recents.
+ * Designed specifically to prevent any main-thread or Binder-thread blocking in `system_server`
+ * (`android`) and `com.android.systemui`:
+ *  - Rules are read from a volatile in-memory snapshot (`cachedStealthMap`) in 0ms; background
+ *    reloads happen strictly off-thread on a single daemon executor without ever calling
+ *    synchronous `ContentResolver.call` or blocking `XSharedPreferences.awaitLoadedLocked()`
+ *    on UI / system_server threads.
+ *  - Hooks attach at most once per process (`attachedInProcess`) and use a `ThreadLocal`
+ *    re-entrancy guard on overloaded `PackageManagerService` / `ComputerEngine` methods.
  */
 object SystemStealthHook {
 
     private const val MODULE_PKG = IsolationRuleManager.MODULE_PKG
-    private const val PROVIDER_URI = "content://com.aistudio.isovault.xrvf.provider"
     const val CATEGORY_LAUNCH_HOLLOW = "$MODULE_PKG.LAUNCH_HOLLOW"
 
     @Volatile
@@ -73,13 +61,21 @@ object SystemStealthHook {
     private var lastStealthFetchMs: Long = 0L
 
     @Volatile
-    private var hasFetchedOnce: Boolean = false
-
-    @Volatile
     private var fallbackXSharedPrefs: XSharedPreferences? = null
 
     @Volatile
     private var cachedHollowAppId: Int = -1
+
+    private val attachedInProcess = AtomicBoolean(false)
+    private val isRefreshing = AtomicBoolean(false)
+
+    private val isInPmQueryHook = object : ThreadLocal<Boolean>() {
+        override fun initialValue(): Boolean = false
+    }
+
+    private val refreshExecutor = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "Hollow-StealthPrefs").apply { isDaemon = true }
+    }
 
     private val decoyBitmapCache = ConcurrentHashMap<DisguiseIconPreset, Bitmap>()
 
@@ -88,25 +84,50 @@ object SystemStealthHook {
         currentPkg: String,
         xSharedPrefs: XSharedPreferences?
     ) {
-        // Never hide or spoof apps inside Hollow itself so Hollow can always see and launch everything
+        // Never hide or spoof apps inside Hollow itself
         if (currentPkg == MODULE_PKG) return
+
+        val proc = lpparam.processName ?: currentPkg
+        val isSysServer = currentPkg == "android" && (proc == "android" || proc == "system_server")
+
+        // Ignore secondary sub-packages loaded inside system_server (e.g. com.android.inputdevices,
+        // com.android.location.fused, com.android.server.telecom) or plugin packages in SystemUI.
+        if (!isSysServer && (proc == "android" || proc == "system_server")) {
+            return
+        }
+        if (proc.startsWith("com.android.systemui") && currentPkg != "com.android.systemui") {
+            return
+        }
+        if (!isSysServer && !lpparam.isFirstApplication && proc != currentPkg) {
+            return
+        }
+
+        // Guarantee hooks are attached at most once per process so BootClassLoader methods are never double-hooked
+        if (!attachedInProcess.compareAndSet(false, true)) {
+            return
+        }
 
         if (xSharedPrefs != null && fallbackXSharedPrefs == null) {
             fallbackXSharedPrefs = xSharedPrefs
         }
 
-        // 1. Attach global PackageManager / LauncherApps / PackageItemInfo hooks
-        attachGlobalPackageAndLauncherHooks(lpparam, currentPkg, xSharedPrefs)
+        // Kick off an initial non-blocking background rule fetch
+        triggerAsyncRuleRefresh(xSharedPrefs)
 
-        // 2. If inside System Server (`android` in Vector's LegacyDelegateImpl), hook
-        //    LauncherAppsService, ComputerEngine/PackageManagerService, and ActivityTaskSupervisor
-        if (currentPkg == "android") {
-            attachSystemServerPackageManagerHooks(lpparam, xSharedPrefs)
+        if (isSysServer) {
+            // Inside system_server: ONLY hook LauncherAppsService, ComputerEngine/PMS (with recursion guard),
+            // and ActivityTaskSupervisor. Never hook BootClassLoader PackageItemInfo/ApplicationPackageManager
+            // inside system_server.
             attachSystemServerLauncherAppsHooks(lpparam, xSharedPrefs)
+            attachSystemServerPackageManagerHooks(lpparam, xSharedPrefs)
             attachSystemServerActivitySupervisorHooks(lpparam, xSharedPrefs)
+            return
         }
 
-        // 3. If inside SystemUI (`com.android.systemui`), inject the direct SystemUI stealth trigger
+        // Client process hooks (Launchers, Share sheet `system`, and SystemUI Recents)
+        attachGlobalPackageAndLauncherHooks(lpparam, currentPkg, xSharedPrefs)
+
+        // Direct SystemUI expanded header DateView long-press trigger
         if (currentPkg == "com.android.systemui") {
             attachSystemUiDirectHooks(lpparam, xSharedPrefs)
         }
@@ -125,60 +146,46 @@ object SystemStealthHook {
         }
     }
 
+    /**
+     * Always returns the current in-memory stealth map in 0ms without blocking the caller thread.
+     * If the 3000ms TTL has elapsed, schedules an asynchronous reload on [refreshExecutor].
+     */
     private fun getStealthRules(
-        xSharedPrefs: XSharedPreferences?,
-        isSystemServer: Boolean = false
+        xSharedPrefs: XSharedPreferences?
     ): Map<String, IsolationRuleManager.StealthRule> {
         val now = System.currentTimeMillis()
-        if (hasFetchedOnce && (now - lastStealthFetchMs) < 2500L) {
-            return cachedStealthMap
+        if ((now - lastStealthFetchMs) > 3000L) {
+            triggerAsyncRuleRefresh(xSharedPrefs)
         }
-        lastStealthFetchMs = now
-        hasFetchedOnce = true
-
-        // Channel 1: XSharedPreferences (backed by VectorServiceClient.getPrefsPath in Vector)
-        try {
-            val prefs = obtainXSharedPrefs(xSharedPrefs)
-            if (prefs != null) {
-                if (prefs.hasFileChanged()) {
-                    prefs.reload()
-                }
-                val raw = prefs.getString(IsolationRuleManager.KEY_STEALTH_TABLE, null)
-                cachedSystemUiTrigger = prefs.getBoolean(IsolationRuleManager.KEY_SYSTEMUI_TRIGGER, true)
-                if (raw != null) {
-                    val parsed = IsolationRuleManager.parseStealthTable(raw)
-                    cachedStealthMap = parsed
-                    return parsed
-                }
-            }
-        } catch (_: Throwable) {}
-
-        // Never make synchronous ContentResolver IPC calls from inside system_server
-        if (isSystemServer || Process.myUid() == Process.SYSTEM_UID) {
-            return cachedStealthMap
-        }
-
-        // Channel 2: ContentProvider IPC fallback for regular client processes
-        try {
-            val app = AndroidAppHelper.currentApplication()
-            if (app != null) {
-                val bundle = app.contentResolver.call(
-                    Uri.parse(PROVIDER_URI),
-                    "get_stealth_table",
-                    app.packageName,
-                    null
-                )
-                if (bundle != null) {
-                    val raw = bundle.getString("stealthTable", "")
-                    cachedSystemUiTrigger = bundle.getBoolean("systemUiTriggerEnabled", true)
-                    val parsed = IsolationRuleManager.parseStealthTable(raw)
-                    cachedStealthMap = parsed
-                    return parsed
-                }
-            }
-        } catch (_: Throwable) {}
-
         return cachedStealthMap
+    }
+
+    private fun triggerAsyncRuleRefresh(xSharedPrefs: XSharedPreferences?) {
+        if (!isRefreshing.compareAndSet(false, true)) return
+        lastStealthFetchMs = System.currentTimeMillis()
+        try {
+            refreshExecutor.execute {
+                try {
+                    val prefs = obtainXSharedPrefs(xSharedPrefs)
+                    if (prefs != null) {
+                        if (prefs.hasFileChanged()) {
+                            prefs.reload()
+                        }
+                        val raw = prefs.getString(IsolationRuleManager.KEY_STEALTH_TABLE, null)
+                        cachedSystemUiTrigger = prefs.getBoolean(IsolationRuleManager.KEY_SYSTEMUI_TRIGGER, true)
+                        if (raw != null) {
+                            cachedStealthMap = IsolationRuleManager.parseStealthTable(raw)
+                        }
+                    }
+                } catch (_: Throwable) {
+                } finally {
+                    lastStealthFetchMs = System.currentTimeMillis()
+                    isRefreshing.set(false)
+                }
+            }
+        } catch (_: Throwable) {
+            isRefreshing.set(false)
+        }
     }
 
     private fun attachGlobalPackageAndLauncherHooks(
@@ -186,8 +193,6 @@ object SystemStealthHook {
         currentPkg: String,
         xSharedPrefs: XSharedPreferences?
     ) {
-        val isSysServer = currentPkg == "android"
-
         // A. Hook LauncherApps.getActivityList(String, UserHandle) -> used by all modern launchers
         try {
             XposedBridge.hookAllMethods(
@@ -195,9 +200,9 @@ object SystemStealthHook {
                 "getActivityList",
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
-                        val list = param.result as? List<*> ?: return
-                        val rules = getStealthRules(xSharedPrefs, isSysServer)
+                        val rules = getStealthRules(xSharedPrefs)
                         if (rules.isEmpty()) return
+                        val list = param.result as? List<*> ?: return
 
                         val filtered = list.filter { item ->
                             val info = item as? LauncherActivityInfo ?: return@filter true
@@ -216,52 +221,53 @@ object SystemStealthHook {
 
         // B. Hook ApplicationPackageManager.queryIntentActivities / queryIntentActivitiesAsUser
         try {
-            val apmClass = XposedHelpers.findClass(
+            val apmClass = XposedHelpers.findClassIfExists(
                 "android.app.ApplicationPackageManager",
                 lpparam.classLoader
             )
-            val queryHook = object : XC_MethodHook() {
-                override fun afterHookedMethod(param: MethodHookParam) {
-                    val intent = param.args.firstOrNull { it is Intent } as? Intent ?: return
-                    val categories = intent.categories
-                    val isLauncherQuery = categories?.contains(Intent.CATEGORY_LAUNCHER) == true ||
-                            categories?.contains(Intent.CATEGORY_INFO) == true ||
-                            intent.action == Intent.ACTION_MAIN
-                    if (!isLauncherQuery) return
+            if (apmClass != null) {
+                val queryHook = object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val rules = getStealthRules(xSharedPrefs)
+                        if (rules.isEmpty()) return
 
-                    // Allow direct launch intent lookup from SystemUI so SystemUI can launch hidden Hollow
-                    if (currentPkg == "com.android.systemui" &&
-                        (intent.`package` == MODULE_PKG || intent.component?.packageName == MODULE_PKG)
-                    ) {
-                        return
-                    }
+                        val intent = param.args.firstOrNull { it is Intent } as? Intent ?: return
+                        val categories = intent.categories
+                        val isLauncherQuery = categories?.contains(Intent.CATEGORY_LAUNCHER) == true ||
+                                categories?.contains(Intent.CATEGORY_INFO) == true ||
+                                intent.action == Intent.ACTION_MAIN
+                        if (!isLauncherQuery) return
 
-                    val list = param.result as? List<*> ?: return
-                    val rules = getStealthRules(xSharedPrefs, isSysServer)
-                    if (rules.isEmpty()) return
-
-                    val filtered = list.filter { item ->
-                        val ri = item as? ResolveInfo ?: return@filter true
-                        val targetPkg = ri.activityInfo?.packageName
-                            ?: ri.resolvePackageName
-                            ?: return@filter true
-                        if (targetPkg == currentPkg) return@filter true
-                        val rule = rules[targetPkg]
-                        if (rule != null &&
-                            rule.visibilityMode == LauncherVisibilityMode.DISGUISED &&
-                            rule.customLabel.isNotBlank()
+                        if (currentPkg == "com.android.systemui" &&
+                            (intent.`package` == MODULE_PKG || intent.component?.packageName == MODULE_PKG)
                         ) {
-                            applyDisguiseLabelToResolveInfo(ri, rule.customLabel)
+                            return
                         }
-                        rule?.visibilityMode != LauncherVisibilityMode.HIDDEN
-                    }
-                    if (filtered.size != list.size) {
-                        param.result = ArrayList(filtered)
+
+                        val list = param.result as? List<*> ?: return
+                        val filtered = list.filter { item ->
+                            val ri = item as? ResolveInfo ?: return@filter true
+                            val targetPkg = ri.activityInfo?.packageName
+                                ?: ri.resolvePackageName
+                                ?: return@filter true
+                            if (targetPkg == currentPkg) return@filter true
+                            val rule = rules[targetPkg]
+                            if (rule != null &&
+                                rule.visibilityMode == LauncherVisibilityMode.DISGUISED &&
+                                rule.customLabel.isNotBlank()
+                            ) {
+                                applyDisguiseLabelToResolveInfo(ri, rule.customLabel)
+                            }
+                            rule?.visibilityMode != LauncherVisibilityMode.HIDDEN
+                        }
+                        if (filtered.size != list.size) {
+                            param.result = ArrayList(filtered)
+                        }
                     }
                 }
+                XposedBridge.hookAllMethods(apmClass, "queryIntentActivities", queryHook)
+                XposedBridge.hookAllMethods(apmClass, "queryIntentActivitiesAsUser", queryHook)
             }
-            XposedBridge.hookAllMethods(apmClass, "queryIntentActivities", queryHook)
-            XposedBridge.hookAllMethods(apmClass, "queryIntentActivitiesAsUser", queryHook)
         } catch (_: Throwable) {}
 
         // C. Hook LauncherActivityInfo.getLabel() -> custom user-typed name in any launcher
@@ -271,10 +277,12 @@ object SystemStealthHook {
                 "getLabel",
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
+                        val rules = getStealthRules(xSharedPrefs)
+                        if (rules.isEmpty()) return
                         val info = param.thisObject as? LauncherActivityInfo ?: return
                         val targetPkg = info.componentName?.packageName ?: return
                         if (targetPkg == currentPkg) return
-                        val rule = getStealthRules(xSharedPrefs, isSysServer)[targetPkg] ?: return
+                        val rule = rules[targetPkg] ?: return
                         if (rule.visibilityMode == LauncherVisibilityMode.DISGUISED && rule.customLabel.isNotBlank()) {
                             param.result = rule.customLabel
                         }
@@ -290,10 +298,12 @@ object SystemStealthHook {
                 "loadLabel",
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
+                        val rules = getStealthRules(xSharedPrefs)
+                        if (rules.isEmpty()) return
                         val item = param.thisObject as? PackageItemInfo ?: return
                         val targetPkg = item.packageName ?: return
                         if (targetPkg == currentPkg) return
-                        val rule = getStealthRules(xSharedPrefs, isSysServer)[targetPkg] ?: return
+                        val rule = rules[targetPkg] ?: return
                         if (rule.visibilityMode == LauncherVisibilityMode.DISGUISED && rule.customLabel.isNotBlank()) {
                             if (currentPkg == "com.android.systemui" && !rule.hideInRecents) return
                             param.result = rule.customLabel
@@ -304,31 +314,37 @@ object SystemStealthHook {
         } catch (_: Throwable) {}
 
         try {
-            val apmClass = XposedHelpers.findClass(
+            val apmClass = XposedHelpers.findClassIfExists(
                 "android.app.ApplicationPackageManager",
                 lpparam.classLoader
             )
-            XposedBridge.hookAllMethods(
-                apmClass,
-                "getApplicationLabel",
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        val appInfo = param.args.firstOrNull() as? ApplicationInfo ?: return
-                        val targetPkg = appInfo.packageName ?: return
-                        if (targetPkg == currentPkg) return
-                        val rule = getStealthRules(xSharedPrefs, isSysServer)[targetPkg] ?: return
-                        if (rule.visibilityMode == LauncherVisibilityMode.DISGUISED && rule.customLabel.isNotBlank()) {
-                            if (currentPkg == "com.android.systemui" && !rule.hideInRecents) return
-                            param.result = rule.customLabel
+            if (apmClass != null) {
+                XposedBridge.hookAllMethods(
+                    apmClass,
+                    "getApplicationLabel",
+                    object : XC_MethodHook() {
+                        override fun beforeHookedMethod(param: MethodHookParam) {
+                            val rules = getStealthRules(xSharedPrefs)
+                            if (rules.isEmpty()) return
+                            val appInfo = param.args.firstOrNull() as? ApplicationInfo ?: return
+                            val targetPkg = appInfo.packageName ?: return
+                            if (targetPkg == currentPkg) return
+                            val rule = rules[targetPkg] ?: return
+                            if (rule.visibilityMode == LauncherVisibilityMode.DISGUISED && rule.customLabel.isNotBlank()) {
+                                if (currentPkg == "com.android.systemui" && !rule.hideInRecents) return
+                                param.result = rule.customLabel
+                            }
                         }
                     }
-                }
-            )
+                )
+            }
         } catch (_: Throwable) {}
 
         // E. Hook LauncherActivityInfo.getIcon / getBadgedIcon & PackageItemInfo.loadIcon
         val iconHook = object : XC_MethodHook() {
             override fun beforeHookedMethod(param: MethodHookParam) {
+                val rules = getStealthRules(xSharedPrefs)
+                if (rules.isEmpty()) return
                 val targetPkg = when (val obj = param.thisObject) {
                     is LauncherActivityInfo -> obj.componentName?.packageName
                     is PackageItemInfo -> obj.packageName
@@ -337,7 +353,7 @@ object SystemStealthHook {
                     else -> null
                 } ?: return
                 if (targetPkg == currentPkg) return
-                val rule = getStealthRules(xSharedPrefs, isSysServer)[targetPkg] ?: return
+                val rule = rules[targetPkg] ?: return
                 if (rule.visibilityMode == LauncherVisibilityMode.DISGUISED &&
                     rule.iconPreset != DisguiseIconPreset.DEFAULT
                 ) {
@@ -357,11 +373,6 @@ object SystemStealthHook {
 
     /**
      * System Server (`android`) hook on `LauncherAppsService$LauncherAppsImpl.getLauncherActivities`.
-     *
-     * Because every modern launcher (including newly installed launchers that are NOT in Vector's
-     * module scope!) fetches its app drawer list from `LauncherAppsService` over Binder, filtering
-     * hidden apps and writing `nonLocalizedLabel` into the returned `ActivityInfo` in `system_server`
-     * makes hiding and custom app names work in **any newly installed launcher** with zero extra setup.
      */
     private fun attachSystemServerLauncherAppsHooks(
         lpparam: XC_LoadPackage.LoadPackageParam,
@@ -378,16 +389,13 @@ object SystemStealthHook {
                 "getLauncherActivities",
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
-                        val callingPkg = param.args.firstOrNull { it is String } as? String
-                        // Never filter or disguise when Hollow itself queries LauncherApps
-                        if (callingPkg == MODULE_PKG) return
-
-                        val rules = getStealthRules(xSharedPrefs, isSystemServer = true)
+                        val rules = getStealthRules(xSharedPrefs)
                         if (rules.isEmpty()) return
 
+                        val callingPkg = param.args.firstOrNull { it is String } as? String
+                        if (callingPkg == MODULE_PKG) return
+
                         val rawResult = param.result ?: return
-                        // On Android 10+, getLauncherActivities returns ParceledListSlice<LauncherActivityInfoInternal>
-                        // (or List<ResolveInfo> on older versions).
                         if (rawResult is List<*>) {
                             param.result = filterAndDisguiseLauncherItems(rawResult, callingPkg, rules)
                         } else if (rawResult.javaClass.name == "android.content.pm.ParceledListSlice") {
@@ -425,7 +433,7 @@ object SystemStealthHook {
                 val rule = rules[targetPkg]
                 if (rule != null) {
                     if (rule.visibilityMode == LauncherVisibilityMode.HIDDEN) {
-                        continue // Omit hidden app from launcher drawer
+                        continue
                     }
                     if (rule.visibilityMode == LauncherVisibilityMode.DISGUISED &&
                         rule.customLabel.isNotBlank() &&
@@ -471,9 +479,8 @@ object SystemStealthHook {
     }
 
     /**
-     * System Server (`android`) hook on `ComputerEngine` / `PackageManagerService` so any launcher
-     * querying `queryIntentActivities` or `getApplicationInfo` receives the filtered list and
-     * custom `nonLocalizedLabel`.
+     * System Server (`android`) hook on `ComputerEngine` / `PackageManagerService` guarded by
+     * [isInPmQueryHook] so overloaded `queryIntentActivitiesInternal` methods never recurse.
      */
     private fun attachSystemServerPackageManagerHooks(
         lpparam: XC_LoadPackage.LoadPackageParam,
@@ -491,87 +498,85 @@ object SystemStealthHook {
                     "queryIntentActivitiesInternal",
                     object : XC_MethodHook() {
                         override fun afterHookedMethod(param: MethodHookParam) {
-                            val intent = param.args.firstOrNull { it is Intent } as? Intent ?: return
-                            val categories = intent.categories
-                            val isLauncherQuery = categories?.contains(Intent.CATEGORY_LAUNCHER) == true ||
-                                    categories?.contains(Intent.CATEGORY_INFO) == true
-                            if (!isLauncherQuery) return
-
-                            val list = param.result as? List<*> ?: return
-                            val callingAppId = Binder.getCallingUid() % 100_000
-
-                            // Cache Hollow's appId whenever we see it in ResolveInfo so we never filter Hollow's own queries
-                            if (cachedHollowAppId < 0) {
-                                for (item in list) {
-                                    val ri = item as? ResolveInfo ?: continue
-                                    if (ri.activityInfo?.packageName == MODULE_PKG) {
-                                        val uid = ri.activityInfo?.applicationInfo?.uid ?: -1
-                                        if (uid > 0) cachedHollowAppId = uid % 100_000
-                                        break
-                                    }
-                                }
-                            }
-                            if (callingAppId == cachedHollowAppId) return
-
-                            // If this is a direct single-package launch lookup (e.g. getLaunchIntentForPackage
-                            // called from Hollow or SystemUI), allow it so hidden apps can still be launched!
-                            val explicitPkg = intent.`package` ?: intent.component?.packageName
-                            if (!explicitPkg.isNullOrEmpty() &&
-                                (callingAppId == Process.SYSTEM_UID || callingAppId == cachedHollowAppId)
-                            ) {
-                                return
-                            }
-
-                            val rules = getStealthRules(xSharedPrefs, isSystemServer = true)
+                            val rules = getStealthRules(xSharedPrefs)
                             if (rules.isEmpty()) return
 
-                            val out = ArrayList<ResolveInfo>(list.size)
-                            var modified = false
-                            for (item in list) {
-                                val ri = item as? ResolveInfo ?: continue
-                                val targetPkg = ri.activityInfo?.packageName ?: run {
-                                    out.add(ri)
-                                    continue
+                            if (isInPmQueryHook.get() == true) return
+                            isInPmQueryHook.set(true)
+                            try {
+                                val intent = param.args.firstOrNull { it is Intent } as? Intent ?: return
+                                val categories = intent.categories
+                                val isLauncherQuery = categories?.contains(Intent.CATEGORY_LAUNCHER) == true ||
+                                        categories?.contains(Intent.CATEGORY_INFO) == true
+                                if (!isLauncherQuery) return
+
+                                val list = param.result as? List<*> ?: return
+                                val callingAppId = Binder.getCallingUid() % 100_000
+
+                                if (cachedHollowAppId < 0) {
+                                    for (item in list) {
+                                        val ri = item as? ResolveInfo ?: continue
+                                        if (ri.activityInfo?.packageName == MODULE_PKG) {
+                                            val uid = ri.activityInfo?.applicationInfo?.uid ?: -1
+                                            if (uid > 0) cachedHollowAppId = uid % 100_000
+                                            break
+                                        }
+                                    }
                                 }
-                                // Never hide an app from itself
-                                val targetAppId = (ri.activityInfo?.applicationInfo?.uid ?: -1) % 100_000
-                                if (targetAppId > 0 && targetAppId == callingAppId) {
-                                    out.add(ri)
-                                    continue
-                                }
-                                val rule = rules[targetPkg]
-                                if (rule?.visibilityMode == LauncherVisibilityMode.HIDDEN) {
-                                    modified = true
-                                    continue
-                                }
-                                if (rule != null &&
-                                    rule.visibilityMode == LauncherVisibilityMode.DISGUISED &&
-                                    rule.customLabel.isNotBlank()
+                                if (callingAppId == cachedHollowAppId) return
+
+                                val explicitPkg = intent.`package` ?: intent.component?.packageName
+                                if (!explicitPkg.isNullOrEmpty() &&
+                                    (callingAppId == Process.SYSTEM_UID || callingAppId == cachedHollowAppId)
                                 ) {
-                                    val clonedRi = ResolveInfo(ri)
-                                    applyDisguiseLabelToResolveInfo(clonedRi, rule.customLabel)
-                                    out.add(clonedRi)
-                                    modified = true
-                                } else {
-                                    out.add(ri)
+                                    return
                                 }
-                            }
-                            if (modified) {
-                                param.result = out
+
+                                val out = ArrayList<ResolveInfo>(list.size)
+                                var modified = false
+                                for (item in list) {
+                                    val ri = item as? ResolveInfo ?: continue
+                                    val targetPkg = ri.activityInfo?.packageName ?: run {
+                                        out.add(ri)
+                                        continue
+                                    }
+                                    val targetAppId = (ri.activityInfo?.applicationInfo?.uid ?: -1) % 100_000
+                                    if (targetAppId > 0 && targetAppId == callingAppId) {
+                                        out.add(ri)
+                                        continue
+                                    }
+                                    val rule = rules[targetPkg]
+                                    if (rule?.visibilityMode == LauncherVisibilityMode.HIDDEN) {
+                                        modified = true
+                                        continue
+                                    }
+                                    if (rule != null &&
+                                        rule.visibilityMode == LauncherVisibilityMode.DISGUISED &&
+                                        rule.customLabel.isNotBlank()
+                                    ) {
+                                        val clonedRi = ResolveInfo(ri)
+                                        applyDisguiseLabelToResolveInfo(clonedRi, rule.customLabel)
+                                        out.add(clonedRi)
+                                        modified = true
+                                    } else {
+                                        out.add(ri)
+                                    }
+                                }
+                                if (modified) {
+                                    param.result = out
+                                }
+                            } finally {
+                                isInPmQueryHook.set(false)
                             }
                         }
                     }
                 )
+                // Only hook the first matching class (ComputerEngine on Android 12L+, or PackageManagerService on older)
+                break
             } catch (_: Throwable) {}
         }
     }
 
-    /**
-     * System Server (`android`) hook on `ActivityTaskSupervisor.resolveActivity` (modeled directly
-     * after `ParasiticManagerSystemHooker.kt` in `Vector-master`):
-     *  - Applies `ActivityInfo.FLAG_EXCLUDE_FROM_RECENTS` to apps whose stealth rule has
-     *    `hideInRecents = true` and `visibilityMode == HIDDEN` so they never leave a card in Recents.
-     */
     @SuppressLint("PrivateApi")
     private fun attachSystemServerActivitySupervisorHooks(
         lpparam: XC_LoadPackage.LoadPackageParam,
@@ -590,9 +595,11 @@ object SystemStealthHook {
                     "resolveActivity",
                     object : XC_MethodHook() {
                         override fun afterHookedMethod(param: MethodHookParam) {
+                            val rules = getStealthRules(xSharedPrefs)
+                            if (rules.isEmpty()) return
                             val originalInfo = param.result as? ActivityInfo ?: return
                             val targetPkg = originalInfo.packageName ?: return
-                            val rule = getStealthRules(xSharedPrefs, isSystemServer = true)[targetPkg] ?: return
+                            val rule = rules[targetPkg] ?: return
 
                             if (rule.hideInRecents && rule.visibilityMode == LauncherVisibilityMode.HIDDEN) {
                                 val copy = ActivityInfo(originalInfo).apply {
@@ -617,66 +624,40 @@ object SystemStealthHook {
     }
 
     /**
-     * Direct SystemUI (`com.android.systemui`) injection:
-     * Hooks both `onAttachedToWindow` and `performLongClick` on the Quick Settings / Status Bar
-     * Clock & Date views so SystemUI's internal `ShadeHeaderController` cannot overwrite our
-     * listener, and collapses the notification shade before launching Hollow.
+     * Non-intrusive SystemUI Quick Settings `DateView` long-click hook.
+     * Avoids modifying statusbar/lockscreen `Clock` touch flags so lockscreen wake and statusbar
+     * gestures are never affected.
      */
     private fun attachSystemUiDirectHooks(
         lpparam: XC_LoadPackage.LoadPackageParam,
         xSharedPrefs: XSharedPreferences?
     ) {
-        val systemUiHeaderViews = listOf(
-            "com.android.systemui.statusbar.policy.Clock",
-            "com.android.systemui.statusbar.policy.DateView",
-            "com.android.systemui.qs.QuickStatusBarHeader"
-        )
+        try {
+            val dateViewCls = XposedHelpers.findClassIfExists(
+                "com.android.systemui.statusbar.policy.DateView",
+                lpparam.classLoader
+            ) ?: return
 
-        for (viewClassName in systemUiHeaderViews) {
-            try {
-                val viewCls = XposedHelpers.findClassIfExists(viewClassName, lpparam.classLoader) ?: continue
-
-                XposedBridge.hookAllConstructors(
-                    viewCls,
-                    object : XC_MethodHook() {
-                        override fun afterHookedMethod(param: MethodHookParam) {
-                            val view = param.thisObject as? View ?: return
-                            view.isLongClickable = true
+            XposedBridge.hookAllMethods(
+                dateViewCls,
+                "onAttachedToWindow",
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val view = param.thisObject as? View ?: return
+                        view.setOnLongClickListener { v ->
+                            getStealthRules(xSharedPrefs)
+                            if (!cachedSystemUiTrigger) return@setOnLongClickListener false
+                            launchHollowFromSystemUi(v.context)
+                            true
                         }
                     }
-                )
-
-                XposedBridge.hookAllMethods(
-                    viewCls,
-                    "onAttachedToWindow",
-                    object : XC_MethodHook() {
-                        override fun afterHookedMethod(param: MethodHookParam) {
-                            val view = param.thisObject as? View ?: return
-                            view.isLongClickable = true
-                        }
-                    }
-                )
-
-                XposedBridge.hookAllMethods(
-                    viewCls,
-                    "performLongClick",
-                    object : XC_MethodHook() {
-                        override fun beforeHookedMethod(param: MethodHookParam) {
-                            val view = param.thisObject as? View ?: return
-                            getStealthRules(xSharedPrefs, isSystemServer = false)
-                            if (!cachedSystemUiTrigger) return
-                            launchHollowFromSystemUi(view.context)
-                            param.result = true
-                        }
-                    }
-                )
-            } catch (_: Throwable) {}
-        }
+                }
+            )
+        } catch (_: Throwable) {}
     }
 
     @SuppressLint("WrongConstant")
     fun launchHollowFromSystemUi(context: Context) {
-        // Collapse the SystemUI Notification / Quick Settings shade so Hollow opens in front of the user
         try {
             val sbm = context.getSystemService("statusbar")
             if (sbm != null) {
@@ -702,11 +683,6 @@ object SystemStealthHook {
         }
     }
 
-    /**
-     * Generates a clean, high-DPI Material icon Drawable in-memory for the chosen [DisguiseIconPreset]
-     * so any process (`com.android.systemui` or any launcher) can render the decoy icon without
-     * needing cross-package resource loading.
-     */
     fun buildDecoyDrawable(preset: DisguiseIconPreset): Drawable {
         val bmp = decoyBitmapCache.getOrPut(preset) {
             val size = 192
@@ -714,7 +690,6 @@ object SystemStealthHook {
             val canvas = Canvas(bitmap)
             val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
-            // Background rounded squircle
             val bgColor = when (preset) {
                 DisguiseIconPreset.CALCULATOR -> Color.parseColor("#1E3A5F")
                 DisguiseIconPreset.NOTES -> Color.parseColor("#3E2E14")
@@ -727,7 +702,6 @@ object SystemStealthHook {
             paint.color = bgColor
             canvas.drawRoundRect(RectF(8f, 8f, 184f, 184f), 44f, 44f, paint)
 
-            // Foreground symbol
             paint.color = Color.WHITE
             paint.textAlign = Paint.Align.CENTER
             paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
