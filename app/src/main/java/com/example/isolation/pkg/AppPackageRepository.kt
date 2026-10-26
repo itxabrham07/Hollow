@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import androidx.core.content.ContextCompat
 import com.example.isolation.data.entity.AppIsolationConfig
+import com.example.isolation.model.DeviceProfilePreset
 import com.example.isolation.model.DisguiseIconPreset
 import com.example.isolation.model.IsolationMode
 import com.example.isolation.model.LauncherVisibilityMode
@@ -31,12 +32,74 @@ data class InstalledAppInfo(
     val hideFromPlayStore: Boolean = false,
     val spoofInSettings: Boolean = true,
     val customIconBase64: String = "",
-    val customIconDonorPkg: String = ""
+    val customIconDonorPkg: String = "",
+    // Independent Per-App Device Identity & Privacy Spoofing fields
+    val isIdentitySpoofed: Boolean = false,
+    val deviceProfilePreset: DeviceProfilePreset = DeviceProfilePreset.PIXEL_9_PRO,
+    val spoofBrand: String = "",
+    val spoofModel: String = "",
+    val spoofDevice: String = "",
+    val spoofAndroidId: String = "",
+    val spoofImei: String = "",
+    val spoofAdvertisingId: String = "",
+    val spoofMacAddress: String = "",
+    val spoofCarrierName: String = "",
+    val spoofSimOperator: String = "",
+    val spoofSerial: String = "",
+    val hideRootAndXposed: Boolean = true,
+    val hideAdbAndDevOptions: Boolean = true,
+    val hideVpnAndProxy: Boolean = true,
+    val blockClipboardRead: Boolean = false
 )
 
 class AppPackageRepository(private val context: Context) {
 
     private val packageManager: PackageManager = context.packageManager
+
+    private fun buildInstalledAppInfo(
+        pkg: String,
+        appName: String,
+        isSystem: Boolean,
+        targetSdk: Int,
+        icon: Drawable?,
+        config: AppIsolationConfig?
+    ): InstalledAppInfo {
+        return InstalledAppInfo(
+            packageName = pkg,
+            appName = appName,
+            isSystemApp = isSystem,
+            targetSdkVersion = targetSdk,
+            isIsolated = config?.isIsolated ?: false,
+            isolationMode = config?.isolationMode ?: IsolationMode.ENCRYPTED_VAULT,
+            hasStoragePermission = true,
+            icon = icon,
+            isHiddenOrDisguised = config?.isHiddenOrDisguised ?: false,
+            launcherVisibilityMode = config?.launcherVisibilityMode ?: LauncherVisibilityMode.VISIBLE,
+            customLauncherLabel = config?.customLauncherLabel ?: "",
+            disguiseIconPreset = config?.disguiseIconPreset ?: DisguiseIconPreset.CALCULATOR,
+            hideInSystemUiRecents = config?.hideInSystemUiRecents ?: true,
+            hideFromPlayStore = config?.hideFromPlayStore ?: false,
+            spoofInSettings = config?.spoofInSettings ?: true,
+            customIconBase64 = config?.customIconBase64 ?: "",
+            customIconDonorPkg = config?.customIconDonorPkg ?: "",
+            isIdentitySpoofed = config?.isIdentitySpoofed ?: false,
+            deviceProfilePreset = config?.deviceProfilePreset ?: DeviceProfilePreset.PIXEL_9_PRO,
+            spoofBrand = config?.spoofBrand ?: "",
+            spoofModel = config?.spoofModel ?: "",
+            spoofDevice = config?.spoofDevice ?: "",
+            spoofAndroidId = config?.spoofAndroidId ?: "",
+            spoofImei = config?.spoofImei ?: "",
+            spoofAdvertisingId = config?.spoofAdvertisingId ?: "",
+            spoofMacAddress = config?.spoofMacAddress ?: "",
+            spoofCarrierName = config?.spoofCarrierName ?: "",
+            spoofSimOperator = config?.spoofSimOperator ?: "",
+            spoofSerial = config?.spoofSerial ?: "",
+            hideRootAndXposed = config?.hideRootAndXposed ?: true,
+            hideAdbAndDevOptions = config?.hideAdbAndDevOptions ?: true,
+            hideVpnAndProxy = config?.hideVpnAndProxy ?: true,
+            blockClipboardRead = config?.blockClipboardRead ?: false
+        )
+    }
 
     suspend fun getInstalledApps(
         configs: List<AppIsolationConfig>,
@@ -71,25 +134,13 @@ class AppPackageRepository(private val context: Context) {
                     ContextCompat.getDrawable(context, android.R.drawable.sym_def_app_icon)
                 }
 
-                val config = configMap[pkg]
-                resultMap[pkg] = InstalledAppInfo(
-                    packageName = pkg,
+                resultMap[pkg] = buildInstalledAppInfo(
+                    pkg = pkg,
                     appName = appName,
-                    isSystemApp = isSystem,
-                    targetSdkVersion = appInfo.targetSdkVersion,
-                    isIsolated = config?.isIsolated ?: false,
-                    isolationMode = config?.isolationMode ?: IsolationMode.ENCRYPTED_VAULT,
-                    hasStoragePermission = true,
+                    isSystem = isSystem,
+                    targetSdk = appInfo.targetSdkVersion,
                     icon = icon,
-                    isHiddenOrDisguised = config?.isHiddenOrDisguised ?: false,
-                    launcherVisibilityMode = config?.launcherVisibilityMode ?: LauncherVisibilityMode.VISIBLE,
-                    customLauncherLabel = config?.customLauncherLabel ?: "",
-                    disguiseIconPreset = config?.disguiseIconPreset ?: DisguiseIconPreset.CALCULATOR,
-                    hideInSystemUiRecents = config?.hideInSystemUiRecents ?: true,
-                    hideFromPlayStore = config?.hideFromPlayStore ?: false,
-                    spoofInSettings = config?.spoofInSettings ?: true,
-                    customIconBase64 = config?.customIconBase64 ?: "",
-                    customIconDonorPkg = config?.customIconDonorPkg ?: ""
+                    config = configMap[pkg]
                 )
             }
         } catch (_: Exception) {}
@@ -117,25 +168,13 @@ class AppPackageRepository(private val context: Context) {
                     ContextCompat.getDrawable(context, android.R.drawable.sym_def_app_icon)
                 }
 
-                val config = configMap[pkg]
-                resultMap[pkg] = InstalledAppInfo(
-                    packageName = pkg,
+                resultMap[pkg] = buildInstalledAppInfo(
+                    pkg = pkg,
                     appName = appName,
-                    isSystemApp = isSystem,
-                    targetSdkVersion = appInfo.targetSdkVersion,
-                    isIsolated = config?.isIsolated ?: false,
-                    isolationMode = config?.isolationMode ?: IsolationMode.ENCRYPTED_VAULT,
-                    hasStoragePermission = true,
+                    isSystem = isSystem,
+                    targetSdk = appInfo.targetSdkVersion,
                     icon = icon,
-                    isHiddenOrDisguised = config?.isHiddenOrDisguised ?: false,
-                    launcherVisibilityMode = config?.launcherVisibilityMode ?: LauncherVisibilityMode.VISIBLE,
-                    customLauncherLabel = config?.customLauncherLabel ?: "",
-                    disguiseIconPreset = config?.disguiseIconPreset ?: DisguiseIconPreset.CALCULATOR,
-                    hideInSystemUiRecents = config?.hideInSystemUiRecents ?: true,
-                    hideFromPlayStore = config?.hideFromPlayStore ?: false,
-                    spoofInSettings = config?.spoofInSettings ?: true,
-                    customIconBase64 = config?.customIconBase64 ?: "",
-                    customIconDonorPkg = config?.customIconDonorPkg ?: ""
+                    config = configMap[pkg]
                 )
             }
         } catch (_: Exception) {}
@@ -143,30 +182,19 @@ class AppPackageRepository(private val context: Context) {
         // Always ensure any configured app is present in the list even if hidden from PM queries
         configs.forEach { cfg ->
             if (!resultMap.containsKey(cfg.packageName)) {
-                resultMap[cfg.packageName] = InstalledAppInfo(
-                    packageName = cfg.packageName,
+                resultMap[cfg.packageName] = buildInstalledAppInfo(
+                    pkg = cfg.packageName,
                     appName = cfg.appName,
-                    isSystemApp = false,
-                    targetSdkVersion = 35,
-                    isIsolated = cfg.isIsolated,
-                    isolationMode = cfg.isolationMode,
-                    hasStoragePermission = true,
+                    isSystem = false,
+                    targetSdk = 35,
                     icon = ContextCompat.getDrawable(context, android.R.drawable.sym_def_app_icon),
-                    isHiddenOrDisguised = cfg.isHiddenOrDisguised,
-                    launcherVisibilityMode = cfg.launcherVisibilityMode,
-                    customLauncherLabel = cfg.customLauncherLabel,
-                    disguiseIconPreset = cfg.disguiseIconPreset,
-                    hideInSystemUiRecents = cfg.hideInSystemUiRecents,
-                    hideFromPlayStore = cfg.hideFromPlayStore,
-                    spoofInSettings = cfg.spoofInSettings,
-                    customIconBase64 = cfg.customIconBase64,
-                    customIconDonorPkg = cfg.customIconDonorPkg
+                    config = cfg
                 )
             }
         }
 
         resultMap.values.sortedWith(
-            compareByDescending<InstalledAppInfo> { it.isIsolated || it.isHiddenOrDisguised }
+            compareByDescending<InstalledAppInfo> { it.isIsolated || it.isHiddenOrDisguised || it.isIdentitySpoofed }
                 .thenBy { it.appName.lowercase() }
         )
     }

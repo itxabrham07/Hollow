@@ -13,6 +13,7 @@ import com.example.isolation.data.entity.AccessAuditLog
 import com.example.isolation.data.entity.AppIsolationConfig
 import com.example.isolation.data.entity.VaultFileItem
 import com.example.isolation.model.AuditAction
+import com.example.isolation.model.DeviceProfilePreset
 import com.example.isolation.model.DisguiseIconPreset
 import com.example.isolation.model.IsolationMode
 import com.example.isolation.model.LauncherVisibilityMode
@@ -57,6 +58,16 @@ class IsoVaultConverters {
     } catch (_: Exception) {
         DisguiseIconPreset.CALCULATOR
     }
+
+    @TypeConverter
+    fun fromDeviceProfilePreset(preset: DeviceProfilePreset): String = preset.name
+
+    @TypeConverter
+    fun toDeviceProfilePreset(name: String): DeviceProfilePreset = try {
+        DeviceProfilePreset.valueOf(name)
+    } catch (_: Exception) {
+        DeviceProfilePreset.PIXEL_9_PRO
+    }
 }
 
 @Database(
@@ -65,7 +76,7 @@ class IsoVaultConverters {
         AccessAuditLog::class,
         VaultFileItem::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 @TypeConverters(IsoVaultConverters::class)
@@ -85,6 +96,27 @@ abstract class IsoVaultDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN isIdentitySpoofed INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN deviceProfilePreset TEXT NOT NULL DEFAULT 'PIXEL_9_PRO'")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN spoofBrand TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN spoofModel TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN spoofDevice TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN spoofAndroidId TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN spoofImei TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN spoofAdvertisingId TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN spoofMacAddress TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN spoofCarrierName TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN spoofSimOperator TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN spoofSerial TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN hideRootAndXposed INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN hideAdbAndDevOptions INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN hideVpnAndProxy INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN blockClipboardRead INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getDatabase(context: Context): IsoVaultDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -92,7 +124,7 @@ abstract class IsoVaultDatabase : RoomDatabase() {
                     IsoVaultDatabase::class.java,
                     "isovault_database"
                 )
-                    .addMigrations(MIGRATION_2_3)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

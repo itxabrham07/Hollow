@@ -85,6 +85,9 @@ interface IsolationDao {
     @Query("SELECT COUNT(*) FROM app_isolation_configs WHERE isHiddenOrDisguised = 1 AND launcherVisibilityMode != 'VISIBLE'")
     fun getHiddenOrDisguisedAppsCount(): Flow<Int>
 
+    @Query("SELECT COUNT(*) FROM app_isolation_configs WHERE isIdentitySpoofed = 1")
+    fun getIdentitySpoofedAppsCount(): Flow<Int>
+
     @Query("SELECT COUNT(*) FROM access_audit_logs")
     fun getTotalAuditCount(): Flow<Int>
 

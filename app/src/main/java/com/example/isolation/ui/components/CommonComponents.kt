@@ -225,6 +225,7 @@ fun AuditActionBadge(action: AuditAction) {
         AuditAction.BLOCKED -> Pair(ClaySecondary, "Blocked")
         AuditAction.SPOOFED_EMPTY -> Pair(scheme.tertiary, "Hidden")
         AuditAction.PERMITTED -> Pair(scheme.onSurfaceVariant, "Allowed")
+        AuditAction.IDENTITY_SPOOFED -> Pair(scheme.tertiary, "Identity Spoofed")
     }
     StatusBadge(text = text, color = color)
 }

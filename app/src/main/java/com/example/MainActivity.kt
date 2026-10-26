@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -61,6 +62,7 @@ import com.example.isolation.ui.screens.AppHiderScreen
 import com.example.isolation.ui.screens.AppsScreen
 import com.example.isolation.ui.screens.AuditLogsScreen
 import com.example.isolation.ui.screens.DashboardScreen
+import com.example.isolation.ui.screens.DeviceSpooferScreen
 import com.example.isolation.ui.screens.FilesScreen
 import com.example.isolation.ui.screens.MountTerminalScreen
 import com.example.isolation.ui.screens.SettingsScreen
@@ -71,8 +73,9 @@ import com.example.ui.theme.JakartaFontFamily
 enum class NavDestination(val label: String) {
     DASHBOARD("Home"),
     VAULT("Files"),
-    APPS("Apps"),
-    APP_HIDER("Hide Apps"),
+    APPS("Storage Isolate"),
+    APP_HIDER("Hide App"),
+    DEVICE_SPOOFER("Privacy"),
     AUDIT("Activity"),
     SETTINGS("Settings"),
     MOUNTS("System")
@@ -212,6 +215,27 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                     )
 
                     NavigationBarItem(
+                        selected = currentScreen == NavDestination.DEVICE_SPOOFER,
+                        onClick = { currentScreen = NavDestination.DEVICE_SPOOFER },
+                        icon = {
+                            Icon(
+                                imageVector = if (currentScreen == NavDestination.DEVICE_SPOOFER) Icons.Filled.Shield else Icons.Outlined.Shield,
+                                contentDescription = "Privacy"
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = NavDestination.DEVICE_SPOOFER.label,
+                                fontSize = 11.sp,
+                                fontFamily = JakartaFontFamily,
+                                fontWeight = if (currentScreen == NavDestination.DEVICE_SPOOFER) FontWeight.Bold else FontWeight.Medium
+                            )
+                        },
+                        colors = navItemColors,
+                        modifier = Modifier.testTag("nav_privacy")
+                    )
+
+                    NavigationBarItem(
                         selected = currentScreen == NavDestination.VAULT,
                         onClick = {
                             filesInitialTab = 0
@@ -269,6 +293,7 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                     viewModel = viewModel,
                     onNavigateToApps = { currentScreen = NavDestination.APPS },
                     onNavigateToAppHider = { currentScreen = NavDestination.APP_HIDER },
+                    onNavigateToDeviceSpoofer = { currentScreen = NavDestination.DEVICE_SPOOFER },
                     onNavigateToVault = {
                         filesInitialTab = 2
                         currentScreen = NavDestination.VAULT
@@ -289,6 +314,10 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                     onBack = { currentScreen = NavDestination.DASHBOARD }
                 )
                 NavDestination.APP_HIDER -> AppHiderScreen(
+                    viewModel = viewModel,
+                    onBack = { currentScreen = NavDestination.DASHBOARD }
+                )
+                NavDestination.DEVICE_SPOOFER -> DeviceSpooferScreen(
                     viewModel = viewModel,
                     onBack = { currentScreen = NavDestination.DASHBOARD }
                 )

@@ -136,7 +136,7 @@ fun AppsScreen(
                     }
                     Column {
                         Text(
-                            text = "Protected Apps",
+                            text = "Storage Isolate",
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = JakartaFontFamily,
@@ -179,7 +179,7 @@ fun AppsScreen(
                 onValueChange = { viewModel.setSearchQuery(it) },
                 placeholder = {
                     Text(
-                        "Search protected apps...",
+                        "Search isolated apps...",
                         color = scheme.onSurfaceVariant,
                         fontSize = 13.sp,
                         fontFamily = JakartaFontFamily
@@ -219,7 +219,7 @@ fun AppsScreen(
                     FilterChip(
                         selected = activeFilter == AppListFilter.ISOLATED_ONLY,
                         onClick = { viewModel.setFilter(AppListFilter.ISOLATED_ONLY) },
-                        label = { Text("Protected ($protectedAppsCount)", fontFamily = JakartaFontFamily) },
+                        label = { Text("Isolated ($protectedAppsCount)", fontFamily = JakartaFontFamily) },
                         shape = RoundedCornerShape(50),
                         colors = filterChipColors
                     )
@@ -283,7 +283,7 @@ fun AppsScreen(
                         Spacer(modifier = Modifier.height(14.dp))
                         Text(
                             text = if (activeFilter == AppListFilter.ISOLATED_ONLY) {
-                                "No protected apps yet"
+                                "No isolated apps yet"
                             } else {
                                 "No matching apps found"
                             },
@@ -308,7 +308,7 @@ fun AppsScreen(
                             Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Add Apps to Protect",
+                                text = "Add Apps to Isolate",
                                 fontFamily = JakartaFontFamily,
                                 fontWeight = FontWeight.SemiBold
                             )

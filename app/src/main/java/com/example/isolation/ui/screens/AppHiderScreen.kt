@@ -162,7 +162,7 @@ fun AppHiderScreen(
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = if (showAllAppsMode) "Select Apps" else "Hide & Disguise",
+                        text = if (showAllAppsMode) "Select Apps" else "Hide App",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = scheme.onBackground,

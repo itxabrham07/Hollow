@@ -82,7 +82,83 @@ enum class AuditAction(val label: String, val isSevere: Boolean) {
     ENCRYPTED("Saved Privately", false),
     BLOCKED("Hidden & Blocked", true),
     SPOOFED_EMPTY("Blank Gallery Shown", false),
-    PERMITTED("Allowed Folder", false)
+    PERMITTED("Allowed Folder", false),
+    IDENTITY_SPOOFED("Identity Spoofed", false)
+}
+
+/**
+ * Hardware device profile presets for Per-App Device Identity & Privacy Spoofing.
+ */
+enum class DeviceProfilePreset(
+    val label: String,
+    val brand: String,
+    val manufacturer: String,
+    val model: String,
+    val device: String,
+    val product: String,
+    val board: String,
+    val fingerprint: String
+) {
+    PIXEL_9_PRO(
+        label = "Pixel 9 Pro",
+        brand = "google",
+        manufacturer = "Google",
+        model = "Pixel 9 Pro",
+        device = "caiman",
+        product = "caiman",
+        board = "caiman",
+        fingerprint = "google/caiman/caiman:15/AP3A.241005.015/12366759:user/release-keys"
+    ),
+    SAMSUNG_S24_ULTRA(
+        label = "Galaxy S24 Ultra",
+        brand = "samsung",
+        manufacturer = "samsung",
+        model = "SM-S928B",
+        device = "e3q",
+        product = "e3qxeea",
+        board = "pineapple",
+        fingerprint = "samsung/e3qxeea/e3q:14/UP1A.231005.007/S928BXXS3AXFE:user/release-keys"
+    ),
+    ONEPLUS_12(
+        label = "OnePlus 12",
+        brand = "OnePlus",
+        manufacturer = "OnePlus",
+        model = "CPH2581",
+        device = "OP5929L1",
+        product = "CPH2581",
+        board = "pineapple",
+        fingerprint = "OnePlus/CPH2581/OP5929L1:14/UKQ1.230924.001/U.16992ef-1-2:user/release-keys"
+    ),
+    XIAOMI_14_ULTRA(
+        label = "Xiaomi 14 Ultra",
+        brand = "Xiaomi",
+        manufacturer = "Xiaomi",
+        model = "24030PN60G",
+        device = "aurora",
+        product = "aurora_global",
+        board = "aurora",
+        fingerprint = "Xiaomi/aurora_global/aurora:14/UKQ1.231003.002/V816.0.8.0.UNAMIXM:user/release-keys"
+    ),
+    NOTHING_PHONE_2(
+        label = "Nothing Phone (2)",
+        brand = "Nothing",
+        manufacturer = "Nothing",
+        model = "A065",
+        device = "Pong",
+        product = "Pong",
+        board = "taro",
+        fingerprint = "Nothing/Pong/Pong:14/UQ1A.240205.004/2404121810:user/release-keys"
+    ),
+    CUSTOM(
+        label = "Custom Model",
+        brand = "google",
+        manufacturer = "Google",
+        model = "Pixel 9 Pro",
+        device = "caiman",
+        product = "caiman",
+        board = "caiman",
+        fingerprint = "google/caiman/caiman:15/AP3A.241005.015/12366759:user/release-keys"
+    )
 }
 
 enum class MountEngineStatus {

@@ -708,8 +708,8 @@ fun SettingsScreen(
                     )
                     SetupStep(
                         step = "2",
-                        title = "Add apps in Protected Apps",
-                        desc = "Open 'Protected Apps' on the Home screen, tap '+ Add Apps', and switch on WhatsApp, Snapchat, or any app you want isolated."
+                        title = "Add apps in Storage Isolate",
+                        desc = "Open 'Storage Isolate' on the Home screen, tap '+ Add Apps', and switch on WhatsApp, Snapchat, or any app you want isolated."
                     )
                     SetupStep(
                         step = "3",

@@ -54,8 +54,35 @@ object IsolationRuleManager {
         val customIconBase64: String = ""
     )
 
+    /**
+     * Per-App Device Identity & Privacy Spoofing rule read by hooked target apps.
+     */
+    data class IdentitySpoofRule(
+        val packageName: String,
+        val preset: DeviceProfilePreset = DeviceProfilePreset.PIXEL_9_PRO,
+        val brand: String,
+        val manufacturer: String,
+        val model: String,
+        val device: String,
+        val product: String,
+        val board: String,
+        val fingerprint: String,
+        val androidId: String,
+        val imei: String,
+        val advertisingId: String,
+        val macAddress: String,
+        val carrierName: String,
+        val simOperator: String,
+        val serial: String,
+        val hideRootAndXposed: Boolean = true,
+        val hideAdbAndDevOptions: Boolean = true,
+        val hideVpnAndProxy: Boolean = true,
+        val blockClipboardRead: Boolean = false
+    )
+
     const val KEY_PICKER_POLICY = "global_picker_policy"
     const val KEY_STEALTH_TABLE = "global_stealth_table_v1"
+    const val KEY_IDENTITY_TABLE = "global_identity_table_v1"
     const val KEY_SYSTEMUI_TRIGGER = "systemui_trigger_enabled"
     private const val PREFIX_CUSTOM_ICON = "stealth_icon_b64_"
 
@@ -245,15 +272,163 @@ object IsolationRuleManager {
             }
         }
 
+        // 3. All apps enrolled in Device Identity & Privacy Spoofing
+        val identityEntries = mutableListOf<String>()
+        for (cfg in configs) {
+            if (cfg.isIdentitySpoofed) {
+                val preset = cfg.deviceProfilePreset
+                val brand = cfg.spoofBrand.ifBlank { preset.brand }.replace("|", " ").trim()
+                val manufacturer = if (cfg.spoofBrand.isNotBlank()) cfg.spoofBrand.replace("|", " ").trim() else preset.manufacturer
+                val model = cfg.spoofModel.ifBlank { preset.model }.replace("|", " ").trim()
+                val device = cfg.spoofDevice.ifBlank { preset.device }.replace("|", " ").trim()
+                val product = preset.product
+                val board = preset.board
+                val fingerprint = preset.fingerprint
+                val androidId = cfg.spoofAndroidId.ifBlank { generateAndroidId() }.replace("|", "").trim()
+                val imei = cfg.spoofImei.ifBlank { generateLuhnImei() }.replace("|", "").trim()
+                val adId = cfg.spoofAdvertisingId.ifBlank { generateAdvertisingId() }.replace("|", "").trim()
+                val mac = cfg.spoofMacAddress.ifBlank { generateMacAddress() }.replace("|", "").trim()
+                val carrier = cfg.spoofCarrierName.ifBlank { "T-Mobile" }.replace("|", " ").trim()
+                val simOp = cfg.spoofSimOperator.ifBlank { "310260" }.replace("|", "").trim()
+                val serial = cfg.spoofSerial.ifBlank { generateSerial() }.replace("|", "").trim()
+
+                identityEntries.add(
+                    listOf(
+                        cfg.packageName,
+                        preset.name,
+                        brand,
+                        manufacturer,
+                        model,
+                        device,
+                        product,
+                        board,
+                        fingerprint,
+                        androidId,
+                        imei,
+                        adId,
+                        mac,
+                        carrier,
+                        simOp,
+                        serial,
+                        if (cfg.hideRootAndXposed) "1" else "0",
+                        if (cfg.hideAdbAndDevOptions) "1" else "0",
+                        if (cfg.hideVpnAndProxy) "1" else "0",
+                        if (cfg.blockClipboardRead) "1" else "0"
+                    ).joinToString("|")
+                )
+            }
+        }
+
         val serialized = entries.joinToString("\n")
+        val serializedIdentity = identityEntries.joinToString("\n")
         try {
             editor
                 .putString(KEY_STEALTH_TABLE, serialized)
+                .putString(KEY_IDENTITY_TABLE, serializedIdentity)
                 .putBoolean(KEY_SYSTEMUI_TRIGGER, settings.systemUiTriggerEnabled)
                 .commit()
             ensureWorldReadable(app)
         } catch (_: Throwable) {
         }
+    }
+
+    fun parseIdentityTable(raw: String?): Map<String, IdentitySpoofRule> {
+        if (raw.isNullOrBlank()) return emptyMap()
+        val out = HashMap<String, IdentitySpoofRule>()
+        for (line in raw.lineSequence()) {
+            val trimmed = line.trim()
+            if (trimmed.isEmpty()) continue
+            val p = trimmed.split("|")
+            if (p.size < 20) continue
+            val pkg = p[0]
+            val preset = try {
+                DeviceProfilePreset.valueOf(p[1])
+            } catch (_: Exception) {
+                DeviceProfilePreset.PIXEL_9_PRO
+            }
+            out[pkg] = IdentitySpoofRule(
+                packageName = pkg,
+                preset = preset,
+                brand = p[2].ifBlank { preset.brand },
+                manufacturer = p[3].ifBlank { preset.manufacturer },
+                model = p[4].ifBlank { preset.model },
+                device = p[5].ifBlank { preset.device },
+                product = p[6].ifBlank { preset.product },
+                board = p[7].ifBlank { preset.board },
+                fingerprint = p[8].ifBlank { preset.fingerprint },
+                androidId = p[9],
+                imei = p[10],
+                advertisingId = p[11],
+                macAddress = p[12],
+                carrierName = p[13],
+                simOperator = p[14],
+                serial = p[15],
+                hideRootAndXposed = p[16] == "1",
+                hideAdbAndDevOptions = p[17] == "1",
+                hideVpnAndProxy = p[18] == "1",
+                blockClipboardRead = p[19] == "1"
+            )
+        }
+        return out
+    }
+
+    fun generateAndroidId(): String {
+        val hex = "0123456789abcdef"
+        val rnd = java.security.SecureRandom()
+        return buildString(16) {
+            repeat(16) { append(hex[rnd.nextInt(hex.length)]) }
+        }
+    }
+
+    fun generateLuhnImei(): String {
+        val tacs = listOf("35489111", "35842010", "35290411", "86740205", "35918210")
+        val rnd = java.security.SecureRandom()
+        val base = buildString(14) {
+            append(tacs[rnd.nextInt(tacs.size)])
+            repeat(6) { append(rnd.nextInt(10)) }
+        }
+        var sum = 0
+        for (i in base.indices) {
+            var d = base[i] - '0'
+            if (i % 2 == 1) {
+                d *= 2
+                if (d > 9) d -= 9
+            }
+            sum += d
+        }
+        val checkDigit = (10 - (sum % 10)) % 10
+        return base + checkDigit
+    }
+
+    fun generateAdvertisingId(): String = java.util.UUID.randomUUID().toString()
+
+    fun generateMacAddress(): String {
+        val rnd = java.security.SecureRandom()
+        val bytes = ByteArray(6)
+        rnd.nextBytes(bytes)
+        // Set locally administered unicast bit (0x02)
+        bytes[0] = ((bytes[0].toInt() and 0xFC) or 0x02).toByte()
+        return bytes.joinToString(":") { "%02X".format(it) }
+    }
+
+    fun generateSerial(): String {
+        val chars = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+        val rnd = java.security.SecureRandom()
+        return buildString(12) {
+            repeat(12) { append(chars[rnd.nextInt(chars.length)]) }
+        }
+    }
+
+    fun generateRandomCarrier(): Pair<String, String> {
+        val carriers = listOf(
+            "T-Mobile" to "310260",
+            "Verizon" to "311480",
+            "AT&T" to "310410",
+            "Vodafone" to "23415",
+            "Jio 5G" to "405854",
+            "Deutsche Telekom" to "26201"
+        )
+        return carriers[java.security.SecureRandom().nextInt(carriers.size)]
     }
 
     fun parseStealthTable(

@@ -249,17 +249,22 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             SystemStealthHook.attachForPackage(lpparam, pkg, xSharedPrefs)
         } catch (_: Throwable) {}
 
-        // Strictly block storage isolation hooks from ever attaching inside system_server,
+        // Strictly block storage & identity hooks from ever attaching inside system_server,
         // SystemUI, shared UID 1000 sub-packages, or core system packages.
         if (isCoreSystemProcessOrPackage(lpparam, pkg)) {
             return
         }
 
-        // Only attach storage hooks to the primary package of an application process, and only once per process
+        // Only attach hooks to the primary package of an application process
         val proc = lpparam.processName ?: pkg
         if (!lpparam.isFirstApplication && proc != pkg) {
             return
         }
+
+        // Attach Per-App Device Identity & Privacy Spoofing hooks (independent of storage isolation)
+        try {
+            DeviceIdentitySpoofHook.attachForPackage(lpparam, pkg, xSharedPrefs)
+        } catch (_: Throwable) {}
 
         val rule = resolveRuleForPackage(pkg)
         if (!rule.isIsolated) {

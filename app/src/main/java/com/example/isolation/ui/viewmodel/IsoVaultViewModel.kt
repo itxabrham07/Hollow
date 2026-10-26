@@ -16,6 +16,7 @@ import com.example.isolation.data.entity.AccessAuditLog
 import com.example.isolation.data.entity.AppIsolationConfig
 import com.example.isolation.data.entity.VaultFileItem
 import com.example.isolation.model.AppSettings
+import com.example.isolation.model.DeviceProfilePreset
 import com.example.isolation.model.DisguiseIconPreset
 import com.example.isolation.model.HollowIconTheme
 import com.example.isolation.model.IsolationMode
@@ -81,6 +82,9 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
     val hiddenOrDisguisedCount: StateFlow<Int> = dao.getHiddenOrDisguisedAppsCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
+    val identitySpoofedCount: StateFlow<Int> = dao.getIdentitySpoofedAppsCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
     val totalEncryptedBytes: StateFlow<Long> = dao.getTotalEncryptedBytes()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
 
@@ -143,7 +147,23 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 hideFromPlayStore = cfg?.hideFromPlayStore ?: false,
                 spoofInSettings = cfg?.spoofInSettings ?: true,
                 customIconBase64 = cfg?.customIconBase64 ?: "",
-                customIconDonorPkg = cfg?.customIconDonorPkg ?: ""
+                customIconDonorPkg = cfg?.customIconDonorPkg ?: "",
+                isIdentitySpoofed = cfg?.isIdentitySpoofed ?: false,
+                deviceProfilePreset = cfg?.deviceProfilePreset ?: DeviceProfilePreset.PIXEL_9_PRO,
+                spoofBrand = cfg?.spoofBrand ?: "",
+                spoofModel = cfg?.spoofModel ?: "",
+                spoofDevice = cfg?.spoofDevice ?: "",
+                spoofAndroidId = cfg?.spoofAndroidId ?: "",
+                spoofImei = cfg?.spoofImei ?: "",
+                spoofAdvertisingId = cfg?.spoofAdvertisingId ?: "",
+                spoofMacAddress = cfg?.spoofMacAddress ?: "",
+                spoofCarrierName = cfg?.spoofCarrierName ?: "",
+                spoofSimOperator = cfg?.spoofSimOperator ?: "",
+                spoofSerial = cfg?.spoofSerial ?: "",
+                hideRootAndXposed = cfg?.hideRootAndXposed ?: true,
+                hideAdbAndDevOptions = cfg?.hideAdbAndDevOptions ?: true,
+                hideVpnAndProxy = cfg?.hideVpnAndProxy ?: true,
+                blockClipboardRead = cfg?.blockClipboardRead ?: false
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -458,6 +478,125 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             spoofInSettings = false,
             customIconBase64 = "",
             customIconDonorPkg = ""
+        )
+    }
+
+    fun saveAppIdentitySpoofConfig(
+        appInfo: InstalledAppInfo,
+        enabled: Boolean,
+        preset: DeviceProfilePreset,
+        brand: String,
+        model: String,
+        device: String,
+        androidId: String,
+        imei: String,
+        advertisingId: String,
+        macAddress: String,
+        carrierName: String,
+        simOperator: String,
+        serial: String,
+        hideRootAndXposed: Boolean,
+        hideAdbAndDevOptions: Boolean,
+        hideVpnAndProxy: Boolean,
+        blockClipboardRead: Boolean
+    ) {
+        viewModelScope.launch {
+            val existing = dao.getConfigForPackage(appInfo.packageName)
+            val resolvedBrand = brand.trim().ifBlank { preset.brand }
+            val resolvedModel = model.trim().ifBlank { preset.model }
+            val resolvedDevice = device.trim().ifBlank { preset.device }
+            val resolvedAndroidId = androidId.trim().ifBlank { IsolationRuleManager.generateAndroidId() }
+            val resolvedImei = imei.trim().ifBlank { IsolationRuleManager.generateLuhnImei() }
+            val resolvedAdId = advertisingId.trim().ifBlank { IsolationRuleManager.generateAdvertisingId() }
+            val resolvedMac = macAddress.trim().ifBlank { IsolationRuleManager.generateMacAddress() }
+            val resolvedCarrier = carrierName.trim().ifBlank { "T-Mobile" }
+            val resolvedSimOp = simOperator.trim().ifBlank { "310260" }
+            val resolvedSerial = serial.trim().ifBlank { IsolationRuleManager.generateSerial() }
+
+            val updated = existing?.copy(
+                isIdentitySpoofed = enabled,
+                deviceProfilePreset = preset,
+                spoofBrand = resolvedBrand,
+                spoofModel = resolvedModel,
+                spoofDevice = resolvedDevice,
+                spoofAndroidId = resolvedAndroidId,
+                spoofImei = resolvedImei,
+                spoofAdvertisingId = resolvedAdId,
+                spoofMacAddress = resolvedMac,
+                spoofCarrierName = resolvedCarrier,
+                spoofSimOperator = resolvedSimOp,
+                spoofSerial = resolvedSerial,
+                hideRootAndXposed = hideRootAndXposed,
+                hideAdbAndDevOptions = hideAdbAndDevOptions,
+                hideVpnAndProxy = hideVpnAndProxy,
+                blockClipboardRead = blockClipboardRead
+            ) ?: AppIsolationConfig(
+                packageName = appInfo.packageName,
+                appName = appInfo.appName,
+                isIsolated = false,
+                isIdentitySpoofed = enabled,
+                deviceProfilePreset = preset,
+                spoofBrand = resolvedBrand,
+                spoofModel = resolvedModel,
+                spoofDevice = resolvedDevice,
+                spoofAndroidId = resolvedAndroidId,
+                spoofImei = resolvedImei,
+                spoofAdvertisingId = resolvedAdId,
+                spoofMacAddress = resolvedMac,
+                spoofCarrierName = resolvedCarrier,
+                spoofSimOperator = resolvedSimOp,
+                spoofSerial = resolvedSerial,
+                hideRootAndXposed = hideRootAndXposed,
+                hideAdbAndDevOptions = hideAdbAndDevOptions,
+                hideVpnAndProxy = hideVpnAndProxy,
+                blockClipboardRead = blockClipboardRead
+            )
+
+            dao.insertOrUpdateConfig(updated)
+            withContext(Dispatchers.IO) {
+                val allConfigs = dao.getAllConfigsSync()
+                IsolationRuleManager.publishStealthTable(allConfigs, _settings.value)
+                notifyConfigChanged()
+                MountManager.refreshLaunchersAndStealthCaches(
+                    app,
+                    refreshPlayStore = false,
+                    refreshSettings = false
+                )
+                try {
+                    Runtime.getRuntime().exec(arrayOf("su", "-c", "am force-stop ${appInfo.packageName}")).waitFor()
+                } catch (_: Throwable) {}
+            }
+            loadInstalledApps()
+
+            if (enabled) {
+                appendTerminalLog("Spoofed device identity for ${appInfo.appName} -> $resolvedBrand $resolvedModel (AID=$resolvedAndroidId)")
+                _statusMessage.value = "Device identity spoofed for ${appInfo.appName} ($resolvedModel)."
+            } else {
+                appendTerminalLog("Restored real device identity for ${appInfo.appName}")
+                _statusMessage.value = "Real device identity restored for ${appInfo.appName}."
+            }
+        }
+    }
+
+    fun removeAppIdentitySpoof(appInfo: InstalledAppInfo) {
+        saveAppIdentitySpoofConfig(
+            appInfo = appInfo,
+            enabled = false,
+            preset = appInfo.deviceProfilePreset,
+            brand = appInfo.spoofBrand,
+            model = appInfo.spoofModel,
+            device = appInfo.spoofDevice,
+            androidId = appInfo.spoofAndroidId,
+            imei = appInfo.spoofImei,
+            advertisingId = appInfo.spoofAdvertisingId,
+            macAddress = appInfo.spoofMacAddress,
+            carrierName = appInfo.spoofCarrierName,
+            simOperator = appInfo.spoofSimOperator,
+            serial = appInfo.spoofSerial,
+            hideRootAndXposed = appInfo.hideRootAndXposed,
+            hideAdbAndDevOptions = appInfo.hideAdbAndDevOptions,
+            hideVpnAndProxy = appInfo.hideVpnAndProxy,
+            blockClipboardRead = appInfo.blockClipboardRead
         )
     }
 

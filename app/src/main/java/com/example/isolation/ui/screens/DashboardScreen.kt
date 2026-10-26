@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Lock
@@ -56,6 +57,7 @@ fun DashboardScreen(
     viewModel: IsoVaultViewModel,
     onNavigateToApps: () -> Unit,
     onNavigateToAppHider: () -> Unit = {},
+    onNavigateToDeviceSpoofer: () -> Unit = {},
     onNavigateToVault: () -> Unit,
     onNavigateToFileManager: () -> Unit = onNavigateToVault,
     onNavigateToGallery: () -> Unit = onNavigateToVault,
@@ -66,6 +68,7 @@ fun DashboardScreen(
     val isLsposedActive by viewModel.isLsposedActive.collectAsState()
     val isolatedCount by viewModel.isolatedCount.collectAsState()
     val hiddenOrDisguisedCount by viewModel.hiddenOrDisguisedCount.collectAsState()
+    val identitySpoofedCount by viewModel.identitySpoofedCount.collectAsState()
     val recentLogs by viewModel.recentAuditLogs.collectAsState()
     val totalBytesEncrypted by viewModel.totalEncryptedBytes.collectAsState()
 
@@ -126,7 +129,7 @@ fun DashboardScreen(
                         Spacer(modifier = Modifier.width(14.dp))
                         Column {
                             Text(
-                                text = "Protected Apps",
+                                text = "Storage Isolate",
                                 fontSize = 17.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = scheme.onSurface,
@@ -164,7 +167,7 @@ fun DashboardScreen(
                             Spacer(modifier = Modifier.width(2.dp))
                             Icon(
                                 imageVector = Icons.Default.ChevronRight,
-                                contentDescription = "Open Protected Apps",
+                                contentDescription = "Open Storage Isolate",
                                 tint = scheme.onPrimaryContainer,
                                 modifier = Modifier.size(18.dp)
                             )
@@ -174,7 +177,7 @@ fun DashboardScreen(
             }
         }
 
-        // Independent Feature Card: Hide & Disguise Apps (System Framework & SystemUI Stealth)
+        // Independent Feature Card: Hide App (System Framework & SystemUI Stealth)
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = scheme.surface),
@@ -214,7 +217,7 @@ fun DashboardScreen(
                         Spacer(modifier = Modifier.width(14.dp))
                         Column {
                             Text(
-                                text = "Hide & Disguise Apps",
+                                text = "Hide App",
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = scheme.onSurface,
@@ -252,8 +255,96 @@ fun DashboardScreen(
                             Spacer(modifier = Modifier.width(2.dp))
                             Icon(
                                 imageVector = Icons.Default.ChevronRight,
-                                contentDescription = "Open Hide & Disguise Apps",
+                                contentDescription = "Open Hide App",
                                 tint = scheme.onSecondaryContainer,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Independent Feature Card: Privacy (Device Identity & Privacy Spoofing: IMEI, Android ID, DRM, Root/VPN Shields)
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = scheme.surface),
+                shape = RoundedCornerShape(22.dp),
+                border = BorderStroke(1.dp, scheme.tertiary.copy(alpha = 0.45f)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToDeviceSpoofer() }
+                    .testTag("card_device_identity_spoofer")
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp, vertical = 16.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(scheme.tertiaryContainer)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Fingerprint,
+                                contentDescription = null,
+                                tint = scheme.onTertiaryContainer,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column {
+                            Text(
+                                text = "Privacy",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = scheme.onSurface,
+                                fontFamily = JakartaFontFamily
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (identitySpoofedCount == 0) {
+                                    "Device Identity Spoofer • IMEI, Android ID, DRM & Root/VPN"
+                                } else {
+                                    "$identitySpoofedCount app${if (identitySpoofedCount == 1) "" else "s"} using virtual hardware identity"
+                                },
+                                fontSize = 12.sp,
+                                color = scheme.onSurfaceVariant,
+                                fontFamily = JakartaFontFamily
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(scheme.tertiaryContainer)
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "$identitySpoofedCount",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = scheme.onTertiaryContainer,
+                                fontFamily = JakartaFontFamily
+                            )
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = "Open Privacy",
+                                tint = scheme.onTertiaryContainer,
                                 modifier = Modifier.size(18.dp)
                             )
                         }

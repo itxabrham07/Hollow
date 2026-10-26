@@ -2,6 +2,7 @@ package com.example.isolation.data.entity
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.example.isolation.model.DeviceProfilePreset
 import com.example.isolation.model.DisguiseIconPreset
 import com.example.isolation.model.IsolationMode
 import com.example.isolation.model.LauncherVisibilityMode
@@ -30,5 +31,22 @@ data class AppIsolationConfig(
     val hideFromPlayStore: Boolean = false,
     val spoofInSettings: Boolean = true,
     val customIconBase64: String = "",
-    val customIconDonorPkg: String = ""
+    val customIconDonorPkg: String = "",
+    // Independent Per-App Device Identity & Privacy Spoofing fields
+    val isIdentitySpoofed: Boolean = false,
+    val deviceProfilePreset: DeviceProfilePreset = DeviceProfilePreset.PIXEL_9_PRO,
+    val spoofBrand: String = "",
+    val spoofModel: String = "",
+    val spoofDevice: String = "",
+    val spoofAndroidId: String = "",
+    val spoofImei: String = "",
+    val spoofAdvertisingId: String = "",
+    val spoofMacAddress: String = "",
+    val spoofCarrierName: String = "",
+    val spoofSimOperator: String = "",
+    val spoofSerial: String = "",
+    val hideRootAndXposed: Boolean = true,
+    val hideAdbAndDevOptions: Boolean = true,
+    val hideVpnAndProxy: Boolean = true,
+    val blockClipboardRead: Boolean = false
 )

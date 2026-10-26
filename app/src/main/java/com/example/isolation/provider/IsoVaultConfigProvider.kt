@@ -153,7 +153,9 @@ class IsoVaultConfigProvider : ContentProvider() {
             val ctx = context ?: return result
             val prefs = IsolationRuleManager.getReadableSharedPrefs(ctx)
             val rawTable = prefs.getString(IsolationRuleManager.KEY_STEALTH_TABLE, "") ?: ""
+            val rawIdentityTable = prefs.getString(IsolationRuleManager.KEY_IDENTITY_TABLE, "") ?: ""
             result.putString("stealthTable", rawTable)
+            result.putString("identityTable", rawIdentityTable)
             result.putBoolean(
                 "systemUiTriggerEnabled",
                 prefs.getBoolean(IsolationRuleManager.KEY_SYSTEMUI_TRIGGER, true)
