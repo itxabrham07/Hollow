@@ -85,6 +85,9 @@ object SystemStealthHook {
     private var cachedPlayStoreAppId: Int = -1
 
     @Volatile
+    private var cachedSystemUiAppId: Int = -1
+
+    @Volatile
     private var hostPackageName: String = ""
 
     private val attachedInProcess = AtomicBoolean(false)
@@ -111,6 +114,58 @@ object SystemStealthHook {
     private val customBitmapCache = ConcurrentHashMap<String, Bitmap>()
     private val knownPackageIconRes = ConcurrentHashMap<String, MutableSet<Int>>()
     private val resourcesToPkgMap = ConcurrentHashMap<Int, String>()
+    private val fakeUninstalledPackages: MutableSet<String> =
+        Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
+
+    private fun extractPkgFromArgs(args: Array<Any?>?): String? {
+        if (args == null) return null
+        for (arg in args) {
+            if (arg == null) continue
+            when (arg) {
+                is String -> {
+                    if (arg.contains(".") && !arg.startsWith("/")) return arg
+                }
+                is ComponentName -> return arg.packageName
+                is Intent -> {
+                    val p = arg.`package` ?: arg.component?.packageName
+                    if (!p.isNullOrBlank()) return p
+                }
+                else -> {
+                    if (arg.javaClass.name == "android.content.pm.VersionedPackage") {
+                        try {
+                            val p = XposedHelpers.callMethod(arg, "getPackageName") as? String
+                            if (!p.isNullOrBlank()) return p
+                        } catch (_: Throwable) {}
+                    }
+                }
+            }
+        }
+        return args.firstOrNull { it is String } as? String
+    }
+
+    private fun resolveSpecialAppIdsIfNeeded() {
+        if (cachedHollowAppId > 0 && cachedPlayStoreAppId > 0 && cachedSystemUiAppId > 0) return
+        val app = try { AndroidAppHelper.currentApplication() } catch (_: Throwable) { null } ?: return
+        val pm = try { app.packageManager } catch (_: Throwable) { null } ?: return
+        try {
+            if (cachedHollowAppId <= 0) {
+                val uid = pm.getPackageUid(MODULE_PKG, 0)
+                if (uid > 0) cachedHollowAppId = uid % 100_000
+            }
+        } catch (_: Throwable) {}
+        try {
+            if (cachedPlayStoreAppId <= 0) {
+                val uid = pm.getPackageUid(PLAY_STORE_PKG, 0)
+                if (uid > 0) cachedPlayStoreAppId = uid % 100_000
+            }
+        } catch (_: Throwable) {}
+        try {
+            if (cachedSystemUiAppId <= 0) {
+                val uid = pm.getPackageUid("com.android.systemui", 0)
+                if (uid > 0) cachedSystemUiAppId = uid % 100_000
+            }
+        } catch (_: Throwable) {}
+    }
 
     private fun recordPackageIconRes(pkg: String, vararg resIds: Int) {
         if (pkg.isBlank()) return
@@ -838,6 +893,85 @@ object SystemStealthHook {
         } catch (_: Throwable) {}
     }
 
+    private fun isHiddenInPlayStore(
+        pkg: String?,
+        rules: Map<String, IsolationRuleManager.StealthRule>
+    ): Boolean {
+        if (pkg.isNullOrBlank()) return false
+        if (fakeUninstalledPackages.contains(pkg)) return true
+        return rules[pkg]?.hideFromPlayStore == true
+    }
+
+    private fun dispatchFakeUninstallSuccess(
+        args: Array<Any?>?,
+        pkg: String
+    ) {
+        val statusReceiver = args?.firstOrNull {
+            it != null && it.javaClass.name == "android.content.IntentSender"
+        }
+        val deleteObserver = args?.firstOrNull {
+            it != null && (it.javaClass.name.contains("IPackageDeleteObserver") ||
+                    it.javaClass.interfaces.any { iface -> iface.name.contains("IPackageDeleteObserver") })
+        }
+
+        refreshExecutor.execute {
+            try {
+                // Brief realistic delay so Play Store displays "Uninstalling..." spinner before flipping to "Install"
+                Thread.sleep(450L)
+            } catch (_: Throwable) {}
+
+            if (statusReceiver != null) {
+                try {
+                    val fillIn = Intent().apply {
+                        putExtra("android.content.pm.extra.PACKAGE_NAME", pkg)
+                        putExtra("android.content.pm.extra.STATUS", 0) // PackageInstaller.STATUS_SUCCESS
+                        putExtra("android.content.pm.extra.STATUS_MESSAGE", "DELETE_SUCCEEDED")
+                    }
+                    val app = try { AndroidAppHelper.currentApplication() } catch (_: Throwable) { null }
+                    if (app != null) {
+                        XposedHelpers.callMethod(
+                            statusReceiver,
+                            "sendIntent",
+                            app,
+                            0,
+                            fillIn,
+                            null,
+                            null
+                        )
+                    } else {
+                        val iIntentSender = try {
+                            XposedHelpers.callMethod(statusReceiver, "getTarget")
+                        } catch (_: Throwable) { null }
+                        if (iIntentSender != null) {
+                            try {
+                                XposedHelpers.callMethod(
+                                    iIntentSender,
+                                    "send",
+                                    0,
+                                    fillIn,
+                                    null,
+                                    null,
+                                    null,
+                                    null
+                                )
+                            } catch (_: Throwable) {}
+                        }
+                    }
+                } catch (_: Throwable) {}
+            }
+
+            if (deleteObserver != null) {
+                try {
+                    XposedHelpers.callMethod(deleteObserver, "onPackageDeleted", pkg, 1, "DELETE_SUCCEEDED")
+                } catch (_: Throwable) {
+                    try {
+                        XposedHelpers.callMethod(deleteObserver, "packageDeleted", pkg, 1)
+                    } catch (_: Throwable) {}
+                }
+            }
+        }
+    }
+
     /**
      * Client-side hooks inside Google Play Store (`com.android.vending`) when Play Store is in scope.
      */
@@ -848,64 +982,175 @@ object SystemStealthHook {
         val apmClass = XposedHelpers.findClassIfExists(
             "android.app.ApplicationPackageManager",
             lpparam.classLoader
-        ) ?: return
+        )
 
-        try {
-            XposedBridge.hookAllMethods(
-                apmClass,
-                "getInstalledPackages",
-                object : XC_MethodHook() {
-                    override fun afterHookedMethod(param: MethodHookParam) {
-                        val rules = getStealthRules(xSharedPrefs)
-                        if (rules.isEmpty()) return
-                        val list = param.result as? List<*> ?: return
-                        val filtered = list.filter { item ->
-                            val pkgInfo = item as? PackageInfo ?: return@filter true
-                            rules[pkgInfo.packageName]?.hideFromPlayStore != true
-                        }
-                        if (filtered.size != list.size) {
-                            param.result = ArrayList(filtered)
+        if (apmClass != null) {
+            try {
+                XposedBridge.hookAllMethods(
+                    apmClass,
+                    "getInstalledPackages",
+                    object : XC_MethodHook() {
+                        override fun afterHookedMethod(param: MethodHookParam) {
+                            val rules = getStealthRules(xSharedPrefs)
+                            if (rules.isEmpty() && fakeUninstalledPackages.isEmpty()) return
+                            val list = param.result as? List<*> ?: return
+                            val filtered = list.filter { item ->
+                                val pkgInfo = item as? PackageInfo ?: return@filter true
+                                !isHiddenInPlayStore(pkgInfo.packageName, rules)
+                            }
+                            if (filtered.size != list.size) {
+                                param.result = ArrayList(filtered)
+                            }
                         }
                     }
-                }
-            )
-        } catch (_: Throwable) {}
+                )
+            } catch (_: Throwable) {}
 
-        try {
-            XposedBridge.hookAllMethods(
-                apmClass,
-                "getInstalledApplications",
-                object : XC_MethodHook() {
-                    override fun afterHookedMethod(param: MethodHookParam) {
-                        val rules = getStealthRules(xSharedPrefs)
-                        if (rules.isEmpty()) return
-                        val list = param.result as? List<*> ?: return
-                        val filtered = list.filter { item ->
-                            val appInfo = item as? ApplicationInfo ?: return@filter true
-                            rules[appInfo.packageName]?.hideFromPlayStore != true
-                        }
-                        if (filtered.size != list.size) {
-                            param.result = ArrayList(filtered)
+            try {
+                XposedBridge.hookAllMethods(
+                    apmClass,
+                    "getInstalledApplications",
+                    object : XC_MethodHook() {
+                        override fun afterHookedMethod(param: MethodHookParam) {
+                            val rules = getStealthRules(xSharedPrefs)
+                            if (rules.isEmpty() && fakeUninstalledPackages.isEmpty()) return
+                            val list = param.result as? List<*> ?: return
+                            val filtered = list.filter { item ->
+                                val appInfo = item as? ApplicationInfo ?: return@filter true
+                                !isHiddenInPlayStore(appInfo.packageName, rules)
+                            }
+                            if (filtered.size != list.size) {
+                                param.result = ArrayList(filtered)
+                            }
                         }
                     }
-                }
-            )
-        } catch (_: Throwable) {}
+                )
+            } catch (_: Throwable) {}
 
-        val notFoundHook = object : XC_MethodHook() {
-            override fun beforeHookedMethod(param: MethodHookParam) {
-                val rules = getStealthRules(xSharedPrefs)
-                if (rules.isEmpty()) return
-                val pkg = param.args.firstOrNull { it is String } as? String ?: return
-                if (rules[pkg]?.hideFromPlayStore == true) {
-                    param.throwable = PackageManager.NameNotFoundException(pkg)
+            // Intercepts getPackageInfo(String, ...), getPackageInfo(VersionedPackage, ...),
+            // getApplicationInfo, getPackageUid, getInstallSourceInfo, getInstallerPackageName
+            val notFoundHook = object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    val rules = getStealthRules(xSharedPrefs)
+                    if (rules.isEmpty() && fakeUninstalledPackages.isEmpty()) return
+                    val pkg = extractPkgFromArgs(param.args) ?: return
+                    if (isHiddenInPlayStore(pkg, rules)) {
+                        param.throwable = PackageManager.NameNotFoundException(pkg)
+                    }
                 }
             }
+            for (methodName in listOf(
+                "getPackageInfo",
+                "getPackageInfoAsUser",
+                "getApplicationInfo",
+                "getApplicationInfoAsUser",
+                "getPackageUid",
+                "getPackageUidAsUser",
+                "getInstallSourceInfo",
+                "getInstallerPackageName"
+            )) {
+                try {
+                    XposedBridge.hookAllMethods(apmClass, methodName, notFoundHook)
+                } catch (_: Throwable) {}
+            }
+
+            val nullIntentHook = object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    val rules = getStealthRules(xSharedPrefs)
+                    if (rules.isEmpty() && fakeUninstalledPackages.isEmpty()) return
+                    val pkg = extractPkgFromArgs(param.args) ?: return
+                    if (isHiddenInPlayStore(pkg, rules)) {
+                        param.result = null
+                    }
+                }
+            }
+            for (methodName in listOf(
+                "getLaunchIntentForPackage",
+                "getLeanbackLaunchIntentForPackage"
+            )) {
+                try {
+                    XposedBridge.hookAllMethods(apmClass, methodName, nullIntentHook)
+                } catch (_: Throwable) {}
+            }
+
+            // Intercept legacy deletePackage / deletePackageAsUser in Play Store
+            val deleteHook = object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    val rules = getStealthRules(xSharedPrefs)
+                    if (rules.isEmpty()) return
+                    val pkg = extractPkgFromArgs(param.args) ?: return
+                    if (rules.containsKey(pkg)) {
+                        fakeUninstalledPackages.add(pkg)
+                        dispatchFakeUninstallSuccess(param.args, pkg)
+                        param.result = null
+                    }
+                }
+            }
+            for (methodName in listOf("deletePackage", "deletePackageAsUser")) {
+                try {
+                    XposedBridge.hookAllMethods(apmClass, methodName, deleteHook)
+                } catch (_: Throwable) {}
+            }
         }
-        try {
-            XposedBridge.hookAllMethods(apmClass, "getPackageInfo", notFoundHook)
-            XposedBridge.hookAllMethods(apmClass, "getApplicationInfo", notFoundHook)
-        } catch (_: Throwable) {}
+
+        // Intercept PackageInstaller.uninstall / uninstallExistingPackage in Play Store so clicking
+        // "Uninstall" plays the uninstall animation and switches to "Install" without actually uninstalling!
+        val packageInstallerClasses = listOf(
+            "android.content.pm.PackageInstaller",
+            "android.app.PackageInstaller"
+        )
+        for (clsName in packageInstallerClasses) {
+            try {
+                val piCls = XposedHelpers.findClassIfExists(clsName, lpparam.classLoader) ?: continue
+                val uninstallHook = object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val rules = getStealthRules(xSharedPrefs)
+                        if (rules.isEmpty()) return
+                        val pkg = extractPkgFromArgs(param.args) ?: return
+                        if (rules.containsKey(pkg)) {
+                            fakeUninstalledPackages.add(pkg)
+                            dispatchFakeUninstallSuccess(param.args, pkg)
+                            param.result = null
+                        }
+                    }
+                }
+                XposedBridge.hookAllMethods(piCls, "uninstall", uninstallHook)
+                XposedBridge.hookAllMethods(piCls, "uninstallExistingPackage", uninstallHook)
+            } catch (_: Throwable) {}
+        }
+    }
+
+    private fun shouldAllowDonorSwapInSystemServer(callingAppId: Int, targetAppId: Int): Boolean {
+        return callingAppId >= Process.FIRST_APPLICATION_UID &&
+                callingAppId != cachedHollowAppId &&
+                callingAppId != cachedSystemUiAppId &&
+                (targetAppId <= 0 || callingAppId != targetAppId)
+    }
+
+    private fun applyDonorSwapToAppInfo(
+        appInfo: ApplicationInfo,
+        rule: IsolationRuleManager.StealthRule,
+        allowDonorResourceSwap: Boolean
+    ) {
+        if (rule.customLabel.isNotBlank()) {
+            appInfo.nonLocalizedLabel = rule.customLabel
+            appInfo.labelRes = 0
+        }
+        val swapRes = allowDonorResourceSwap &&
+                rule.iconPreset != DisguiseIconPreset.DEFAULT &&
+                rule.donorSourceDir.isNotBlank() &&
+                rule.donorIconRes != 0
+        if (swapRes) {
+            appInfo.icon = rule.donorIconRes
+            appInfo.logo = rule.donorIconRes
+            try { XposedHelpers.setIntField(appInfo, "roundIconRes", 0) } catch (_: Throwable) {}
+            appInfo.sourceDir = rule.donorSourceDir
+            appInfo.publicSourceDir = rule.donorSourceDir
+            appInfo.splitSourceDirs = null
+            appInfo.splitPublicSourceDirs = null
+            try { XposedHelpers.setObjectField(appInfo, "resourceDirs", null) } catch (_: Throwable) {}
+            try { XposedHelpers.setObjectField(appInfo, "overlayPaths", null) } catch (_: Throwable) {}
+        }
     }
 
     /**
@@ -927,13 +1172,13 @@ object SystemStealthHook {
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val rules = getStealthRules(xSharedPrefs)
-                        if (rules.isEmpty()) return
+                        if (rules.isEmpty() && fakeUninstalledPackages.isEmpty()) return
+                        resolveSpecialAppIdsIfNeeded()
 
                         val callingPkg = param.args.firstOrNull { it is String } as? String
                         if (callingPkg == MODULE_PKG) return
                         val callingAppId = Binder.getCallingUid() % 100_000
-                        val allowDonorResourceSwap = callingAppId >= Process.FIRST_APPLICATION_UID &&
-                                callingAppId != cachedHollowAppId &&
+                        val allowDonorResourceSwap = shouldAllowDonorSwapInSystemServer(callingAppId, -1) &&
                                 callingPkg != "com.android.systemui"
 
                         val rawResult = param.result ?: return
@@ -959,6 +1204,68 @@ object SystemStealthHook {
                     }
                 }
             )
+
+            // Also hook single activity resolution in LauncherAppsService for unhooked 3rd-party launchers
+            val resolveHook = object : XC_MethodHook() {
+                override fun afterHookedMethod(param: MethodHookParam) {
+                    val rules = getStealthRules(xSharedPrefs)
+                    if (rules.isEmpty()) return
+                    resolveSpecialAppIdsIfNeeded()
+
+                    val callingPkg = param.args.firstOrNull { it is String } as? String
+                    if (callingPkg == MODULE_PKG) return
+                    val callingAppId = Binder.getCallingUid() % 100_000
+                    val allowDonorResourceSwap = shouldAllowDonorSwapInSystemServer(callingAppId, -1) &&
+                            callingPkg != "com.android.systemui"
+
+                    val item = param.result ?: return
+                    val activityInfo: ActivityInfo? = when (item) {
+                        is ResolveInfo -> item.activityInfo
+                        is ActivityInfo -> item
+                        else -> try {
+                            XposedHelpers.callMethod(item, "getActivityInfo") as? ActivityInfo
+                                ?: XposedHelpers.getObjectField(item, "mActivityInfo") as? ActivityInfo
+                        } catch (_: Throwable) { null }
+                    }
+                    val targetPkg = activityInfo?.packageName ?: return
+                    if (targetPkg == callingPkg) return
+                    val rule = rules[targetPkg] ?: return
+                    if (rule.visibilityMode == LauncherVisibilityMode.HIDDEN) {
+                        param.result = null
+                        return
+                    }
+                    if (rule.visibilityMode == LauncherVisibilityMode.DISGUISED && activityInfo != null) {
+                        if (item is ActivityInfo) {
+                            val swapRes = allowDonorResourceSwap &&
+                                    rule.iconPreset != DisguiseIconPreset.DEFAULT &&
+                                    rule.donorSourceDir.isNotBlank() &&
+                                    rule.donorIconRes != 0
+                            param.result = ActivityInfo(activityInfo).apply {
+                                if (rule.customLabel.isNotBlank()) {
+                                    nonLocalizedLabel = rule.customLabel
+                                    labelRes = 0
+                                }
+                                if (swapRes) {
+                                    icon = rule.donorIconRes
+                                    logo = rule.donorIconRes
+                                }
+                                if (applicationInfo != null) {
+                                    applicationInfo = ApplicationInfo(applicationInfo).also {
+                                        applyDonorSwapToAppInfo(it, rule, allowDonorResourceSwap)
+                                    }
+                                }
+                            }
+                        } else {
+                            applyDisguiseToActivityInfo(item, activityInfo, rule, allowDonorResourceSwap)
+                        }
+                    }
+                }
+            }
+            for (m in listOf("resolveActivity", "resolveLauncherActivityInternal")) {
+                try {
+                    XposedBridge.hookAllMethods(implCls, m, resolveHook)
+                } catch (_: Throwable) {}
+            }
         } catch (_: Throwable) {}
     }
 
@@ -983,16 +1290,40 @@ object SystemStealthHook {
             }
             val targetPkg = activityInfo?.packageName
             if (targetPkg != null && targetPkg != callingPkg) {
+                if (callingPkg == PLAY_STORE_PKG && isHiddenInPlayStore(targetPkg, rules)) {
+                    continue
+                }
                 val rule = rules[targetPkg]
                 if (rule != null) {
-                    if (callingPkg == PLAY_STORE_PKG && rule.hideFromPlayStore) {
-                        continue
-                    }
                     if (rule.visibilityMode == LauncherVisibilityMode.HIDDEN) {
                         continue
                     }
                     if (rule.visibilityMode == LauncherVisibilityMode.DISGUISED && activityInfo != null) {
-                        applyDisguiseToActivityInfo(item, activityInfo, rule, allowDonorResourceSwap)
+                        if (item is ActivityInfo) {
+                            val swapRes = allowDonorResourceSwap &&
+                                    rule.iconPreset != DisguiseIconPreset.DEFAULT &&
+                                    rule.donorSourceDir.isNotBlank() &&
+                                    rule.donorIconRes != 0
+                            val clonedAi = ActivityInfo(activityInfo).apply {
+                                if (rule.customLabel.isNotBlank()) {
+                                    nonLocalizedLabel = rule.customLabel
+                                    labelRes = 0
+                                }
+                                if (swapRes) {
+                                    icon = rule.donorIconRes
+                                    logo = rule.donorIconRes
+                                }
+                                if (applicationInfo != null) {
+                                    applicationInfo = ApplicationInfo(applicationInfo).also {
+                                        applyDonorSwapToAppInfo(it, rule, allowDonorResourceSwap)
+                                    }
+                                }
+                            }
+                            out.add(clonedAi)
+                            continue
+                        } else {
+                            applyDisguiseToActivityInfo(item, activityInfo, rule, allowDonorResourceSwap)
+                        }
                     }
                 }
             }
@@ -1008,9 +1339,8 @@ object SystemStealthHook {
         allowDonorResourceSwap: Boolean
     ) {
         try {
-            // Only swap APK sourceDir for cloned apps with a valid donor APK (never point to Hollow's own APK)
             val swapRes = allowDonorResourceSwap &&
-                    rule.iconPreset == DisguiseIconPreset.CLONED_APP &&
+                    rule.iconPreset != DisguiseIconPreset.DEFAULT &&
                     rule.donorSourceDir.isNotBlank() &&
                     rule.donorIconRes != 0
 
@@ -1024,22 +1354,8 @@ object SystemStealthHook {
                     logo = rule.donorIconRes
                 }
                 if (applicationInfo != null) {
-                    applicationInfo = ApplicationInfo(applicationInfo).apply {
-                        if (rule.customLabel.isNotBlank()) {
-                            nonLocalizedLabel = rule.customLabel
-                            labelRes = 0
-                        }
-                        if (swapRes) {
-                            icon = rule.donorIconRes
-                            logo = rule.donorIconRes
-                            try { XposedHelpers.setIntField(this, "roundIconRes", 0) } catch (_: Throwable) {}
-                            sourceDir = rule.donorSourceDir
-                            publicSourceDir = rule.donorSourceDir
-                            splitSourceDirs = null
-                            splitPublicSourceDirs = null
-                            try { XposedHelpers.setObjectField(this, "resourceDirs", null) } catch (_: Throwable) {}
-                            try { XposedHelpers.setObjectField(this, "overlayPaths", null) } catch (_: Throwable) {}
-                        }
+                    applicationInfo = ApplicationInfo(applicationInfo).also {
+                        applyDonorSwapToAppInfo(it, rule, allowDonorResourceSwap)
                     }
                 }
             }
@@ -1062,7 +1378,7 @@ object SystemStealthHook {
             ri.labelRes = 0
         }
         if (allowDonorResourceSwap &&
-            rule.iconPreset == DisguiseIconPreset.CLONED_APP &&
+            rule.iconPreset != DisguiseIconPreset.DEFAULT &&
             rule.donorSourceDir.isNotBlank() &&
             rule.donorIconRes != 0
         ) {
@@ -1072,9 +1388,10 @@ object SystemStealthHook {
 
     /**
      * System Server (`android`) hooks on `ComputerEngine` / `PackageManagerService` for:
-     *  1. `queryIntentActivitiesInternal` (Launcher queries & donor icon resource swap)
-     *  2. `getInstalledApplications` & `getInstalledPackages` (Play Store hiding + Settings/Launcher label spoofing)
-     *  3. `getApplicationInfo`, `getActivityInfo` & `getPackageInfo` (Play Store hiding + Launcher/Settings label spoofing + IconCache invalidation)
+     *  1. `queryIntentActivitiesInternal` (Launcher queries & donor icon resource swap for unhooked launchers)
+     *  2. `getInstalledApplications` & `getInstalledPackages` (Play Store hiding + unhooked Launcher hiding/disguise)
+     *  3. `getApplicationInfo`, `getActivityInfo`, `getPackageInfo`, `getPackageUid`, `getInstallSourceInfo`, `getInstallerPackageName`
+     *  4. `PackageInstallerService.uninstall` / `deletePackageVersioned` (Play Store Fake Uninstall protection)
      */
     private fun attachSystemServerPackageManagerHooks(
         lpparam: XC_LoadPackage.LoadPackageParam,
@@ -1095,15 +1412,17 @@ object SystemStealthHook {
                     object : XC_MethodHook() {
                         override fun afterHookedMethod(param: MethodHookParam) {
                             val rules = getStealthRules(xSharedPrefs)
-                            if (rules.isEmpty()) return
+                            if (rules.isEmpty() && fakeUninstalledPackages.isEmpty()) return
 
                             if (isInPmQueryHook.get() == true) return
                             isInPmQueryHook.set(true)
                             try {
+                                resolveSpecialAppIdsIfNeeded()
                                 val intent = param.args.firstOrNull { it is Intent } as? Intent ?: return
                                 val categories = intent.categories
                                 val isLauncherQuery = categories?.contains(Intent.CATEGORY_LAUNCHER) == true ||
-                                        categories?.contains(Intent.CATEGORY_INFO) == true
+                                        categories?.contains(Intent.CATEGORY_INFO) == true ||
+                                        intent.action == Intent.ACTION_MAIN
                                 if (!isLauncherQuery) return
 
                                 val list = param.result as? List<*> ?: return
@@ -1116,6 +1435,7 @@ object SystemStealthHook {
                                     if (uid > 0) {
                                         if (pkg == MODULE_PKG) cachedHollowAppId = uid % 100_000
                                         if (pkg == PLAY_STORE_PKG) cachedPlayStoreAppId = uid % 100_000
+                                        if (pkg == "com.android.systemui") cachedSystemUiAppId = uid % 100_000
                                     }
                                 }
                                 if (callingAppId == cachedHollowAppId) return
@@ -1126,9 +1446,6 @@ object SystemStealthHook {
                                 ) {
                                     return
                                 }
-
-                                val allowDonorSwap = callingAppId >= Process.FIRST_APPLICATION_UID &&
-                                        callingAppId != cachedHollowAppId
 
                                 val out = ArrayList<ResolveInfo>(list.size)
                                 var modified = false
@@ -1143,16 +1460,17 @@ object SystemStealthHook {
                                         out.add(ri)
                                         continue
                                     }
-                                    val rule = rules[targetPkg]
-                                    if (callingAppId == cachedPlayStoreAppId && rule?.hideFromPlayStore == true) {
+                                    if (callingAppId == cachedPlayStoreAppId && isHiddenInPlayStore(targetPkg, rules)) {
                                         modified = true
                                         continue
                                     }
+                                    val rule = rules[targetPkg]
                                     if (rule?.visibilityMode == LauncherVisibilityMode.HIDDEN) {
                                         modified = true
                                         continue
                                     }
                                     if (rule != null && rule.visibilityMode == LauncherVisibilityMode.DISGUISED) {
+                                        val allowDonorSwap = shouldAllowDonorSwapInSystemServer(callingAppId, targetAppId)
                                         val clonedRi = ResolveInfo(ri)
                                         applyDisguiseToResolveInfo(clonedRi, rule, allowDonorSwap)
                                         out.add(clonedRi)
@@ -1175,10 +1493,11 @@ object SystemStealthHook {
                 val listHook = object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val rules = getStealthRules(xSharedPrefs)
-                        if (rules.isEmpty()) return
+                        if (rules.isEmpty() && fakeUninstalledPackages.isEmpty()) return
                         if (isInPmInfoHook.get() == true) return
                         isInPmInfoHook.set(true)
                         try {
+                            resolveSpecialAppIdsIfNeeded()
                             val callingAppId = Binder.getCallingUid() % 100_000
                             if (callingAppId == cachedHollowAppId) return
 
@@ -1199,25 +1518,32 @@ object SystemStealthHook {
                                 when (item) {
                                     is ApplicationInfo -> {
                                         val pkg = item.packageName ?: continue
-                                        if (pkg == MODULE_PKG && item.uid > 0) cachedHollowAppId = item.uid % 100_000
-                                        if (pkg == PLAY_STORE_PKG && item.uid > 0) cachedPlayStoreAppId = item.uid % 100_000
-                                        if (callingAppId == cachedHollowAppId) {
+                                        val targetAppId = if (item.uid > 0) item.uid % 100_000 else -1
+                                        if (pkg == MODULE_PKG && targetAppId > 0) cachedHollowAppId = targetAppId
+                                        if (pkg == PLAY_STORE_PKG && targetAppId > 0) cachedPlayStoreAppId = targetAppId
+                                        if (pkg == "com.android.systemui" && targetAppId > 0) cachedSystemUiAppId = targetAppId
+                                        if (callingAppId == cachedHollowAppId || (targetAppId > 0 && callingAppId == targetAppId)) {
                                             out.add(item)
+                                            continue
+                                        }
+                                        if (callingAppId == cachedPlayStoreAppId && isHiddenInPlayStore(pkg, rules)) {
+                                            modified = true
                                             continue
                                         }
                                         val rule = rules[pkg]
                                         if (rule != null) {
-                                            if (callingAppId == cachedPlayStoreAppId && rule.hideFromPlayStore) {
+                                            // Hide HIDDEN apps from any 3rd-party launcher / app scanner calling getInstalledApplications
+                                            if (rule.visibilityMode == LauncherVisibilityMode.HIDDEN &&
+                                                callingAppId >= Process.FIRST_APPLICATION_UID &&
+                                                callingAppId != cachedSystemUiAppId
+                                            ) {
                                                 modified = true
                                                 continue
                                             }
-                                            if (rule.visibilityMode == LauncherVisibilityMode.DISGUISED &&
-                                                rule.customLabel.isNotBlank() &&
-                                                callingAppId != (item.uid % 100_000)
-                                            ) {
-                                                val cloned = ApplicationInfo(item).apply {
-                                                    nonLocalizedLabel = rule.customLabel
-                                                    labelRes = 0
+                                            if (rule.visibilityMode == LauncherVisibilityMode.DISGUISED) {
+                                                val allowSwap = shouldAllowDonorSwapInSystemServer(callingAppId, targetAppId)
+                                                val cloned = ApplicationInfo(item).also {
+                                                    applyDonorSwapToAppInfo(it, rule, allowSwap)
                                                 }
                                                 out.add(cloned)
                                                 modified = true
@@ -1229,22 +1555,30 @@ object SystemStealthHook {
                                     is PackageInfo -> {
                                         val pkg = item.packageName ?: continue
                                         val uid = item.applicationInfo?.uid ?: -1
-                                        if (pkg == MODULE_PKG && uid > 0) cachedHollowAppId = uid % 100_000
-                                        if (pkg == PLAY_STORE_PKG && uid > 0) cachedPlayStoreAppId = uid % 100_000
-                                        if (callingAppId == cachedHollowAppId) {
+                                        val targetAppId = if (uid > 0) uid % 100_000 else -1
+                                        if (pkg == MODULE_PKG && targetAppId > 0) cachedHollowAppId = targetAppId
+                                        if (pkg == PLAY_STORE_PKG && targetAppId > 0) cachedPlayStoreAppId = targetAppId
+                                        if (pkg == "com.android.systemui" && targetAppId > 0) cachedSystemUiAppId = targetAppId
+                                        if (callingAppId == cachedHollowAppId || (targetAppId > 0 && callingAppId == targetAppId)) {
                                             out.add(item)
+                                            continue
+                                        }
+                                        if (callingAppId == cachedPlayStoreAppId && isHiddenInPlayStore(pkg, rules)) {
+                                            modified = true
                                             continue
                                         }
                                         val rule = rules[pkg]
                                         if (rule != null) {
-                                            if (callingAppId == cachedPlayStoreAppId && rule.hideFromPlayStore) {
+                                            if (rule.visibilityMode == LauncherVisibilityMode.HIDDEN &&
+                                                callingAppId >= Process.FIRST_APPLICATION_UID &&
+                                                callingAppId != cachedSystemUiAppId
+                                            ) {
                                                 modified = true
                                                 continue
                                             }
-                                            if (rule.visibilityMode == LauncherVisibilityMode.DISGUISED &&
-                                                callingAppId != (uid % 100_000)
-                                            ) {
-                                                val clonedPkg = cloneAndSpoofPackageInfo(item, rule)
+                                            if (rule.visibilityMode == LauncherVisibilityMode.DISGUISED) {
+                                                val allowSwap = shouldAllowDonorSwapInSystemServer(callingAppId, targetAppId)
+                                                val clonedPkg = cloneAndSpoofPackageInfo(item, rule, allowSwap)
                                                 out.add(clonedPkg)
                                                 modified = true
                                                 continue
@@ -1283,50 +1617,61 @@ object SystemStealthHook {
                 val singleInfoHook = object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val rules = getStealthRules(xSharedPrefs)
-                        if (rules.isEmpty()) return
+                        if (rules.isEmpty() && fakeUninstalledPackages.isEmpty()) return
                         if (isInPmInfoHook.get() == true) return
                         isInPmInfoHook.set(true)
                         try {
+                            resolveSpecialAppIdsIfNeeded()
                             val callingAppId = Binder.getCallingUid() % 100_000
                             if (callingAppId == cachedHollowAppId) return
 
                             when (val res = param.result) {
                                 is ApplicationInfo -> {
                                     val pkg = res.packageName ?: return
-                                    if (pkg == MODULE_PKG && res.uid > 0) cachedHollowAppId = res.uid % 100_000
-                                    if (pkg == PLAY_STORE_PKG && res.uid > 0) cachedPlayStoreAppId = res.uid % 100_000
-                                    if (callingAppId == cachedHollowAppId || callingAppId == (res.uid % 100_000)) return
-                                    val rule = rules[pkg] ?: return
-                                    if (callingAppId == cachedPlayStoreAppId && rule.hideFromPlayStore) {
+                                    val targetAppId = if (res.uid > 0) res.uid % 100_000 else -1
+                                    if (pkg == MODULE_PKG && targetAppId > 0) cachedHollowAppId = targetAppId
+                                    if (pkg == PLAY_STORE_PKG && targetAppId > 0) cachedPlayStoreAppId = targetAppId
+                                    if (pkg == "com.android.systemui" && targetAppId > 0) cachedSystemUiAppId = targetAppId
+                                    if (callingAppId == cachedHollowAppId || (targetAppId > 0 && callingAppId == targetAppId)) return
+                                    if (callingAppId == cachedPlayStoreAppId && isHiddenInPlayStore(pkg, rules)) {
                                         param.result = null
                                         return
                                     }
-                                    if (rule.visibilityMode == LauncherVisibilityMode.DISGUISED &&
-                                        rule.customLabel.isNotBlank()
-                                    ) {
-                                        param.result = ApplicationInfo(res).apply {
-                                            nonLocalizedLabel = rule.customLabel
-                                            labelRes = 0
+                                    val rule = rules[pkg] ?: return
+                                    if (rule.visibilityMode == LauncherVisibilityMode.DISGUISED) {
+                                        val allowSwap = shouldAllowDonorSwapInSystemServer(callingAppId, targetAppId)
+                                        param.result = ApplicationInfo(res).also {
+                                            applyDonorSwapToAppInfo(it, rule, allowSwap)
                                         }
                                     }
                                 }
                                 is ActivityInfo -> {
                                     val pkg = res.packageName ?: return
                                     val uid = res.applicationInfo?.uid ?: -1
-                                    if (pkg == MODULE_PKG && uid > 0) cachedHollowAppId = uid % 100_000
-                                    if (pkg == PLAY_STORE_PKG && uid > 0) cachedPlayStoreAppId = uid % 100_000
-                                    if (callingAppId == cachedHollowAppId || (uid > 0 && callingAppId == (uid % 100_000))) return
+                                    val targetAppId = if (uid > 0) uid % 100_000 else -1
+                                    if (pkg == MODULE_PKG && targetAppId > 0) cachedHollowAppId = targetAppId
+                                    if (pkg == PLAY_STORE_PKG && targetAppId > 0) cachedPlayStoreAppId = targetAppId
+                                    if (pkg == "com.android.systemui" && targetAppId > 0) cachedSystemUiAppId = targetAppId
+                                    if (callingAppId == cachedHollowAppId || (targetAppId > 0 && callingAppId == targetAppId)) return
                                     val rule = rules[pkg] ?: return
-                                    if (rule.visibilityMode == LauncherVisibilityMode.DISGUISED &&
-                                        rule.customLabel.isNotBlank()
-                                    ) {
+                                    if (rule.visibilityMode == LauncherVisibilityMode.DISGUISED) {
+                                        val allowSwap = shouldAllowDonorSwapInSystemServer(callingAppId, targetAppId)
+                                        val swapRes = allowSwap &&
+                                                rule.iconPreset != DisguiseIconPreset.DEFAULT &&
+                                                rule.donorSourceDir.isNotBlank() &&
+                                                rule.donorIconRes != 0
                                         param.result = ActivityInfo(res).apply {
-                                            nonLocalizedLabel = rule.customLabel
-                                            labelRes = 0
+                                            if (rule.customLabel.isNotBlank()) {
+                                                nonLocalizedLabel = rule.customLabel
+                                                labelRes = 0
+                                            }
+                                            if (swapRes) {
+                                                icon = rule.donorIconRes
+                                                logo = rule.donorIconRes
+                                            }
                                             if (applicationInfo != null) {
-                                                applicationInfo = ApplicationInfo(applicationInfo).apply {
-                                                    nonLocalizedLabel = rule.customLabel
-                                                    labelRes = 0
+                                                applicationInfo = ApplicationInfo(applicationInfo).also {
+                                                    applyDonorSwapToAppInfo(it, rule, allowSwap)
                                                 }
                                             }
                                         }
@@ -1335,16 +1680,19 @@ object SystemStealthHook {
                                 is PackageInfo -> {
                                     val pkg = res.packageName ?: return
                                     val uid = res.applicationInfo?.uid ?: -1
-                                    if (pkg == MODULE_PKG && uid > 0) cachedHollowAppId = uid % 100_000
-                                    if (pkg == PLAY_STORE_PKG && uid > 0) cachedPlayStoreAppId = uid % 100_000
-                                    if (callingAppId == cachedHollowAppId || (uid > 0 && callingAppId == (uid % 100_000))) return
-                                    val rule = rules[pkg] ?: return
-                                    if (callingAppId == cachedPlayStoreAppId && rule.hideFromPlayStore) {
+                                    val targetAppId = if (uid > 0) uid % 100_000 else -1
+                                    if (pkg == MODULE_PKG && targetAppId > 0) cachedHollowAppId = targetAppId
+                                    if (pkg == PLAY_STORE_PKG && targetAppId > 0) cachedPlayStoreAppId = targetAppId
+                                    if (pkg == "com.android.systemui" && targetAppId > 0) cachedSystemUiAppId = targetAppId
+                                    if (callingAppId == cachedHollowAppId || (targetAppId > 0 && callingAppId == targetAppId)) return
+                                    if (callingAppId == cachedPlayStoreAppId && isHiddenInPlayStore(pkg, rules)) {
                                         param.result = null
                                         return
                                     }
+                                    val rule = rules[pkg] ?: return
                                     if (rule.visibilityMode == LauncherVisibilityMode.DISGUISED) {
-                                        param.result = cloneAndSpoofPackageInfo(res, rule)
+                                        val allowSwap = shouldAllowDonorSwapInSystemServer(callingAppId, targetAppId)
+                                        param.result = cloneAndSpoofPackageInfo(res, rule, allowSwap)
                                     }
                                 }
                             }
@@ -1357,22 +1705,93 @@ object SystemStealthHook {
 
                 for (m in listOf(
                     "getApplicationInfo",
+                    "getApplicationInfoInternal",
                     "getActivityInfo",
-                    "getPackageInfo"
+                    "getActivityInfoInternal",
+                    "getPackageInfo",
+                    "getPackageInfoInternal"
                 )) {
                     try {
                         XposedBridge.hookAllMethods(cls, m, singleInfoHook)
                     } catch (_: Throwable) {}
                 }
 
+                // 3b. Hide getPackageUid / getInstallSourceInfo / getInstallerPackageName from Play Store in system_server
+                val playStoreMetaHook = object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val rules = getStealthRules(xSharedPrefs)
+                        if (rules.isEmpty() && fakeUninstalledPackages.isEmpty()) return
+                        resolveSpecialAppIdsIfNeeded()
+                        val callingAppId = Binder.getCallingUid() % 100_000
+                        if (callingAppId != cachedPlayStoreAppId) return
+                        val pkg = extractPkgFromArgs(param.args) ?: return
+                        if (isHiddenInPlayStore(pkg, rules)) {
+                            if (param.method.name.startsWith("getPackageUid")) {
+                                param.result = -1
+                            } else {
+                                param.result = null
+                            }
+                        }
+                    }
+                }
+                for (m in listOf(
+                    "getPackageUid",
+                    "getPackageUidInternal",
+                    "getInstallSourceInfo",
+                    "getInstallerPackageName"
+                )) {
+                    try {
+                        XposedBridge.hookAllMethods(cls, m, playStoreMetaHook)
+                    } catch (_: Throwable) {}
+                }
+
                 break
+            } catch (_: Throwable) {}
+        }
+
+        // 4. Hook PackageInstallerService.uninstall & PackageManagerService.deletePackageVersioned in system_server
+        // so clicking "Uninstall" in Play Store fakes uninstallation at the system level too!
+        val installerServiceClasses = listOf(
+            "com.android.server.pm.PackageInstallerService",
+            "com.android.server.pm.DeletePackageHelper",
+            "com.android.server.pm.PackageManagerService"
+        )
+        for (clsName in installerServiceClasses) {
+            try {
+                val svcCls = XposedHelpers.findClassIfExists(clsName, lpparam.classLoader) ?: continue
+                val sysUninstallHook = object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val rules = getStealthRules(xSharedPrefs)
+                        if (rules.isEmpty()) return
+                        resolveSpecialAppIdsIfNeeded()
+                        val callingAppId = Binder.getCallingUid() % 100_000
+                        // Only fake-uninstall when triggered by Play Store (so user can still genuinely uninstall from Settings if desired, or Play Store is spoofed)
+                        if (callingAppId != cachedPlayStoreAppId &&
+                            !param.args.any { it == PLAY_STORE_PKG }
+                        ) {
+                            return
+                        }
+                        val pkg = extractPkgFromArgs(param.args) ?: return
+                        if (rules.containsKey(pkg)) {
+                            fakeUninstalledPackages.add(pkg)
+                            dispatchFakeUninstallSuccess(param.args, pkg)
+                            param.result = null
+                        }
+                    }
+                }
+                for (m in listOf("uninstall", "uninstallExistingPackage", "deletePackageVersioned", "deletePackage")) {
+                    try {
+                        XposedBridge.hookAllMethods(svcCls, m, sysUninstallHook)
+                    } catch (_: Throwable) {}
+                }
             } catch (_: Throwable) {}
         }
     }
 
     private fun cloneAndSpoofPackageInfo(
         original: PackageInfo,
-        rule: IsolationRuleManager.StealthRule
+        rule: IsolationRuleManager.StealthRule,
+        allowDonorResourceSwap: Boolean = false
     ): PackageInfo {
         val parcel = android.os.Parcel.obtain()
         return try {
@@ -1386,10 +1805,9 @@ object SystemStealthHook {
                     rule.donorPkg.hashCode() xor
                     rule.customIconBase64.hashCode()).toLong() and 0xFFFFL
             copy.lastUpdateTime = original.lastUpdateTime + 1000L + ruleHash
-            if (rule.customLabel.isNotBlank() && copy.applicationInfo != null) {
-                copy.applicationInfo = ApplicationInfo(copy.applicationInfo).apply {
-                    nonLocalizedLabel = rule.customLabel
-                    labelRes = 0
+            if (copy.applicationInfo != null) {
+                copy.applicationInfo = ApplicationInfo(copy.applicationInfo).also {
+                    applyDonorSwapToAppInfo(it, rule, allowDonorResourceSwap)
                 }
             }
             copy

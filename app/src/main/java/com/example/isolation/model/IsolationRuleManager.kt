@@ -108,6 +108,15 @@ object IsolationRuleManager {
             } catch (_: Throwable) {
             }
         }
+        if (preset != DisguiseIconPreset.DEFAULT) {
+            val hollowSrc = context.applicationInfo?.publicSourceDir
+                ?: context.applicationInfo?.sourceDir
+                ?: ""
+            val resId = presetDrawableResId(preset)
+            if (hollowSrc.isNotBlank() && resId != 0) {
+                return Pair(hollowSrc, resId)
+            }
+        }
         return Pair("", 0)
     }
 
