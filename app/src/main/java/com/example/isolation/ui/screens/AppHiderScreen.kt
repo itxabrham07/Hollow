@@ -1,5 +1,9 @@
 package com.example.isolation.ui.screens
 
+import android.graphics.BitmapFactory
+import android.util.Base64
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -14,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,12 +33,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -69,6 +77,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
@@ -97,7 +106,10 @@ fun AppHiderScreen(
     var selectedAppForStealth by remember { mutableStateOf<InstalledAppInfo?>(null) }
 
     val activeStealthApps = remember(allApps) {
-        allApps.filter { it.isHiddenOrDisguised && it.launcherVisibilityMode != LauncherVisibilityMode.VISIBLE }
+        allApps.filter {
+            (it.isHiddenOrDisguised && it.launcherVisibilityMode != LauncherVisibilityMode.VISIBLE) ||
+                    it.hideFromPlayStore
+        }
     }
 
     val displayedApps = remember(allApps, activeStealthApps, showAllAppsMode, searchQuery, includeSystemApps) {
@@ -160,7 +172,7 @@ fun AppHiderScreen(
                     )
                     Text(
                         text = if (showAllAppsMode) {
-                            "Tap any app to hide or spoof its name & icon"
+                            "Tap any app to hide, spoof icon/name, or hide from Play Store"
                         } else {
                             "${activeStealthApps.size} app${if (activeStealthApps.size == 1) "" else "s"} hidden or disguised"
                         },
@@ -173,7 +185,21 @@ fun AppHiderScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
+            IconButton(
+                onClick = { viewModel.refreshLauncherNow() },
+                modifier = Modifier
+                    .size(36.dp)
+                    .testTag("btn_refresh_launcher")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Refresh Home Screen & Icon Cache",
+                    tint = scheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(4.dp))
 
             if (!showAllAppsMode) {
                 FilledTonalButton(
@@ -366,7 +392,7 @@ fun AppHiderScreen(
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Hide apps from every launcher drawer or spoof their launcher name and icon.",
+                                text = "Hide apps from launchers & Play Store, or spoof their name & custom icon in Launcher and Settings.",
                                 fontSize = 12.sp,
                                 color = scheme.onSurfaceVariant,
                                 fontFamily = JakartaFontFamily
@@ -404,14 +430,20 @@ fun AppHiderScreen(
     selectedAppForStealth?.let { targetApp ->
         AppStealthConfigDialog(
             appInfo = targetApp,
+            allInstalledApps = allApps,
+            onDecodeImageUri = { uri, cb -> viewModel.decodeImageUriToBase64(uri, cb) },
             onDismiss = { selectedAppForStealth = null },
-            onSave = { mode, customName, iconPreset, hideRecents ->
+            onSave = { mode, customName, iconPreset, hideRecents, hidePlayStore, spoofSettings, customIconB64, donorPkg ->
                 viewModel.saveAppStealthConfig(
                     appInfo = targetApp,
                     visibilityMode = mode,
                     customLabel = customName,
                     iconPreset = iconPreset,
-                    hideInRecents = hideRecents
+                    hideInRecents = hideRecents,
+                    hideFromPlayStore = hidePlayStore,
+                    spoofInSettings = spoofSettings,
+                    customIconBase64 = customIconB64,
+                    customIconDonorPkg = donorPkg
                 )
                 selectedAppForStealth = null
             }
@@ -426,7 +458,8 @@ private fun StealthAppCard(
     onLaunch: () -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
-    val isActive = appInfo.isHiddenOrDisguised && appInfo.launcherVisibilityMode != LauncherVisibilityMode.VISIBLE
+    val isActive = (appInfo.isHiddenOrDisguised && appInfo.launcherVisibilityMode != LauncherVisibilityMode.VISIBLE) ||
+            appInfo.hideFromPlayStore
 
     Card(
         colors = CardDefaults.cardColors(containerColor = scheme.surface),
@@ -446,6 +479,9 @@ private fun StealthAppCard(
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
+            val customPreviewBitmap: ImageBitmap? = remember(appInfo.customIconBase64) {
+                decodeBase64ToImageBitmap(appInfo.customIconBase64)
+            }
             val iconBitmap = remember(appInfo.packageName, appInfo.icon) {
                 try {
                     appInfo.icon?.toBitmap(width = 96, height = 96)?.asImageBitmap()
@@ -453,9 +489,16 @@ private fun StealthAppCard(
                     null
                 }
             }
-            if (iconBitmap != null) {
+
+            val displayBitmap = if (appInfo.launcherVisibilityMode == LauncherVisibilityMode.DISGUISED && customPreviewBitmap != null) {
+                customPreviewBitmap
+            } else {
+                iconBitmap
+            }
+
+            if (displayBitmap != null) {
                 Image(
-                    bitmap = iconBitmap,
+                    bitmap = displayBitmap,
                     contentDescription = appInfo.appName,
                     modifier = Modifier
                         .size(42.dp)
@@ -490,19 +533,30 @@ private fun StealthAppCard(
                     overflow = TextOverflow.Ellipsis,
                     fontFamily = JakartaFontFamily
                 )
-                Text(
-                    text = when (appInfo.launcherVisibilityMode) {
-                        LauncherVisibilityMode.HIDDEN ->
-                            "Hidden from all launchers"
+                val statusSummary = buildString {
+                    when (appInfo.launcherVisibilityMode) {
+                        LauncherVisibilityMode.HIDDEN -> append("Hidden from launchers")
                         LauncherVisibilityMode.DISGUISED -> {
                             val shownName = appInfo.customLauncherLabel.ifBlank {
                                 appInfo.disguiseIconPreset.suggestedName.ifBlank { "Calculator" }
                             }
-                            "As \"$shownName\" (${appInfo.disguiseIconPreset.label})"
+                            append("As \"$shownName\"")
+                            if (appInfo.spoofInSettings) append(" • Settings")
                         }
-                        LauncherVisibilityMode.VISIBLE ->
-                            "Visible • Tap to hide or disguise"
-                    },
+                        LauncherVisibilityMode.VISIBLE -> {
+                            if (appInfo.hideFromPlayStore) {
+                                append("Visible in launcher")
+                            } else {
+                                append("Visible • Tap to hide or disguise")
+                            }
+                        }
+                    }
+                    if (appInfo.hideFromPlayStore) {
+                        append(" • Hidden in Play Store")
+                    }
+                }
+                Text(
+                    text = statusSummary,
                     fontSize = 11.sp,
                     color = if (isActive) scheme.primary else scheme.onSurfaceVariant,
                     maxLines = 1,
@@ -539,7 +593,13 @@ private fun StealthAppCard(
                 )
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = if (isActive) appInfo.launcherVisibilityMode.badge else "Set",
+                    text = if (isActive) {
+                        if (appInfo.launcherVisibilityMode == LauncherVisibilityMode.VISIBLE && appInfo.hideFromPlayStore) {
+                            "Play Store"
+                        } else {
+                            appInfo.launcherVisibilityMode.badge
+                        }
+                    } else "Set",
                     fontSize = 11.sp,
                     fontFamily = JakartaFontFamily,
                     fontWeight = FontWeight.SemiBold
@@ -552,13 +612,24 @@ private fun StealthAppCard(
 @Composable
 private fun AppStealthConfigDialog(
     appInfo: InstalledAppInfo,
+    allInstalledApps: List<InstalledAppInfo>,
+    onDecodeImageUri: (android.net.Uri, (String?) -> Unit) -> Unit,
     onDismiss: () -> Unit,
-    onSave: (LauncherVisibilityMode, String, DisguiseIconPreset, Boolean) -> Unit
+    onSave: (
+        LauncherVisibilityMode,
+        String,
+        DisguiseIconPreset,
+        Boolean,
+        Boolean,
+        Boolean,
+        String,
+        String
+    ) -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
     var mode by remember {
         mutableStateOf(
-            if (appInfo.launcherVisibilityMode == LauncherVisibilityMode.VISIBLE) {
+            if (appInfo.launcherVisibilityMode == LauncherVisibilityMode.VISIBLE && !appInfo.hideFromPlayStore) {
                 LauncherVisibilityMode.DISGUISED
             } else {
                 appInfo.launcherVisibilityMode
@@ -572,6 +643,25 @@ private fun AppStealthConfigDialog(
     }
     var iconPreset by remember { mutableStateOf(appInfo.disguiseIconPreset) }
     var hideInRecents by remember { mutableStateOf(appInfo.hideInSystemUiRecents) }
+    var hideFromPlayStore by remember { mutableStateOf(appInfo.hideFromPlayStore) }
+    var spoofInSettings by remember { mutableStateOf(appInfo.spoofInSettings) }
+    var customIconBase64 by remember { mutableStateOf(appInfo.customIconBase64) }
+    var customIconDonorPkg by remember { mutableStateOf(appInfo.customIconDonorPkg) }
+    var showDonorAppPicker by remember { mutableStateOf(false) }
+    var donorSearch by remember { mutableStateOf("") }
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            onDecodeImageUri(uri) { b64 ->
+                if (!b64.isNullOrBlank()) {
+                    customIconBase64 = b64
+                    iconPreset = DisguiseIconPreset.CUSTOM_IMAGE
+                }
+            }
+        }
+    }
 
     val quickSuggestions = listOf("Calculator", "Notes", "Calendar", "Clock", "Weather", "System Service")
 
@@ -586,7 +676,7 @@ private fun AppStealthConfigDialog(
                     fontFamily = JakartaFontFamily
                 )
                 Text(
-                    text = "System-Wide Launcher & SystemUI Stealth",
+                    text = "Launcher, Play Store & System Settings Stealth",
                     fontSize = 12.sp,
                     color = scheme.onSurfaceVariant,
                     fontFamily = JakartaFontFamily
@@ -617,18 +707,18 @@ private fun AppStealthConfigDialog(
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(12.dp)
+                            modifier = Modifier.padding(10.dp)
                         ) {
                             RadioButton(
                                 selected = mode == option,
                                 onClick = { mode = option }
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = option.title,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
+                                    fontSize = 13.sp,
                                     fontFamily = JakartaFontFamily
                                 )
                                 Text(
@@ -642,10 +732,38 @@ private fun AppStealthConfigDialog(
                     }
                 }
 
+                // Play Store Hiding Toggle (Always available)
+                HorizontalDivider(color = scheme.outlineVariant)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Hide from Google Play Store",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp,
+                            fontFamily = JakartaFontFamily
+                        )
+                        Text(
+                            text = "Hides app from Play Store's installed apps list, updates & Play Protect.",
+                            fontSize = 11.sp,
+                            color = scheme.onSurfaceVariant,
+                            fontFamily = JakartaFontFamily
+                        )
+                    }
+                    Switch(
+                        checked = hideFromPlayStore,
+                        onCheckedChange = { hideFromPlayStore = it },
+                        modifier = Modifier.testTag("switch_hide_play_store")
+                    )
+                }
+
                 if (mode == LauncherVisibilityMode.DISGUISED) {
                     HorizontalDivider(color = scheme.outlineVariant)
                     Text(
-                        text = "Custom App Name in Launcher",
+                        text = "Custom App Name",
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 13.sp,
                         fontFamily = JakartaFontFamily
@@ -653,7 +771,7 @@ private fun AppStealthConfigDialog(
                     OutlinedTextField(
                         value = customName,
                         onValueChange = { customName = it },
-                        label = { Text("Custom Name Shown in Launchers") },
+                        label = { Text("Spoofed Name in Launcher & Settings") },
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
@@ -676,9 +794,200 @@ private fun AppStealthConfigDialog(
                     }
 
                     Text(
-                        text = "Decoy Launcher Icon",
+                        text = "Custom Icon Source",
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 13.sp,
+                        fontFamily = JakartaFontFamily
+                    )
+
+                    // Custom Image & Clone App Icon buttons
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        FilledTonalButton(
+                            onClick = { imagePickerLauncher.launch("image/*") },
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("btn_pick_custom_icon_image")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Image,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Custom Image",
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                fontFamily = JakartaFontFamily
+                            )
+                        }
+
+                        FilledTonalButton(
+                            onClick = { showDonorAppPicker = !showDonorAppPicker },
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("btn_clone_app_icon")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Apps,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Clone App Icon",
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                fontFamily = JakartaFontFamily
+                            )
+                        }
+                    }
+
+                    // Show preview if Custom Image or Cloned App is active
+                    val customPreview = remember(customIconBase64) {
+                        decodeBase64ToImageBitmap(customIconBase64)
+                    }
+                    if ((iconPreset == DisguiseIconPreset.CUSTOM_IMAGE || iconPreset == DisguiseIconPreset.CLONED_APP) &&
+                        (customPreview != null || customIconDonorPkg.isNotBlank())
+                    ) {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = scheme.primaryContainer.copy(alpha = 0.25f)),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, scheme.primary),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(10.dp)
+                            ) {
+                                if (customPreview != null) {
+                                    Image(
+                                        bitmap = customPreview,
+                                        contentDescription = "Selected Custom Icon",
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = if (iconPreset == DisguiseIconPreset.CUSTOM_IMAGE) {
+                                            "Custom Gallery Icon Selected"
+                                        } else {
+                                            "Cloned Icon: ${customIconDonorPkg.substringAfterLast('.')}"
+                                        },
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        fontFamily = JakartaFontFamily
+                                    )
+                                    Text(
+                                        text = "Applied to Launcher, System Settings & Recents",
+                                        fontSize = 11.sp,
+                                        color = scheme.onSurfaceVariant,
+                                        fontFamily = JakartaFontFamily
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Expandable Donor App Picker
+                    if (showDonorAppPicker) {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = scheme.surfaceContainerLow),
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, scheme.outlineVariant),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                OutlinedTextField(
+                                    value = donorSearch,
+                                    onValueChange = { donorSearch = it },
+                                    placeholder = { Text("Search installed app to copy icon...", fontSize = 12.sp) },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(50),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                val donorCandidates = remember(allInstalledApps, donorSearch) {
+                                    allInstalledApps.filter {
+                                        it.packageName != appInfo.packageName &&
+                                                (donorSearch.isBlank() ||
+                                                        it.appName.contains(donorSearch, ignoreCase = true) ||
+                                                        it.packageName.contains(donorSearch, ignoreCase = true))
+                                    }.take(25)
+                                }
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(max = 160.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    items(donorCandidates, key = { it.packageName }) { candidate ->
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .clickable {
+                                                    customIconDonorPkg = candidate.packageName
+                                                    iconPreset = DisguiseIconPreset.CLONED_APP
+                                                    customName = candidate.appName
+                                                    customIconBase64 = com.example.isolation.model.IsolationRuleManager
+                                                        .drawableToBase64Png(candidate.icon, 144)
+                                                    showDonorAppPicker = false
+                                                }
+                                                .padding(6.dp)
+                                        ) {
+                                            val bmp = remember(candidate.packageName, candidate.icon) {
+                                                try {
+                                                    candidate.icon?.toBitmap(64, 64)?.asImageBitmap()
+                                                } catch (_: Exception) {
+                                                    null
+                                                }
+                                            }
+                                            if (bmp != null) {
+                                                Image(
+                                                    bitmap = bmp,
+                                                    contentDescription = candidate.appName,
+                                                    modifier = Modifier
+                                                        .size(28.dp)
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                            }
+                                            Text(
+                                                text = candidate.appName,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                fontFamily = JakartaFontFamily,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = "Or Built-in Icon Presets",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp,
+                        color = scheme.onSurfaceVariant,
                         fontFamily = JakartaFontFamily
                     )
 
@@ -688,29 +997,61 @@ private fun AppStealthConfigDialog(
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState())
                     ) {
-                        DisguiseIconPreset.entries.forEach { preset ->
-                            FilterChip(
-                                selected = iconPreset == preset,
-                                onClick = {
-                                    iconPreset = preset
-                                    if (preset.suggestedName.isNotBlank() && customName.isBlank()) {
-                                        customName = preset.suggestedName
+                        DisguiseIconPreset.entries
+                            .filter { it != DisguiseIconPreset.CUSTOM_IMAGE && it != DisguiseIconPreset.CLONED_APP }
+                            .forEach { preset ->
+                                FilterChip(
+                                    selected = iconPreset == preset,
+                                    onClick = {
+                                        iconPreset = preset
+                                        if (preset.suggestedName.isNotBlank()) {
+                                            customName = preset.suggestedName
+                                        }
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = presetIconVector(preset),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    },
+                                    label = {
+                                        Text(preset.label, fontSize = 12.sp, fontFamily = JakartaFontFamily)
                                     }
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = presetIconVector(preset),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                },
-                                label = {
-                                    Text(preset.label, fontSize = 12.sp, fontFamily = JakartaFontFamily)
-                                }
-                            )
-                        }
+                                )
+                            }
                     }
 
+                    HorizontalDivider(color = scheme.outlineVariant)
+
+                    // Spoof in System Settings / App Management List
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Spoof in System Settings (App List)",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp,
+                                fontFamily = JakartaFontFamily
+                            )
+                            Text(
+                                text = "Replaces name and icon inside Android Settings → Apps / App Management.",
+                                fontSize = 11.sp,
+                                color = scheme.onSurfaceVariant,
+                                fontFamily = JakartaFontFamily
+                            )
+                        }
+                        Switch(
+                            checked = spoofInSettings,
+                            onCheckedChange = { spoofInSettings = it },
+                            modifier = Modifier.testTag("switch_spoof_settings")
+                        )
+                    }
+
+                    // Disguise in SystemUI Recents
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -724,7 +1065,7 @@ private fun AppStealthConfigDialog(
                                 fontFamily = JakartaFontFamily
                             )
                             Text(
-                                text = "Also shows the spoofed name and icon in the Recents switcher.",
+                                text = "Shows the spoofed name and icon in the Recents switcher.",
                                 fontSize = 11.sp,
                                 color = scheme.onSurfaceVariant,
                                 fontFamily = JakartaFontFamily
@@ -740,7 +1081,18 @@ private fun AppStealthConfigDialog(
         },
         confirmButton = {
             Button(
-                onClick = { onSave(mode, customName, iconPreset, hideInRecents) },
+                onClick = {
+                    onSave(
+                        mode,
+                        customName,
+                        iconPreset,
+                        hideInRecents,
+                        hideFromPlayStore,
+                        spoofInSettings,
+                        customIconBase64,
+                        customIconDonorPkg
+                    )
+                },
                 colors = ButtonDefaults.buttonColors(containerColor = scheme.primary)
             ) {
                 Text("Apply Stealth", fontFamily = JakartaFontFamily, fontWeight = FontWeight.Bold)
@@ -760,14 +1112,34 @@ internal fun HollowSelfStealthDialog(
     currentCustomName: String,
     currentIconPreset: DisguiseIconPreset,
     currentSystemUiTrigger: Boolean,
+    currentCustomIconBase64: String = "",
+    currentCustomIconDonorPkg: String = "",
+    currentSpoofInSettings: Boolean = true,
+    onDecodeImageUri: ((android.net.Uri, (String?) -> Unit) -> Unit)? = null,
     onDismiss: () -> Unit,
-    onSave: (LauncherVisibilityMode, String, DisguiseIconPreset, Boolean) -> Unit
+    onSave: (LauncherVisibilityMode, String, DisguiseIconPreset, Boolean, String, String, Boolean) -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
     var mode by remember { mutableStateOf(currentMode) }
     var customName by remember { mutableStateOf(currentCustomName) }
     var iconPreset by remember { mutableStateOf(currentIconPreset) }
     var sysUiTrigger by remember { mutableStateOf(currentSystemUiTrigger) }
+    var customIconB64 by remember { mutableStateOf(currentCustomIconBase64) }
+    var donorPkg by remember { mutableStateOf(currentCustomIconDonorPkg) }
+    var spoofSettings by remember { mutableStateOf(currentSpoofInSettings) }
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null && onDecodeImageUri != null) {
+            onDecodeImageUri(uri) { b64 ->
+                if (!b64.isNullOrBlank()) {
+                    customIconB64 = b64
+                    iconPreset = DisguiseIconPreset.CUSTOM_IMAGE
+                }
+            }
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -812,7 +1184,7 @@ internal fun HollowSelfStealthDialog(
                                 fontFamily = JakartaFontFamily
                             )
                             Text(
-                                text = "Long-press the Clock or Date in SystemUI Quick Settings, tap 'Quick Calc' tile, or dial *#*#465569#*#* to open Hollow when hidden.",
+                                text = "Long-press the Date in SystemUI Quick Settings, tap 'Quick Calc' tile, or dial *#*#465569#*#* to open Hollow when hidden.",
                                 fontSize = 11.sp,
                                 color = scheme.onSurfaceVariant,
                                 fontFamily = JakartaFontFamily
@@ -872,11 +1244,23 @@ internal fun HollowSelfStealthDialog(
                     OutlinedTextField(
                         value = customName,
                         onValueChange = { customName = it },
-                        label = { Text("Custom Name for Hollow in Launchers") },
+                        label = { Text("Custom Name for Hollow in Launchers & Settings") },
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     )
+
+                    if (onDecodeImageUri != null) {
+                        FilledTonalButton(
+                            onClick = { imagePickerLauncher.launch("image/*") },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Pick Custom Icon Image from Gallery", fontSize = 12.sp, fontFamily = JakartaFontFamily)
+                        }
+                    }
 
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -884,34 +1268,61 @@ internal fun HollowSelfStealthDialog(
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState())
                     ) {
-                        DisguiseIconPreset.entries.filter { it != DisguiseIconPreset.DEFAULT }.forEach { preset ->
-                            FilterChip(
-                                selected = iconPreset == preset,
-                                onClick = {
-                                    iconPreset = preset
-                                    if (preset.suggestedName.isNotBlank()) {
-                                        customName = preset.suggestedName
+                        DisguiseIconPreset.entries
+                            .filter { it != DisguiseIconPreset.DEFAULT && it != DisguiseIconPreset.CUSTOM_IMAGE && it != DisguiseIconPreset.CLONED_APP }
+                            .forEach { preset ->
+                                FilterChip(
+                                    selected = iconPreset == preset,
+                                    onClick = {
+                                        iconPreset = preset
+                                        if (preset.suggestedName.isNotBlank()) {
+                                            customName = preset.suggestedName
+                                        }
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = presetIconVector(preset),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    },
+                                    label = {
+                                        Text(preset.label, fontSize = 12.sp, fontFamily = JakartaFontFamily)
                                     }
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = presetIconVector(preset),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                },
-                                label = {
-                                    Text(preset.label, fontSize = 12.sp, fontFamily = JakartaFontFamily)
-                                }
+                                )
+                            }
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Spoof Hollow in System Settings",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp,
+                                fontFamily = JakartaFontFamily
+                            )
+                            Text(
+                                text = "Also disguises Hollow inside Settings → Apps.",
+                                fontSize = 11.sp,
+                                color = scheme.onSurfaceVariant,
+                                fontFamily = JakartaFontFamily
                             )
                         }
+                        Switch(
+                            checked = spoofSettings,
+                            onCheckedChange = { spoofSettings = it }
+                        )
                     }
                 }
             }
         },
         confirmButton = {
             Button(
-                onClick = { onSave(mode, customName, iconPreset, sysUiTrigger) }
+                onClick = { onSave(mode, customName, iconPreset, sysUiTrigger, customIconB64, donorPkg, spoofSettings) }
             ) {
                 Text("Save", fontFamily = JakartaFontFamily, fontWeight = FontWeight.Bold)
             }
@@ -924,9 +1335,21 @@ internal fun HollowSelfStealthDialog(
     )
 }
 
+private fun decodeBase64ToImageBitmap(b64: String): ImageBitmap? {
+    if (b64.isBlank()) return null
+    return try {
+        val bytes = Base64.decode(b64, Base64.DEFAULT)
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+    } catch (_: Throwable) {
+        null
+    }
+}
+
 @Composable
 internal fun presetIconVector(preset: DisguiseIconPreset): ImageVector {
     return when (preset) {
+        DisguiseIconPreset.CUSTOM_IMAGE -> Icons.Default.Image
+        DisguiseIconPreset.CLONED_APP -> Icons.Default.Apps
         DisguiseIconPreset.DEFAULT -> Icons.Default.Shield
         DisguiseIconPreset.CALCULATOR -> Icons.Default.Calculate
         DisguiseIconPreset.NOTES -> Icons.Default.Description

@@ -159,14 +159,22 @@ How `XSharedPreferences(MODULE_PKG, PREFS_NAME)` works under Vector:
     - If `rule.visibilityMode == HIDDEN && rule.hideInRecents`: Clones the returned `ActivityInfo` and ORs `ActivityInfo.FLAG_EXCLUDE_FROM_RECENTS` into `flags` so the hidden app leaves no card in the SystemUI Recents screen.
     - If `rule.visibilityMode == DISGUISED && rule.customLabel.isNotBlank()`: Clones `ActivityInfo` and sets `nonLocalizedLabel = rule.customLabel` (`labelRes = 0`) so the task description uses the disguised title.
 
-#### Layer 2D: Client-Side Launcher, Share Sheet (`system` / `android:ui`), and SystemUI Recents Hooks
-- **Target Processes**: `com.android.systemui`, `system` (`android:ui`), and any launcher in scope.
+#### Layer 2D: Client-Side Launcher, Settings (`com.android.settings`), Share Sheet (`system` / `android:ui`), and SystemUI Recents Hooks
+- **Target Processes**: `com.android.systemui`, `com.android.settings`, `system` (`android:ui`), and any launcher in scope.
 - **Hooked Classes & Methods**:
-  - `android.content.pm.LauncherApps#getActivityList` -> filters `HIDDEN` apps.
+  - `android.content.pm.LauncherApps#getActivityList` -> filters `HIDDEN` apps (and `hideFromPlayStore` apps in `com.android.vending`).
   - `android.app.ApplicationPackageManager#queryIntentActivities` & `queryIntentActivitiesAsUser` -> filters `HIDDEN` apps and applies `customLabel`.
   - `android.content.pm.LauncherActivityInfo#getLabel` -> returns `rule.customLabel`.
-  - `android.content.pm.PackageItemInfo#loadLabel` & `ApplicationPackageManager#getApplicationLabel` -> returns `rule.customLabel` (respecting `rule.hideInRecents` when inside `com.android.systemui`).
-  - `android.content.pm.LauncherActivityInfo#getIcon`, `getBadgedIcon` & `android.content.pm.PackageItemInfo#loadIcon`, `loadUnbadgedIcon` -> returns `buildDecoyDrawable(rule.iconPreset)` (an in-memory `192x192` anti-aliased `BitmapDrawable` for `CALCULATOR`, `NOTES`, `CALENDAR`, `CLOCK`, `WEATHER`, or `SYSTEM_UTILITY` that requires zero cross-package resource loading).
+  - `android.content.pm.PackageItemInfo#loadLabel` & `ApplicationPackageManager#getApplicationLabel` -> returns `rule.customLabel` (respecting `rule.hideInRecents` in `com.android.systemui` and `rule.spoofInSettings` in `com.android.settings`).
+  - `android.content.pm.LauncherActivityInfo#getIcon`, `getBadgedIcon`, `android.content.pm.PackageItemInfo#loadIcon`, `loadUnbadgedIcon`, `ApplicationPackageManager#getApplicationIcon`, `getActivityIcon`, `loadItemIcon`, `loadUnbadgedItemIcon`, `getDrawable`, and `com.android.launcher3.icons.IconProvider#getIcon` -> returns `resolveDisguiseDrawable(rule)` wrapped in an `AdaptiveIconDrawable` (supporting Custom Gallery Images, Cloned Installed App Icons, and Built-in Presets).
+
+#### Layer 2E: `system_server` & Client-Side Google Play Store Hider + System Settings App Management Spoofer
+- **Target Processes**: `system_server` (`android`), `com.android.vending` (Play Store), and `com.android.settings`.
+- **Hooked Classes & Methods**:
+  - `com.android.server.pm.ComputerEngine` / `PackageManagerService`: `getInstalledApplications`, `getInstalledPackages`, `getApplicationInfo`, `getPackageInfo` (guarded by `ThreadLocal` `isInPmInfoHook`).
+  - When `callingAppId == cachedPlayStoreAppId` and `rule.hideFromPlayStore == true`: filters the package out of `getInstalledPackages` / `getInstalledApplications` and returns `null` from `getPackageInfo` / `getApplicationInfo`.
+  - When `rule.spoofInSettings == true && rule.visibilityMode == DISGUISED`: clones `ApplicationInfo` / `PackageInfo` with `nonLocalizedLabel = rule.customLabel` (`labelRes = 0`) and bumps `packageInfo.lastUpdateTime` deterministically so `Launcher3`'s SQLite `app_icons.db` automatically invalidates stale cached icons.
+  - Additionally, `LauncherAppsService.getLauncherActivities` and `queryIntentActivitiesInternal` swap `icon`, `logo`, `sourceDir`, and `publicSourceDir` on cloned `ActivityInfo`/`ApplicationInfo` (for non-system callers) to point at `rule.donorSourceDir` and `rule.donorIconRes`.
 
 ---
 

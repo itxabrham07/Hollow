@@ -138,7 +138,11 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 launcherVisibilityMode = cfg?.launcherVisibilityMode ?: LauncherVisibilityMode.VISIBLE,
                 customLauncherLabel = cfg?.customLauncherLabel ?: "",
                 disguiseIconPreset = cfg?.disguiseIconPreset ?: DisguiseIconPreset.CALCULATOR,
-                hideInSystemUiRecents = cfg?.hideInSystemUiRecents ?: true
+                hideInSystemUiRecents = cfg?.hideInSystemUiRecents ?: true,
+                hideFromPlayStore = cfg?.hideFromPlayStore ?: false,
+                spoofInSettings = cfg?.spoofInSettings ?: true,
+                customIconBase64 = cfg?.customIconBase64 ?: "",
+                customIconDonorPkg = cfg?.customIconDonorPkg ?: ""
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -307,20 +311,79 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
 
     // ---- Independent App Hider & SystemUI Disguise -----------------------------------------
 
+    fun decodeImageUriToBase64(uri: Uri, onResult: (String?) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val encoded = try {
+                app.contentResolver.openInputStream(uri)?.use { stream ->
+                    val rawBmp = BitmapFactory.decodeStream(stream)
+                    if (rawBmp != null) {
+                        IsolationRuleManager.bitmapToBase64Png(rawBmp, 144)
+                    } else null
+                }
+            } catch (_: Exception) {
+                null
+            }
+            withContext(Dispatchers.Main) {
+                onResult(encoded)
+            }
+        }
+    }
+
+    fun refreshLauncherNow() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val allConfigs = dao.getAllConfigsSync()
+            IsolationRuleManager.publishStealthTable(allConfigs, _settings.value)
+            notifyConfigChanged()
+            val refreshed = MountManager.refreshLaunchersAndStealthCaches(
+                app,
+                refreshPlayStore = true,
+                refreshSettings = true
+            )
+            withContext(Dispatchers.Main) {
+                _statusMessage.value = if (refreshed) {
+                    "Home Launcher, Icon Cache, Settings & Play Store refreshed!"
+                } else {
+                    "Stealth rules synced (grant Root to auto-clear launcher icon cache)."
+                }
+            }
+        }
+    }
+
     fun saveAppStealthConfig(
         appInfo: InstalledAppInfo,
         visibilityMode: LauncherVisibilityMode,
         customLabel: String,
         iconPreset: DisguiseIconPreset,
-        hideInRecents: Boolean
+        hideInRecents: Boolean,
+        hideFromPlayStore: Boolean = appInfo.hideFromPlayStore,
+        spoofInSettings: Boolean = appInfo.spoofInSettings,
+        customIconBase64: String = appInfo.customIconBase64,
+        customIconDonorPkg: String = appInfo.customIconDonorPkg
     ) {
         viewModelScope.launch {
             val existing = dao.getConfigForPackage(appInfo.packageName)
-            val isEnrolled = visibilityMode != LauncherVisibilityMode.VISIBLE
+            val isEnrolled = visibilityMode != LauncherVisibilityMode.VISIBLE || hideFromPlayStore
             val resolvedLabel = if (visibilityMode == LauncherVisibilityMode.DISGUISED && customLabel.isBlank()) {
                 iconPreset.suggestedName.ifBlank { "Calculator" }
             } else {
                 customLabel.trim()
+            }
+
+            val resolvedIconB64 = withContext(Dispatchers.IO) {
+                when (iconPreset) {
+                    DisguiseIconPreset.CUSTOM_IMAGE -> customIconBase64
+                    DisguiseIconPreset.CLONED_APP -> {
+                        if (customIconDonorPkg.isNotBlank()) {
+                            try {
+                                val d = app.packageManager.getApplicationIcon(customIconDonorPkg)
+                                IsolationRuleManager.drawableToBase64Png(d, 144)
+                            } catch (_: Throwable) {
+                                customIconBase64
+                            }
+                        } else customIconBase64
+                    }
+                    else -> ""
+                }
             }
 
             val updated = existing?.copy(
@@ -328,7 +391,11 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 launcherVisibilityMode = visibilityMode,
                 customLauncherLabel = resolvedLabel,
                 disguiseIconPreset = iconPreset,
-                hideInSystemUiRecents = hideInRecents
+                hideInSystemUiRecents = hideInRecents,
+                hideFromPlayStore = hideFromPlayStore,
+                spoofInSettings = spoofInSettings,
+                customIconBase64 = resolvedIconB64,
+                customIconDonorPkg = if (iconPreset == DisguiseIconPreset.CLONED_APP) customIconDonorPkg else ""
             ) ?: AppIsolationConfig(
                 packageName = appInfo.packageName,
                 appName = appInfo.appName,
@@ -337,27 +404,43 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 launcherVisibilityMode = visibilityMode,
                 customLauncherLabel = resolvedLabel,
                 disguiseIconPreset = iconPreset,
-                hideInSystemUiRecents = hideInRecents
+                hideInSystemUiRecents = hideInRecents,
+                hideFromPlayStore = hideFromPlayStore,
+                spoofInSettings = spoofInSettings,
+                customIconBase64 = resolvedIconB64,
+                customIconDonorPkg = if (iconPreset == DisguiseIconPreset.CLONED_APP) customIconDonorPkg else ""
             )
 
             dao.insertOrUpdateConfig(updated)
-            val allConfigs = dao.getAllConfigsSync()
-            IsolationRuleManager.publishStealthTable(allConfigs, _settings.value)
-            notifyConfigChanged()
+            withContext(Dispatchers.IO) {
+                val allConfigs = dao.getAllConfigsSync()
+                IsolationRuleManager.publishStealthTable(allConfigs, _settings.value)
+                notifyConfigChanged()
+                MountManager.refreshLaunchersAndStealthCaches(
+                    app,
+                    refreshPlayStore = hideFromPlayStore,
+                    refreshSettings = spoofInSettings
+                )
+            }
             loadInstalledApps()
 
             when (visibilityMode) {
                 LauncherVisibilityMode.HIDDEN -> {
-                    appendTerminalLog("System-wide hide enabled for ${appInfo.appName}")
-                    _statusMessage.value = "${appInfo.appName} is now hidden from all launchers. You can launch it directly from Hollow."
+                    appendTerminalLog("System-wide hide enabled for ${appInfo.appName} (PlayStore=$hideFromPlayStore)")
+                    _statusMessage.value = "${appInfo.appName} is now hidden & launcher refreshed (no reboot needed)."
                 }
                 LauncherVisibilityMode.DISGUISED -> {
                     appendTerminalLog("Disguised ${appInfo.appName} as '$resolvedLabel' (${iconPreset.label})")
-                    _statusMessage.value = "${appInfo.appName} is now disguised as \"$resolvedLabel\" across launchers & SystemUI."
+                    _statusMessage.value = "${appInfo.appName} disguised as \"$resolvedLabel\" & launcher icon cache refreshed!"
                 }
                 LauncherVisibilityMode.VISIBLE -> {
-                    appendTerminalLog("Restored normal launcher visibility for ${appInfo.appName}")
-                    _statusMessage.value = "${appInfo.appName} restored to normal visibility."
+                    if (hideFromPlayStore) {
+                        appendTerminalLog("Hidden ${appInfo.appName} from Play Store")
+                        _statusMessage.value = "${appInfo.appName} hidden from Google Play Store."
+                    } else {
+                        appendTerminalLog("Restored normal launcher visibility for ${appInfo.appName}")
+                        _statusMessage.value = "${appInfo.appName} restored to normal visibility."
+                    }
                 }
             }
         }
@@ -369,7 +452,11 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             visibilityMode = LauncherVisibilityMode.VISIBLE,
             customLabel = "",
             iconPreset = DisguiseIconPreset.CALCULATOR,
-            hideInRecents = false
+            hideInRecents = false,
+            hideFromPlayStore = false,
+            spoofInSettings = false,
+            customIconBase64 = "",
+            customIconDonorPkg = ""
         )
     }
 
@@ -377,28 +464,53 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
         visibilityMode: LauncherVisibilityMode,
         customName: String,
         iconPreset: DisguiseIconPreset,
-        systemUiTriggerEnabled: Boolean
+        systemUiTriggerEnabled: Boolean,
+        customIconBase64: String = _settings.value.hollowCustomIconBase64,
+        customIconDonorPkg: String = _settings.value.hollowCustomIconDonorPkg,
+        spoofInSettings: Boolean = _settings.value.hollowSpoofInSettings
     ) {
         val cleanName = customName.trim().ifBlank { iconPreset.suggestedName.ifBlank { "Calculator" } }
-        updateSettings {
-            it.copy(
-                hollowVisibilityMode = visibilityMode,
-                hollowCustomName = cleanName,
-                hollowIconPreset = iconPreset,
-                systemUiTriggerEnabled = systemUiTriggerEnabled
-            )
-        }
         viewModelScope.launch(Dispatchers.IO) {
+            val resolvedIconB64 = when (iconPreset) {
+                DisguiseIconPreset.CUSTOM_IMAGE -> customIconBase64
+                DisguiseIconPreset.CLONED_APP -> {
+                    if (customIconDonorPkg.isNotBlank()) {
+                        try {
+                            val d = app.packageManager.getApplicationIcon(customIconDonorPkg)
+                            IsolationRuleManager.drawableToBase64Png(d, 144)
+                        } catch (_: Throwable) {
+                            customIconBase64
+                        }
+                    } else customIconBase64
+                }
+                else -> ""
+            }
+            updateSettings {
+                it.copy(
+                    hollowVisibilityMode = visibilityMode,
+                    hollowCustomName = cleanName,
+                    hollowIconPreset = iconPreset,
+                    hollowCustomIconBase64 = resolvedIconB64,
+                    hollowCustomIconDonorPkg = if (iconPreset == DisguiseIconPreset.CLONED_APP) customIconDonorPkg else "",
+                    hollowSpoofInSettings = spoofInSettings,
+                    systemUiTriggerEnabled = systemUiTriggerEnabled
+                )
+            }
             val allConfigs = dao.getAllConfigsSync()
             IsolationRuleManager.publishStealthTable(allConfigs, _settings.value)
             notifyConfigChanged()
             applyNativeHollowAlias(visibilityMode, iconPreset)
+            MountManager.refreshLaunchersAndStealthCaches(
+                app,
+                refreshPlayStore = false,
+                refreshSettings = spoofInSettings
+            )
         }
         _statusMessage.value = when (visibilityMode) {
             LauncherVisibilityMode.HIDDEN ->
-                "Hollow is now hidden from launchers. Long-press the SystemUI Quick Settings Clock/Header or use the Quick Calc tile to open Hollow."
+                "Hollow is now hidden from launchers. Long-press the SystemUI Date/Header or use the Quick Calc tile to open Hollow."
             LauncherVisibilityMode.DISGUISED ->
-                "Hollow is now disguised as \"$cleanName\" across launchers & SystemUI."
+                "Hollow disguised as \"$cleanName\" across launchers & Settings."
             LauncherVisibilityMode.VISIBLE ->
                 "Hollow launcher visibility restored to normal."
         }

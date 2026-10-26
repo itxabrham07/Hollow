@@ -582,4 +582,78 @@ object MountManager {
         sb.appendLine("done")
         return sb.toString()
     }
+
+    /**
+     * Immediately refreshes the active Home Launcher (clearing its SQLite icon cache `app_icons.db`)
+     * and optionally restarts Google Play Store / System Settings via Root (`su`) so app hiding and
+     * custom icon/name spoofing take effect in < 1 second without rebooting the phone.
+     */
+    fun refreshLaunchersAndStealthCaches(
+        context: Context,
+        refreshPlayStore: Boolean = false,
+        refreshSettings: Boolean = false
+    ): Boolean {
+        val launchers = LinkedHashSet<String>()
+        try {
+            val pm = context.packageManager
+            val homeIntent = android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
+                addCategory(android.content.Intent.CATEGORY_HOME)
+            }
+            val resolved = pm.resolveActivity(homeIntent, 0)
+            val defaultPkg = resolved?.activityInfo?.packageName
+            if (!defaultPkg.isNullOrBlank() && defaultPkg != "android" && defaultPkg != context.packageName) {
+                launchers.add(defaultPkg)
+            }
+            val allHomes = pm.queryIntentActivities(homeIntent, 0)
+            for (ri in allHomes) {
+                val p = ri.activityInfo?.packageName ?: continue
+                if (p != "android" && p != context.packageName && !p.contains("settings", ignoreCase = true)) {
+                    launchers.add(p)
+                }
+            }
+        } catch (_: Throwable) {}
+
+        launchers.addAll(
+            listOf(
+                "com.google.android.apps.nexuslauncher",
+                "com.android.launcher3",
+                "com.miui.home",
+                "com.sec.android.app.launcher",
+                "com.oppo.launcher",
+                "com.android.launcher",
+                "net.oneplus.launcher",
+                "com.nothing.launcher",
+                "app.lawnchair"
+            )
+        )
+
+        val pkgRegex = Regex("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$")
+        val safeLaunchers = launchers.filter { pkgRegex.matches(it) }
+
+        val sb = StringBuilder()
+        // 1. Ensure world-readable permissions on Hollow's SharedPreferences & Vector prefs bridge
+        val dataPath = context.dataDir?.absolutePath ?: "/data/data/${context.packageName}"
+        sb.appendLine("chmod 755 '$dataPath' '$dataPath/shared_prefs' 2>/dev/null || true")
+        sb.appendLine("chmod 644 '$dataPath/shared_prefs/isovault_rules.xml' 2>/dev/null || true")
+        sb.appendLine("chmod -R 755 /data/misc/*/prefs/${context.packageName} 2>/dev/null || true")
+        sb.appendLine("chmod 644 /data/misc/*/prefs/${context.packageName}/*.xml 2>/dev/null || true")
+
+        // 2. Wipe cached launcher icon databases (`app_icons.db`) and restart active launchers
+        for (lPkg in safeLaunchers) {
+            sb.appendLine("if [ -d '/data/data/$lPkg' ]; then")
+            sb.appendLine("  rm -f /data/data/$lPkg/databases/app_icons.db* /data/user_de/0/$lPkg/databases/app_icons.db* 2>/dev/null || true")
+            sb.appendLine("  am force-stop '$lPkg' 2>/dev/null || true")
+            sb.appendLine("fi")
+        }
+
+        if (refreshPlayStore) {
+            sb.appendLine("am force-stop com.android.vending 2>/dev/null || true")
+        }
+        if (refreshSettings) {
+            sb.appendLine("am force-stop com.android.settings 2>/dev/null || true")
+        }
+
+        val res = runAsRoot(sb.toString(), timeoutSeconds = 8L)
+        return res.exitCode == 0
+    }
 }

@@ -152,14 +152,20 @@ class IsoVaultConfigProvider : ContentProvider() {
         if (method == METHOD_GET_STEALTH_TABLE) {
             val ctx = context ?: return result
             val prefs = IsolationRuleManager.getReadableSharedPrefs(ctx)
-            result.putString(
-                "stealthTable",
-                prefs.getString(IsolationRuleManager.KEY_STEALTH_TABLE, "") ?: ""
-            )
+            val rawTable = prefs.getString(IsolationRuleManager.KEY_STEALTH_TABLE, "") ?: ""
+            result.putString("stealthTable", rawTable)
             result.putBoolean(
                 "systemUiTriggerEnabled",
                 prefs.getBoolean(IsolationRuleManager.KEY_SYSTEMUI_TRIGGER, true)
             )
+            val iconsBundle = Bundle()
+            for ((k, v) in prefs.all) {
+                if (k.startsWith("stealth_icon_b64_") && v is String && v.isNotBlank()) {
+                    val pkgKey = k.removePrefix("stealth_icon_b64_")
+                    iconsBundle.putString(pkgKey, v)
+                }
+            }
+            result.putBundle("customIcons", iconsBundle)
             return result
         }
 

@@ -26,5 +26,9 @@ data class AppIsolationConfig(
     val launcherVisibilityMode: LauncherVisibilityMode = LauncherVisibilityMode.VISIBLE,
     val customLauncherLabel: String = "",
     val disguiseIconPreset: DisguiseIconPreset = DisguiseIconPreset.CALCULATOR,
-    val hideInSystemUiRecents: Boolean = true
+    val hideInSystemUiRecents: Boolean = true,
+    val hideFromPlayStore: Boolean = false,
+    val spoofInSettings: Boolean = true,
+    val customIconBase64: String = "",
+    val customIconDonorPkg: String = ""
 )

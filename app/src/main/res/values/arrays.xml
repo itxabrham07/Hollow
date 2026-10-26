@@ -4,6 +4,14 @@
         <item>android</item>
         <item>system</item>
         <item>com.android.systemui</item>
+        <item>com.android.settings</item>
+        <item>com.android.vending</item>
+        <item>com.google.android.apps.nexuslauncher</item>
+        <item>com.android.launcher3</item>
+        <item>com.miui.home</item>
+        <item>com.sec.android.app.launcher</item>
+        <item>com.oppo.launcher</item>
+        <item>com.android.launcher</item>
         <item>com.aistudio.isovault.xrvf</item>
         <item>com.snapchat.android</item>
         <item>com.whatsapp</item>

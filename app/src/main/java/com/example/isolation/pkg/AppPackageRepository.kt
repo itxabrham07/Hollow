@@ -27,7 +27,11 @@ data class InstalledAppInfo(
     val launcherVisibilityMode: LauncherVisibilityMode = LauncherVisibilityMode.VISIBLE,
     val customLauncherLabel: String = "",
     val disguiseIconPreset: DisguiseIconPreset = DisguiseIconPreset.CALCULATOR,
-    val hideInSystemUiRecents: Boolean = true
+    val hideInSystemUiRecents: Boolean = true,
+    val hideFromPlayStore: Boolean = false,
+    val spoofInSettings: Boolean = true,
+    val customIconBase64: String = "",
+    val customIconDonorPkg: String = ""
 )
 
 class AppPackageRepository(private val context: Context) {
@@ -81,7 +85,11 @@ class AppPackageRepository(private val context: Context) {
                     launcherVisibilityMode = config?.launcherVisibilityMode ?: LauncherVisibilityMode.VISIBLE,
                     customLauncherLabel = config?.customLauncherLabel ?: "",
                     disguiseIconPreset = config?.disguiseIconPreset ?: DisguiseIconPreset.CALCULATOR,
-                    hideInSystemUiRecents = config?.hideInSystemUiRecents ?: true
+                    hideInSystemUiRecents = config?.hideInSystemUiRecents ?: true,
+                    hideFromPlayStore = config?.hideFromPlayStore ?: false,
+                    spoofInSettings = config?.spoofInSettings ?: true,
+                    customIconBase64 = config?.customIconBase64 ?: "",
+                    customIconDonorPkg = config?.customIconDonorPkg ?: ""
                 )
             }
         } catch (_: Exception) {}
@@ -123,7 +131,11 @@ class AppPackageRepository(private val context: Context) {
                     launcherVisibilityMode = config?.launcherVisibilityMode ?: LauncherVisibilityMode.VISIBLE,
                     customLauncherLabel = config?.customLauncherLabel ?: "",
                     disguiseIconPreset = config?.disguiseIconPreset ?: DisguiseIconPreset.CALCULATOR,
-                    hideInSystemUiRecents = config?.hideInSystemUiRecents ?: true
+                    hideInSystemUiRecents = config?.hideInSystemUiRecents ?: true,
+                    hideFromPlayStore = config?.hideFromPlayStore ?: false,
+                    spoofInSettings = config?.spoofInSettings ?: true,
+                    customIconBase64 = config?.customIconBase64 ?: "",
+                    customIconDonorPkg = config?.customIconDonorPkg ?: ""
                 )
             }
         } catch (_: Exception) {}
@@ -144,7 +156,11 @@ class AppPackageRepository(private val context: Context) {
                     launcherVisibilityMode = cfg.launcherVisibilityMode,
                     customLauncherLabel = cfg.customLauncherLabel,
                     disguiseIconPreset = cfg.disguiseIconPreset,
-                    hideInSystemUiRecents = cfg.hideInSystemUiRecents
+                    hideInSystemUiRecents = cfg.hideInSystemUiRecents,
+                    hideFromPlayStore = cfg.hideFromPlayStore,
+                    spoofInSettings = cfg.spoofInSettings,
+                    customIconBase64 = cfg.customIconBase64,
+                    customIconDonorPkg = cfg.customIconDonorPkg
                 )
             }
         }

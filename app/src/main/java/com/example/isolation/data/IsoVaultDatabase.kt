@@ -6,6 +6,8 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverter
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.isolation.data.dao.IsolationDao
 import com.example.isolation.data.entity.AccessAuditLog
 import com.example.isolation.data.entity.AppIsolationConfig
@@ -63,7 +65,7 @@ class IsoVaultConverters {
         AccessAuditLog::class,
         VaultFileItem::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(IsoVaultConverters::class)
@@ -74,6 +76,15 @@ abstract class IsoVaultDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: IsoVaultDatabase? = null
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN hideFromPlayStore INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN spoofInSettings INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN customIconBase64 TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN customIconDonorPkg TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         fun getDatabase(context: Context): IsoVaultDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -81,6 +92,7 @@ abstract class IsoVaultDatabase : RoomDatabase() {
                     IsoVaultDatabase::class.java,
                     "isovault_database"
                 )
+                    .addMigrations(MIGRATION_2_3)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

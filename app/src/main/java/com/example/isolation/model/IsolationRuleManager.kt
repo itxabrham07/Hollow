@@ -3,14 +3,22 @@ package com.example.isolation.model
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
+import android.util.Base64
 import com.example.IsoVaultApp
+import com.example.R
 import com.example.isolation.data.entity.AppIsolationConfig
+import java.io.ByteArrayOutputStream
+import java.io.File
 
 /**
  * Isolation & System-Wide Stealth rule storage and path helpers.
  *
- * Rules are published to hooked apps, SystemUI, and Android System Framework through two channels
- * that only the manager can write:
+ * Rules are published to hooked apps, SystemUI, Settings, Play Store, and Android System Framework
+ * through two channels that only the manager can write:
  * the [com.example.isolation.provider.IsoVaultConfigProvider] (live, caller-authenticated) and a
  * world-readable SharedPreferences file read via XSharedPreferences.
  */
@@ -30,24 +38,32 @@ object IsolationRuleManager {
 
     /**
      * System-wide stealth rule read by Android System Framework (`android`), `com.android.systemui`,
-     * and any existing or newly installed launcher.
+     * `com.android.settings`, `com.android.vending`, and any existing or newly installed launcher.
      */
     data class StealthRule(
         val packageName: String,
         val visibilityMode: LauncherVisibilityMode,
         val customLabel: String,
         val iconPreset: DisguiseIconPreset,
-        val hideInRecents: Boolean = true
+        val hideInRecents: Boolean = true,
+        val hideFromPlayStore: Boolean = false,
+        val spoofInSettings: Boolean = true,
+        val donorPkg: String = "",
+        val donorSourceDir: String = "",
+        val donorIconRes: Int = 0,
+        val customIconBase64: String = ""
     )
 
     const val KEY_PICKER_POLICY = "global_picker_policy"
     const val KEY_STEALTH_TABLE = "global_stealth_table_v1"
     const val KEY_SYSTEMUI_TRIGGER = "systemui_trigger_enabled"
+    private const val PREFIX_CUSTOM_ICON = "stealth_icon_b64_"
 
     fun publishPickerPolicy(policy: PickerPolicy) {
         val app = IsoVaultApp.instanceOrNull() ?: return
         try {
             getReadableSharedPrefs(app).edit().putString(KEY_PICKER_POLICY, policy.name).commit()
+            ensureWorldReadable(app)
         } catch (_: Throwable) {
         }
     }
@@ -56,69 +72,187 @@ object IsolationRuleManager {
         val app = IsoVaultApp.instanceOrNull() ?: return
         try {
             getReadableSharedPrefs(app).edit().putBoolean(KEY_SYSTEMUI_TRIGGER, enabled).commit()
+            ensureWorldReadable(app)
         } catch (_: Throwable) {
+        }
+    }
+
+    fun customIconKey(packageName: String): String = "$PREFIX_CUSTOM_ICON$packageName"
+
+    fun presetDrawableResId(preset: DisguiseIconPreset): Int {
+        return when (preset) {
+            DisguiseIconPreset.CALCULATOR -> R.drawable.ic_disguise_calculator
+            DisguiseIconPreset.NOTES -> R.drawable.ic_disguise_notes
+            DisguiseIconPreset.CALENDAR -> R.drawable.ic_disguise_calendar
+            DisguiseIconPreset.CLOCK -> R.drawable.ic_disguise_clock
+            DisguiseIconPreset.WEATHER -> R.drawable.ic_disguise_weather
+            DisguiseIconPreset.SYSTEM_UTILITY -> R.drawable.ic_disguise_system
+            else -> R.drawable.ic_disguise_calculator
+        }
+    }
+
+    private fun resolveDonorResourceInfo(
+        context: Context,
+        preset: DisguiseIconPreset,
+        donorPkg: String
+    ): Pair<String, Int> {
+        val pm = context.packageManager
+        if (preset == DisguiseIconPreset.CLONED_APP && donorPkg.isNotBlank()) {
+            try {
+                val donorAppInfo = pm.getApplicationInfo(donorPkg, 0)
+                val srcDir = donorAppInfo.publicSourceDir ?: donorAppInfo.sourceDir ?: ""
+                val iconRes = if (donorAppInfo.icon != 0) donorAppInfo.icon else donorAppInfo.logo
+                if (srcDir.isNotBlank() && iconRes != 0) {
+                    return Pair(srcDir, iconRes)
+                }
+            } catch (_: Throwable) {
+            }
+        }
+        // Fallback to Hollow's own APK vector drawables so system_server can always serve a real APK resource
+        val selfInfo = context.applicationInfo
+        val selfSrc = selfInfo.publicSourceDir ?: selfInfo.sourceDir ?: ""
+        val selfRes = presetDrawableResId(preset)
+        return Pair(selfSrc, selfRes)
+    }
+
+    fun drawableToBase64Png(drawable: Drawable?, sizePx: Int = 144): String {
+        if (drawable == null) return ""
+        return try {
+            val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            if (drawable is BitmapDrawable && drawable.bitmap != null) {
+                val scaled = Bitmap.createScaledBitmap(drawable.bitmap, sizePx, sizePx, true)
+                canvas.drawBitmap(scaled, 0f, 0f, null)
+            } else {
+                drawable.setBounds(0, 0, sizePx, sizePx)
+                drawable.draw(canvas)
+            }
+            bitmapToBase64Png(bitmap)
+        } catch (_: Throwable) {
+            ""
+        }
+    }
+
+    fun bitmapToBase64Png(bitmap: Bitmap, sizePx: Int = 144): String {
+        return try {
+            val scaled = if (bitmap.width != sizePx || bitmap.height != sizePx) {
+                Bitmap.createScaledBitmap(bitmap, sizePx, sizePx, true)
+            } else {
+                bitmap
+            }
+            val out = ByteArrayOutputStream()
+            scaled.compress(Bitmap.CompressFormat.PNG, 90, out)
+            Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+        } catch (_: Throwable) {
+            ""
         }
     }
 
     /**
      * Serializes all active app stealth rules + Hollow's own stealth settings into a compact
      * newline-delimited table in world-readable SharedPreferences so `android`, `com.android.systemui`,
-     * and any launcher process can read the full stealth map in a single fast lookup.
+     * `com.android.settings`, `com.android.vending`, and any launcher process can read the full
+     * stealth map in a single fast lookup.
+     *
+     * Format per line (10 pipe-delimited fields):
+     * pkg|visMode|iconPreset|hideRecents|hidePlayStore|spoofSettings|donorPkg|donorSourceDir|donorIconRes|customLabel
      */
     fun publishStealthTable(
         configs: List<AppIsolationConfig>,
         settings: AppSettings
     ) {
         val app = IsoVaultApp.instanceOrNull() ?: return
+        val prefs = getReadableSharedPrefs(app)
+        val editor = prefs.edit()
         val entries = mutableListOf<String>()
 
         // 1. Hollow itself if disguised or hidden
         if (settings.hollowVisibilityMode != LauncherVisibilityMode.VISIBLE) {
             val safeLabel = settings.hollowCustomName.replace("|", " ").replace("\n", " ").trim()
+            val (donorSrc, donorRes) = resolveDonorResourceInfo(
+                app,
+                settings.hollowIconPreset,
+                settings.hollowCustomIconDonorPkg
+            )
             entries.add(
                 listOf(
                     MODULE_PKG,
                     settings.hollowVisibilityMode.name,
                     settings.hollowIconPreset.name,
                     "1",
+                    "0",
+                    if (settings.hollowSpoofInSettings) "1" else "0",
+                    settings.hollowCustomIconDonorPkg.replace("|", ""),
+                    donorSrc.replace("|", ""),
+                    donorRes.toString(),
                     safeLabel
                 ).joinToString("|")
             )
+            if (settings.hollowCustomIconBase64.isNotBlank()) {
+                editor.putString(customIconKey(MODULE_PKG), settings.hollowCustomIconBase64)
+            } else {
+                editor.remove(customIconKey(MODULE_PKG))
+            }
+        } else {
+            editor.remove(customIconKey(MODULE_PKG))
         }
 
-        // 2. All apps enrolled in Hide & Disguise Apps
+        // 2. All apps enrolled in Hide & Disguise Apps (or hidden from Play Store)
         for (cfg in configs) {
-            if (cfg.isHiddenOrDisguised && cfg.launcherVisibilityMode != LauncherVisibilityMode.VISIBLE) {
+            val active = (cfg.isHiddenOrDisguised && cfg.launcherVisibilityMode != LauncherVisibilityMode.VISIBLE) ||
+                    cfg.hideFromPlayStore
+            if (active) {
                 val safeLabel = cfg.customLauncherLabel.replace("|", " ").replace("\n", " ").trim()
+                val (donorSrc, donorRes) = resolveDonorResourceInfo(
+                    app,
+                    cfg.disguiseIconPreset,
+                    cfg.customIconDonorPkg
+                )
                 entries.add(
                     listOf(
                         cfg.packageName,
                         cfg.launcherVisibilityMode.name,
                         cfg.disguiseIconPreset.name,
                         if (cfg.hideInSystemUiRecents) "1" else "0",
+                        if (cfg.hideFromPlayStore) "1" else "0",
+                        if (cfg.spoofInSettings) "1" else "0",
+                        cfg.customIconDonorPkg.replace("|", ""),
+                        donorSrc.replace("|", ""),
+                        donorRes.toString(),
                         safeLabel
                     ).joinToString("|")
                 )
+                if (cfg.customIconBase64.isNotBlank()) {
+                    editor.putString(customIconKey(cfg.packageName), cfg.customIconBase64)
+                } else {
+                    editor.remove(customIconKey(cfg.packageName))
+                }
+            } else {
+                editor.remove(customIconKey(cfg.packageName))
             }
         }
 
         val serialized = entries.joinToString("\n")
         try {
-            getReadableSharedPrefs(app).edit()
+            editor
                 .putString(KEY_STEALTH_TABLE, serialized)
                 .putBoolean(KEY_SYSTEMUI_TRIGGER, settings.systemUiTriggerEnabled)
                 .commit()
+            ensureWorldReadable(app)
         } catch (_: Throwable) {
         }
     }
 
-    fun parseStealthTable(raw: String?): Map<String, StealthRule> {
+    fun parseStealthTable(
+        raw: String?,
+        customIconLookup: ((String) -> String?)? = null
+    ): Map<String, StealthRule> {
         if (raw.isNullOrBlank()) return emptyMap()
         val out = HashMap<String, StealthRule>()
         for (line in raw.lineSequence()) {
             val trimmed = line.trim()
             if (trimmed.isEmpty()) continue
-            val parts = trimmed.split("|", limit = 5)
+            val parts = trimmed.split("|")
             if (parts.size < 4) continue
             val pkg = parts[0]
             val visMode = try {
@@ -126,20 +260,53 @@ object IsolationRuleManager {
             } catch (_: Exception) {
                 LauncherVisibilityMode.VISIBLE
             }
-            if (visMode == LauncherVisibilityMode.VISIBLE) continue
             val preset = try {
                 DisguiseIconPreset.valueOf(parts[2])
             } catch (_: Exception) {
                 DisguiseIconPreset.CALCULATOR
             }
             val hideRecents = parts[3] == "1"
-            val customLabel = if (parts.size >= 5) parts[4] else ""
+
+            // Support both legacy 5-column format and new 10-column format
+            val hidePlayStore: Boolean
+            val spoofSettings: Boolean
+            val donorPkg: String
+            val donorSourceDir: String
+            val donorIconRes: Int
+            val customLabel: String
+
+            if (parts.size >= 10) {
+                hidePlayStore = parts[4] == "1"
+                spoofSettings = parts[5] == "1"
+                donorPkg = parts[6]
+                donorSourceDir = parts[7]
+                donorIconRes = parts[8].toIntOrNull() ?: 0
+                customLabel = parts.subList(9, parts.size).joinToString("|")
+            } else {
+                hidePlayStore = false
+                spoofSettings = true
+                donorPkg = ""
+                donorSourceDir = ""
+                donorIconRes = 0
+                customLabel = if (parts.size >= 5) parts[4] else ""
+            }
+
+            if (visMode == LauncherVisibilityMode.VISIBLE && !hidePlayStore) continue
+
+            val iconB64 = customIconLookup?.invoke(pkg).orEmpty()
+
             out[pkg] = StealthRule(
                 packageName = pkg,
                 visibilityMode = visMode,
                 customLabel = customLabel,
                 iconPreset = preset,
-                hideInRecents = hideRecents
+                hideInRecents = hideRecents,
+                hideFromPlayStore = hidePlayStore,
+                spoofInSettings = spoofSettings,
+                donorPkg = donorPkg,
+                donorSourceDir = donorSourceDir,
+                donorIconRes = donorIconRes,
+                customIconBase64 = iconB64
             )
         }
         return out
@@ -168,6 +335,29 @@ object IsolationRuleManager {
             context.getSharedPreferences(PREFS_NAME, Context.MODE_WORLD_READABLE)
         } catch (_: Throwable) {
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        }
+    }
+
+    /**
+     * Ensures that `isovault_rules.xml` and its parent directories have world-readable permissions
+     * after every `.commit()`, since Android's SharedPreferencesImpl recreates the XML file on write.
+     */
+    @SuppressLint("SetWorldReadable")
+    fun ensureWorldReadable(context: Context) {
+        try {
+            val dataDir = context.dataDir ?: File(context.applicationInfo.dataDir)
+            dataDir.setExecutable(true, false)
+            dataDir.setReadable(true, false)
+            val prefsDir = File(dataDir, "shared_prefs")
+            if (prefsDir.exists()) {
+                prefsDir.setExecutable(true, false)
+                prefsDir.setReadable(true, false)
+                val prefsFile = File(prefsDir, "$PREFS_NAME.xml")
+                if (prefsFile.exists()) {
+                    prefsFile.setReadable(true, false)
+                }
+            }
+        } catch (_: Throwable) {
         }
     }
 
@@ -220,6 +410,7 @@ object IsolationRuleManager {
                 .putBoolean("${pkg}_pollution", blockRootPollution)
                 .putString("${pkg}_whitelist", whitelist)
                 .commit() // Synchronous so XSharedPreferences readers see the change immediately
+            ensureWorldReadable(app)
         } catch (_: Throwable) {
         }
     }

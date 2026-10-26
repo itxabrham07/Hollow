@@ -210,6 +210,8 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             pkg.startsWith("com.android.internal.") ||
             pkg.startsWith("com.android.location.") ||
             pkg == "com.android.settings" ||
+            pkg == "com.android.vending" ||
+            pkg.contains("permissioncontroller") ||
             pkg == "com.android.phone" ||
             pkg == "com.android.nfc" ||
             pkg == "com.android.bluetooth" ||

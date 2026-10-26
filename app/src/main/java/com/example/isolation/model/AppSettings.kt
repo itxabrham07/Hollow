@@ -20,6 +20,12 @@ data class AppSettings(
     val hollowCustomName: String = "Calculator",
     /** Decoy icon preset for Hollow when disguised. */
     val hollowIconPreset: DisguiseIconPreset = DisguiseIconPreset.CALCULATOR,
+    /** Optional custom image Base64 for Hollow when disguised. */
+    val hollowCustomIconBase64: String = "",
+    /** Optional donor app package for Hollow when disguised. */
+    val hollowCustomIconDonorPkg: String = "",
+    /** Spoof Hollow's own name & icon in System Settings / App Management. */
+    val hollowSpoofInSettings: Boolean = true,
     /** Injects a direct stealth entry trigger into SystemUI (Quick Settings Clock/Header long-press). */
     val systemUiTriggerEnabled: Boolean = true
 )
@@ -34,6 +40,9 @@ object SettingsStore {
     private const val K_HOLLOW_VISIBILITY = "hollow_visibility_mode"
     private const val K_HOLLOW_NAME = "hollow_custom_name"
     private const val K_HOLLOW_ICON = "hollow_icon_preset"
+    private const val K_HOLLOW_CUSTOM_ICON_B64 = "hollow_custom_icon_b64"
+    private const val K_HOLLOW_DONOR_PKG = "hollow_donor_pkg"
+    private const val K_HOLLOW_SPOOF_SETTINGS = "hollow_spoof_settings"
     private const val K_SYSTEMUI_TRIGGER = "systemui_trigger_enabled"
 
     fun load(context: Context): AppSettings {
@@ -68,6 +77,9 @@ object SettingsStore {
             hollowVisibilityMode = hollowVis,
             hollowCustomName = p.getString(K_HOLLOW_NAME, "Calculator") ?: "Calculator",
             hollowIconPreset = hollowIcon,
+            hollowCustomIconBase64 = p.getString(K_HOLLOW_CUSTOM_ICON_B64, "") ?: "",
+            hollowCustomIconDonorPkg = p.getString(K_HOLLOW_DONOR_PKG, "") ?: "",
+            hollowSpoofInSettings = p.getBoolean(K_HOLLOW_SPOOF_SETTINGS, true),
             systemUiTriggerEnabled = p.getBoolean(K_SYSTEMUI_TRIGGER, true)
         )
     }
@@ -82,6 +94,9 @@ object SettingsStore {
             .putString(K_HOLLOW_VISIBILITY, settings.hollowVisibilityMode.name)
             .putString(K_HOLLOW_NAME, settings.hollowCustomName)
             .putString(K_HOLLOW_ICON, settings.hollowIconPreset.name)
+            .putString(K_HOLLOW_CUSTOM_ICON_B64, settings.hollowCustomIconBase64)
+            .putString(K_HOLLOW_DONOR_PKG, settings.hollowCustomIconDonorPkg)
+            .putBoolean(K_HOLLOW_SPOOF_SETTINGS, settings.hollowSpoofInSettings)
             .putBoolean(K_SYSTEMUI_TRIGGER, settings.systemUiTriggerEnabled)
             .commit()
         // Hooked apps read the picker policy and SystemUI trigger through the rule channels.

@@ -581,13 +581,20 @@ fun SettingsScreen(
             currentCustomName = settings.hollowCustomName,
             currentIconPreset = settings.hollowIconPreset,
             currentSystemUiTrigger = settings.systemUiTriggerEnabled,
+            currentCustomIconBase64 = settings.hollowCustomIconBase64,
+            currentCustomIconDonorPkg = settings.hollowCustomIconDonorPkg,
+            currentSpoofInSettings = settings.hollowSpoofInSettings,
+            onDecodeImageUri = { uri, cb -> viewModel.decodeImageUriToBase64(uri, cb) },
             onDismiss = { showHollowStealthDialog = false },
-            onSave = { mode, customName, iconPreset, sysUiTrigger ->
+            onSave = { mode, customName, iconPreset, sysUiTrigger, customIconB64, donorPkg, spoofSettings ->
                 viewModel.updateHollowStealthConfig(
                     visibilityMode = mode,
                     customName = customName,
                     iconPreset = iconPreset,
-                    systemUiTriggerEnabled = sysUiTrigger
+                    systemUiTriggerEnabled = sysUiTrigger,
+                    customIconBase64 = customIconB64,
+                    customIconDonorPkg = donorPkg,
+                    spoofInSettings = spoofSettings
                 )
                 showHollowStealthDialog = false
             }
