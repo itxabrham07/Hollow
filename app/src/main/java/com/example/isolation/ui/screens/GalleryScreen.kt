@@ -1,13 +1,21 @@
 package com.example.isolation.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -19,33 +27,51 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.PhotoAlbum
+import androidx.compose.material.icons.filled.RotateRight
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -53,270 +79,504 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.isolation.mount.FileKind
-import com.example.isolation.mount.FileSource
-import com.example.isolation.mount.RemoteEntry
+import com.example.isolation.ui.viewmodel.GalleryAlbumSummary
+import com.example.isolation.ui.viewmodel.GalleryLayoutMode
+import com.example.isolation.ui.viewmodel.GalleryMediaItem
+import com.example.isolation.ui.viewmodel.GallerySourceTab
 import com.example.isolation.ui.viewmodel.GalleryViewModel
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
-import com.example.ui.theme.CoralError
-import com.example.ui.theme.ForestPrimary
-import com.example.ui.theme.FrauncesFontFamily
-import com.example.ui.theme.InkPrimary
-import com.example.ui.theme.InkSecondary
+import com.example.isolation.ui.viewmodel.MediaFilterKind
+import com.example.isolation.ui.viewmodel.PhotoFilterPreset
 import com.example.ui.theme.JakartaFontFamily
-import com.example.ui.theme.SageSoft
-import com.example.ui.theme.WarmIvory
-import com.example.ui.theme.WarmSand
-import com.example.ui.theme.WarmStone
-import java.text.DateFormat
-import java.util.Date
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GalleryScreen(
     viewModel: IsoVaultViewModel,
-    gallery: GalleryViewModel = viewModel()
+    gallery: GalleryViewModel = viewModel(),
+    initialMode: String = "PHOTOS", // "PHOTOS", "VIDEOS", "AUDIO", "STARRED", "ALBUMS"
+    onBack: (() -> Unit)? = null
 ) {
-    val configs by viewModel.configs.collectAsState()
-    val state by gallery.state.collectAsState()
+    val scheme = MaterialTheme.colorScheme
+    val proState by gallery.proState.collectAsState()
     val notice by gallery.notice.collectAsState()
 
-    val isolatedApps = configs.filter { it.isIsolated }
-    var selected by remember { mutableStateOf<RemoteEntry?>(null) }
-    var pendingDelete by remember { mutableStateOf<RemoteEntry?>(null) }
-    var exportTarget by remember { mutableStateOf<RemoteEntry?>(null) }
+    var activePill by remember { mutableStateOf(initialMode) }
+    var activeLightboxItem by remember { mutableStateOf<GalleryMediaItem?>(null) }
+    var showCreateAlbumDialog by remember { mutableStateOf(false) }
+    var showSearchBar by remember { mutableStateOf(false) }
+    var exportTargetMedia by remember { mutableStateOf<GalleryMediaItem?>(null) }
 
-    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri ->
-        val entry = exportTarget
-        if (uri != null && entry != null) gallery.export(entry, uri)
-        exportTarget = null
+    LaunchedEffect(initialMode) {
+        activePill = initialMode
+        when (initialMode) {
+            "VIDEOS" -> {
+                gallery.setSourceTab(GallerySourceTab.WORKSPACE_ALBUMS)
+                gallery.setLayoutMode(GalleryLayoutMode.TIMELINE)
+                gallery.setMediaFilter(MediaFilterKind.VIDEO)
+            }
+            "AUDIO" -> {
+                gallery.setSourceTab(GallerySourceTab.WORKSPACE_ALBUMS)
+                gallery.setLayoutMode(GalleryLayoutMode.TIMELINE)
+                gallery.setMediaFilter(MediaFilterKind.AUDIO)
+            }
+            "STARRED" -> {
+                gallery.setSourceTab(GallerySourceTab.WORKSPACE_ALBUMS)
+                gallery.setLayoutMode(GalleryLayoutMode.FAVORITES)
+                gallery.setMediaFilter(MediaFilterKind.ALL)
+            }
+            "ALBUMS" -> {
+                gallery.setSourceTab(GallerySourceTab.WORKSPACE_ALBUMS)
+                gallery.setLayoutMode(GalleryLayoutMode.ALBUMS)
+                gallery.setMediaFilter(MediaFilterKind.ALL)
+            }
+            else -> {
+                gallery.setSourceTab(GallerySourceTab.WORKSPACE_ALBUMS)
+                gallery.setLayoutMode(GalleryLayoutMode.TIMELINE)
+                gallery.setMediaFilter(MediaFilterKind.ALL)
+            }
+        }
     }
 
-    Column(
+    val importMediaLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            val targetAlbum = proState.activeAlbum ?: "Camera Roll"
+            gallery.importUrisToGallery(uris, targetAlbum)
+        }
+    }
+
+    val exportMediaLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("*/*")
+    ) { uri ->
+        val item = exportTargetMedia
+        if (uri != null && item != null) {
+            gallery.exportMediaItem(item, uri)
+        }
+        exportTargetMedia = null
+    }
+
+    BackHandler(enabled = proState.selectedIds.isNotEmpty() || proState.activeAlbum != null || onBack != null) {
+        when {
+            proState.selectedIds.isNotEmpty() -> gallery.clearSelection()
+            proState.activeAlbum != null -> {
+                gallery.selectAlbum(null)
+                gallery.setLayoutMode(GalleryLayoutMode.ALBUMS)
+                activePill = "ALBUMS"
+            }
+            onBack != null -> onBack()
+        }
+    }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 20.dp)
             .testTag("gallery_screen")
     ) {
-        Text(
-            text = "Files inside your isolated apps. Reading them needs root.",
-            fontSize = 13.sp,
-            color = InkSecondary,
-            fontFamily = JakartaFontFamily
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-
-        if (isolatedApps.isEmpty()) {
-            EmptyNote("No isolated apps yet", "Turn on isolation for an app in the Apps tab, then its files show up here.")
-            return@Column
-        }
-
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(isolatedApps, key = { it.packageName }) { cfg ->
-                val isSelected = state.packageName == cfg.packageName
-                Box(
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp)
+        ) {
+            // Clean Header Row (or Selection Bar when items are selected)
+            if (proState.selectedIds.isNotEmpty()) {
+                Surface(
+                    color = scheme.primaryContainer,
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(if (isSelected) ForestPrimary else WarmSand)
-                        .clickable { gallery.open(cfg.packageName, state.source) }
-                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
                 ) {
-                    Text(
-                        text = cfg.appName,
-                        color = if (isSelected) Color.White else InkPrimary,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        fontFamily = JakartaFontFamily
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { gallery.clearSelection() }) {
+                                Icon(Icons.Default.Close, contentDescription = "Clear")
+                            }
+                            Text(
+                                text = "${proState.selectedIds.size} selected",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                fontFamily = JakartaFontFamily
+                            )
+                        }
+                        Row {
+                            IconButton(onClick = { gallery.batchLockSelectedToVault() }) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = "Move to Safe Folder",
+                                    tint = scheme.primary
+                                )
+                            }
+                            IconButton(onClick = { gallery.batchDeleteSelected() }) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Delete",
+                                    tint = scheme.error
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (onBack != null || proState.activeAlbum != null) {
+                            IconButton(
+                                onClick = {
+                                    if (proState.activeAlbum != null) {
+                                        gallery.selectAlbum(null)
+                                        gallery.setLayoutMode(GalleryLayoutMode.ALBUMS)
+                                        activePill = "ALBUMS"
+                                    } else {
+                                        onBack?.invoke()
+                                    }
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back"
+                                )
+                            }
+                        }
+                        Column {
+                            Text(
+                                text = proState.activeAlbum ?: "Photos & Media",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = JakartaFontFamily,
+                                color = scheme.onSurface
+                            )
+                            Text(
+                                text = "${proState.items.size} items",
+                                fontSize = 12.sp,
+                                color = scheme.onSurfaceVariant,
+                                fontFamily = JakartaFontFamily
+                            )
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { showSearchBar = !showSearchBar }) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Search",
+                                tint = scheme.onSurfaceVariant
+                            )
+                        }
+                        IconButton(onClick = { showCreateAlbumDialog = true }) {
+                            Icon(
+                                imageVector = Icons.Default.CreateNewFolder,
+                                contentDescription = "New Album",
+                                tint = scheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             }
-        }
 
-        val pkg = state.packageName
-        if (pkg == null) {
-            Spacer(modifier = Modifier.height(16.dp))
-            EmptyNote("Pick an app", "Choose an app above to see what it has saved.")
-            return@Column
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            for (source in FileSource.values()) {
-                val on = state.source == source
-                if (on) {
-                    Button(
-                        onClick = { gallery.open(pkg, source) },
-                        colors = ButtonDefaults.buttonColors(containerColor = SageSoft, contentColor = ForestPrimary),
-                        shape = RoundedCornerShape(50),
-                        modifier = Modifier.weight(1f)
-                    ) { Text(source.title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily) }
-                } else {
-                    OutlinedButton(
-                        onClick = { gallery.open(pkg, source) },
-                        border = androidx.compose.foundation.BorderStroke(1.dp, WarmStone),
-                        shape = RoundedCornerShape(50),
-                        modifier = Modifier.weight(1f)
-                    ) { Text(source.title, fontSize = 12.sp, color = InkSecondary, fontFamily = JakartaFontFamily) }
-                }
+            if (showSearchBar) {
+                OutlinedTextField(
+                    value = proState.searchQuery,
+                    onValueChange = { gallery.setSearchQuery(it) },
+                    placeholder = { Text("Search photos...", fontSize = 13.sp, fontFamily = JakartaFontFamily) },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (proState.searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { gallery.setSearchQuery("") }) {
+                                Icon(Icons.Default.Close, contentDescription = "Clear")
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(50),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
+                )
             }
-        }
 
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            IconButton(onClick = { gallery.up() }, enabled = state.path.isNotEmpty()) {
-                Icon(Icons.Default.ArrowUpward, contentDescription = "Up")
-            }
-            Text(
-                text = "/" + state.path,
-                fontSize = 13.sp,
-                color = InkPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                fontFamily = JakartaFontFamily,
-                modifier = Modifier.weight(1f)
-            )
-            IconButton(onClick = { gallery.refresh() }) {
-                Icon(Icons.Default.Refresh, contentDescription = "Refresh")
-            }
-        }
-
-        notice?.let { msg ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            // Simple Google Photos / Google Files Filter Pills
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(WarmSand)
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .padding(bottom = 8.dp)
             ) {
-                Text(msg, fontSize = 12.sp, color = InkPrimary, fontFamily = JakartaFontFamily, modifier = Modifier.weight(1f))
-                TextButton(onClick = { gallery.clearNotice() }) {
-                    Text("OK", fontSize = 12.sp, color = ForestPrimary, fontFamily = JakartaFontFamily)
+                val pills = listOf(
+                    Triple("PHOTOS", "All Photos", Icons.Default.Image),
+                    Triple("ALBUMS", "Albums", Icons.Default.PhotoAlbum),
+                    Triple("STARRED", "Starred", Icons.Default.Star),
+                    Triple("SAFE", "Safe Folder", Icons.Default.Lock),
+                    Triple("DEVICE", "Phone Gallery", Icons.Default.Folder)
+                )
+                items(pills.size) { index ->
+                    val (key, label, icon) = pills[index]
+                    val selected = activePill == key
+                    FilterChip(
+                        selected = selected,
+                        onClick = {
+                            activePill = key
+                            when (key) {
+                                "PHOTOS" -> {
+                                    gallery.setSourceTab(GallerySourceTab.WORKSPACE_ALBUMS)
+                                    gallery.selectAlbum(null)
+                                    gallery.setLayoutMode(GalleryLayoutMode.TIMELINE)
+                                    gallery.setMediaFilter(MediaFilterKind.ALL)
+                                }
+                                "ALBUMS" -> {
+                                    gallery.setSourceTab(GallerySourceTab.WORKSPACE_ALBUMS)
+                                    gallery.selectAlbum(null)
+                                    gallery.setLayoutMode(GalleryLayoutMode.ALBUMS)
+                                }
+                                "STARRED" -> {
+                                    gallery.setSourceTab(GallerySourceTab.WORKSPACE_ALBUMS)
+                                    gallery.selectAlbum(null)
+                                    gallery.setLayoutMode(GalleryLayoutMode.FAVORITES)
+                                }
+                                "SAFE" -> {
+                                    gallery.setSourceTab(GallerySourceTab.ENCRYPTED_LOCKER)
+                                }
+                                "DEVICE" -> {
+                                    gallery.setSourceTab(GallerySourceTab.DEVICE_MEDIA)
+                                }
+                            }
+                        },
+                        label = { Text(label, fontFamily = JakartaFontFamily, fontSize = 12.sp) },
+                        leadingIcon = {
+                            Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(16.dp))
+                        },
+                        shape = RoundedCornerShape(50),
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = scheme.primaryContainer,
+                            selectedLabelColor = scheme.onPrimaryContainer,
+                            selectedLeadingIconColor = scheme.onPrimaryContainer,
+                            containerColor = scheme.surface,
+                            labelColor = scheme.onSurfaceVariant
+                        )
+                    )
                 }
             }
-            Spacer(modifier = Modifier.height(8.dp))
-        }
 
-        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            when {
-                state.loading -> CircularProgressIndicator(
-                    color = ForestPrimary,
-                    modifier = Modifier.align(Alignment.Center)
-                )
-
-                state.locked -> Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.align(Alignment.Center).padding(24.dp)
+            notice?.let { msg ->
+                Surface(
+                    color = scheme.secondaryContainer,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
+                        .clickable { gallery.clearNotice() }
                 ) {
-                    Icon(Icons.Default.Lock, contentDescription = null, tint = ForestPrimary, modifier = Modifier.size(34.dp))
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("This volume is locked", fontWeight = FontWeight.SemiBold, fontFamily = FrauncesFontFamily, color = InkPrimary)
                     Text(
-                        "Its files are encrypted. Unlock to browse them, and lock it again when you are done.",
+                        text = msg,
                         fontSize = 12.sp,
-                        color = InkSecondary,
-                        fontFamily = JakartaFontFamily
+                        color = scheme.onSecondaryContainer,
+                        fontFamily = JakartaFontFamily,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                     )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Button(
-                        onClick = { gallery.unlock() },
-                        colors = ButtonDefaults.buttonColors(containerColor = ForestPrimary, contentColor = Color.White),
-                        shape = RoundedCornerShape(50)
-                    ) { Text("Unlock", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold) }
                 }
+            }
 
-                state.entries.isEmpty() -> Text(
-                    text = state.message ?: "Nothing here yet.",
-                    fontSize = 13.sp,
-                    color = InkSecondary,
-                    fontFamily = JakartaFontFamily,
-                    modifier = Modifier.align(Alignment.Center).padding(24.dp)
-                )
-
-                else -> LazyVerticalGrid(
-                    columns = GridCells.Adaptive(104.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxSize()
+            // Main Content: Albums Grid OR Clean 3-Column Photo Grid
+            if (proState.isLoading) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center
                 ) {
-                    items(state.entries, key = { it.relPath }) { entry ->
-                        EntryTile(
-                            entry = entry,
+                    CircularProgressIndicator()
+                }
+            } else if (activePill == "ALBUMS" && proState.activeAlbum == null) {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(bottom = 90.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    items(proState.albums, key = { it.name }) { album ->
+                        CleanAlbumCard(
+                            album = album,
                             gallery = gallery,
-                            onClick = { if (entry.isDir) gallery.openFolder(entry) else selected = entry }
+                            onClick = {
+                                gallery.selectAlbum(album.name)
+                                activePill = "PHOTOS"
+                            }
+                        )
+                    }
+                }
+            } else if (proState.items.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(horizontal = 32.dp)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clip(CircleShape)
+                                .background(scheme.surfaceContainerLow)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Image,
+                                contentDescription = null,
+                                tint = scheme.primary,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "No photos here yet",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = JakartaFontFamily,
+                            color = scheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Tap 'Add Photos' below to import pictures into Hollow.",
+                            fontSize = 13.sp,
+                            color = scheme.onSurfaceVariant,
+                            fontFamily = JakartaFontFamily
+                        )
+                    }
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    contentPadding = PaddingValues(bottom = 96.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    items(proState.items, key = { it.id }) { item ->
+                        val isSelected = item.id in proState.selectedIds
+                        CleanPhotoTile(
+                            item = item,
+                            isSelected = isSelected,
+                            gallery = gallery,
+                            onClick = {
+                                if (proState.selectedIds.isNotEmpty()) {
+                                    gallery.toggleSelectItem(item.id)
+                                } else {
+                                    activeLightboxItem = item
+                                }
+                            },
+                            onLongClick = {
+                                gallery.toggleSelectItem(item.id)
+                            }
                         )
                     }
                 }
             }
         }
 
-        // A volume that has been unlocked for browsing can be sealed again from here.
-        if (state.source == FileSource.VOLUME && !state.locked && !state.loading) {
-            OutlinedButton(
-                onClick = { gallery.lock() },
-                border = androidx.compose.foundation.BorderStroke(1.dp, WarmStone),
-                shape = RoundedCornerShape(50),
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
-            ) {
-                Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(15.dp), tint = InkPrimary)
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Lock volume (stops the app)", fontSize = 13.sp, color = InkPrimary, fontFamily = JakartaFontFamily)
-            }
-        }
+        ExtendedFloatingActionButton(
+            onClick = { importMediaLauncher.launch(arrayOf("image/*", "video/*")) },
+            containerColor = scheme.primary,
+            contentColor = scheme.onPrimary,
+            shape = RoundedCornerShape(16.dp),
+            icon = { Icon(Icons.Default.AddPhotoAlternate, contentDescription = null) },
+            text = { Text("Add Photos", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold) },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp)
+        )
     }
 
-    selected?.let { entry ->
-        EntryDialog(
-            entry = entry,
+    // Clean Full-Screen Photo Lightbox
+    activeLightboxItem?.let { currentItem ->
+        CleanPhotoLightbox(
+            item = currentItem,
             gallery = gallery,
-            onClose = { selected = null },
+            onDismiss = { activeLightboxItem = null },
+            onToggleFavorite = {
+                gallery.toggleFavorite(currentItem)
+                activeLightboxItem = currentItem.copy(isFavorite = !currentItem.isFavorite)
+            },
+            onMoveToSafeFolder = {
+                gallery.lockItemToVault(currentItem)
+                activeLightboxItem = null
+            },
             onExport = {
-                exportTarget = entry
-                exportLauncher.launch(entry.name)
-                selected = null
+                exportTargetMedia = currentItem
+                exportMediaLauncher.launch(currentItem.name)
             },
             onDelete = {
-                pendingDelete = entry
-                selected = null
+                gallery.deleteMediaItem(currentItem)
+                activeLightboxItem = null
             }
         )
     }
 
-    pendingDelete?.let { entry ->
+    if (showCreateAlbumDialog) {
+        var albumName by remember { mutableStateOf("") }
         AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            containerColor = WarmIvory,
+            onDismissRequest = { showCreateAlbumDialog = false },
             shape = RoundedCornerShape(24.dp),
-            title = { Text("Delete ${entry.name}?", fontFamily = FrauncesFontFamily, color = InkPrimary) },
+            title = {
+                Text("New Album", fontWeight = FontWeight.Bold, fontFamily = JakartaFontFamily)
+            },
             text = {
-                Text(
-                    "This removes it from the app's isolated storage for good, and the app is stopped while it happens. It cannot be undone.",
-                    fontFamily = JakartaFontFamily,
-                    color = InkSecondary
+                OutlinedTextField(
+                    value = albumName,
+                    onValueChange = { albumName = it },
+                    label = { Text("Album name", fontFamily = JakartaFontFamily) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth()
                 )
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        gallery.delete(entry)
-                        pendingDelete = null
+                        if (albumName.isNotBlank()) {
+                            gallery.createNewAlbum(albumName.trim())
+                            showCreateAlbumDialog = false
+                        }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = CoralError, contentColor = Color.White),
                     shape = RoundedCornerShape(50)
-                ) { Text("Delete", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold) }
+                ) {
+                    Text("Create", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
+                }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) {
-                    Text("Cancel", color = InkSecondary, fontFamily = JakartaFontFamily)
+                TextButton(onClick = { showCreateAlbumDialog = false }) {
+                    Text("Cancel", fontFamily = JakartaFontFamily)
                 }
             }
         )
@@ -324,144 +584,352 @@ fun GalleryScreen(
 }
 
 @Composable
-private fun EmptyNote(title: String, body: String) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(title, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, fontFamily = FrauncesFontFamily, color = InkPrimary)
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(body, fontSize = 13.sp, color = InkSecondary, fontFamily = JakartaFontFamily)
-    }
-}
-
-@Composable
-private fun EntryTile(entry: RemoteEntry, gallery: GalleryViewModel, onClick: () -> Unit) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(WarmIvory)
-            .clickable { onClick() }
-            .padding(6.dp)
-    ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f)
-                .clip(RoundedCornerShape(10.dp))
-                .background(WarmSand)
-        ) {
-            val thumb by produceState<ImageBitmap?>(null, entry.relPath, entry.modifiedSec) {
-                value = if (entry.kind == FileKind.IMAGE) gallery.thumbnail(entry)?.asImageBitmap() else null
-            }
-            val bitmap = thumb
-            if (bitmap != null) {
-                Image(
-                    bitmap = bitmap,
-                    contentDescription = entry.name,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Icon(
-                    imageVector = iconFor(entry),
-                    contentDescription = null,
-                    tint = ForestPrimary,
-                    modifier = Modifier.size(32.dp)
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = entry.name,
-            fontSize = 11.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            color = InkPrimary,
-            fontFamily = JakartaFontFamily
-        )
-    }
-}
-
-private fun iconFor(entry: RemoteEntry) = when {
-    entry.isDir -> Icons.Default.Folder
-    entry.kind == FileKind.VIDEO -> Icons.Default.Movie
-    entry.kind == FileKind.AUDIO -> Icons.Default.MusicNote
-    entry.kind == FileKind.TEXT -> Icons.Default.Description
-    else -> Icons.AutoMirrored.Filled.InsertDriveFile
-}
-
-@Composable
-private fun EntryDialog(
-    entry: RemoteEntry,
+private fun CleanAlbumCard(
+    album: GalleryAlbumSummary,
     gallery: GalleryViewModel,
-    onClose: () -> Unit,
-    onExport: () -> Unit,
-    onDelete: () -> Unit
+    onClick: () -> Unit
 ) {
-    val image by produceState<ImageBitmap?>(null, entry.relPath) {
-        value = if (entry.kind == FileKind.IMAGE) gallery.fullImage(entry)?.asImageBitmap() else null
-    }
-    val text by produceState<String?>(null, entry.relPath) {
-        value = if (entry.kind == FileKind.TEXT) gallery.textPreview(entry) else null
+    val scheme = MaterialTheme.colorScheme
+    val coverBitmap by produceState<ImageBitmap?>(initialValue = null, album.coverItem?.id) {
+        value = album.coverItem?.let { gallery.loadMediaBitmap(it, fullRes = false)?.asImageBitmap() }
     }
 
-    AlertDialog(
-        onDismissRequest = onClose,
-        containerColor = WarmIvory,
-        shape = RoundedCornerShape(24.dp),
-        title = {
-            Text(entry.name, maxLines = 2, overflow = TextOverflow.Ellipsis, fontFamily = FrauncesFontFamily, color = InkPrimary)
-        },
-        text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                val bitmap = image
-                val body = text
-                when {
-                    bitmap != null -> Image(
-                        bitmap = bitmap,
-                        contentDescription = entry.name,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxWidth()
+    Card(
+        colors = CardDefaults.cardColors(containerColor = scheme.surface),
+        shape = RoundedCornerShape(18.dp),
+        border = BorderStroke(1.dp, scheme.outlineVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+    ) {
+        Column {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1.25f)
+                    .background(scheme.surfaceContainerLow)
+            ) {
+                val bmp = coverBitmap
+                if (bmp != null) {
+                    Image(
+                        bitmap = bmp,
+                        contentDescription = album.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
                     )
-
-                    body != null -> Text(body, fontSize = 12.sp, color = InkPrimary, fontFamily = JakartaFontFamily)
-
-                    entry.kind == FileKind.IMAGE || entry.kind == FileKind.TEXT -> Text(
-                        "Loading preview...",
-                        fontSize = 12.sp,
-                        color = InkSecondary,
-                        fontFamily = JakartaFontFamily
-                    )
-
-                    else -> Text(
-                        "No preview for this type. Export it to open it in another app.",
-                        fontSize = 12.sp,
-                        color = InkSecondary,
-                        fontFamily = JakartaFontFamily
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.PhotoAlbum,
+                        contentDescription = null,
+                        tint = scheme.primary,
+                        modifier = Modifier.size(32.dp)
                     )
                 }
-                Spacer(modifier = Modifier.height(10.dp))
+            }
+            Column(modifier = Modifier.padding(12.dp)) {
                 Text(
-                    text = formatBytes(entry.size) + "  -  " +
-                        DateFormat.getDateTimeInstance().format(Date(entry.modifiedSec * 1000)),
+                    text = album.name,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                    color = scheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontFamily = JakartaFontFamily
+                )
+                Text(
+                    text = "${album.itemCount} items • ${formatBytes(album.totalBytes)}",
                     fontSize = 12.sp,
-                    color = InkSecondary,
+                    color = scheme.onSurfaceVariant,
                     fontFamily = JakartaFontFamily
                 )
             }
-        },
-        confirmButton = {
-            Button(
-                onClick = onExport,
-                colors = ButtonDefaults.buttonColors(containerColor = ForestPrimary, contentColor = Color.White),
-                shape = RoundedCornerShape(50)
-            ) { Text("Export", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold) }
-        },
-        dismissButton = {
-            Row {
-                TextButton(onClick = onDelete) { Text("Delete", color = CoralError, fontFamily = JakartaFontFamily) }
-                TextButton(onClick = onClose) { Text("Close", color = InkSecondary, fontFamily = JakartaFontFamily) }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun CleanPhotoTile(
+    item: GalleryMediaItem,
+    isSelected: Boolean,
+    gallery: GalleryViewModel,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    val thumb by produceState<ImageBitmap?>(initialValue = null, item.id, item.modifiedMillis) {
+        if (item.kind == FileKind.IMAGE) {
+            value = gallery.loadMediaBitmap(item, fullRes = false)?.asImageBitmap()
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .aspectRatio(1f)
+            .clip(RoundedCornerShape(12.dp))
+            .background(scheme.surfaceContainerLow)
+            .then(
+                if (isSelected) Modifier.border(3.dp, scheme.primary, RoundedCornerShape(12.dp))
+                else Modifier
+            )
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
+    ) {
+        val bmp = thumb
+        if (bmp != null) {
+            Image(
+                bitmap = bmp,
+                contentDescription = item.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Icon(
+                    imageVector = when (item.kind) {
+                        FileKind.VIDEO -> Icons.Default.Movie
+                        FileKind.AUDIO -> Icons.Default.MusicNote
+                        else -> Icons.Default.Image
+                    },
+                    contentDescription = null,
+                    tint = scheme.primary,
+                    modifier = Modifier.size(28.dp)
+                )
             }
         }
-    )
+
+        if (item.isFavorite) {
+            Icon(
+                imageVector = Icons.Default.Favorite,
+                contentDescription = "Favorite",
+                tint = Color(0xFFFF4D6D),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .size(16.dp)
+            )
+        }
+
+        if (item.isEncrypted) {
+            Icon(
+                imageVector = Icons.Default.Lock,
+                contentDescription = "Locked",
+                tint = Color.White,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(6.dp)
+                    .size(14.dp)
+            )
+        }
+
+        if (isSelected) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(6.dp)
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .background(scheme.primary)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = "Selected",
+                    tint = scheme.onPrimary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CleanPhotoLightbox(
+    item: GalleryMediaItem,
+    gallery: GalleryViewModel,
+    onDismiss: () -> Unit,
+    onToggleFavorite: () -> Unit,
+    onMoveToSafeFolder: () -> Unit,
+    onExport: () -> Unit,
+    onDelete: () -> Unit
+) {
+    var refreshTrigger by remember { mutableIntStateOf(0) }
+    val fullBitmap by produceState<ImageBitmap?>(initialValue = null, item.id, refreshTrigger) {
+        value = gallery.loadMediaBitmap(item, fullRes = true)?.asImageBitmap()
+    }
+
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF0E1210))
+        ) {
+            // Photo Canvas with Pinch-to-Zoom & Double-Tap
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onDoubleTap = {
+                                if (scale > 1.05f) {
+                                    scale = 1f
+                                    offset = Offset.Zero
+                                } else {
+                                    scale = 2.4f
+                                }
+                            }
+                        )
+                    }
+                    .pointerInput(Unit) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            val newScale = (scale * zoom).coerceIn(1f, 4f)
+                            scale = newScale
+                            offset = if (newScale > 1f) offset + pan else Offset.Zero
+                        }
+                    }
+            ) {
+                val bmp = fullBitmap
+                if (bmp != null) {
+                    Image(
+                        bitmap = bmp,
+                        contentDescription = item.name,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer(
+                                scaleX = scale,
+                                scaleY = scale,
+                                translationX = offset.x,
+                                translationY = offset.y
+                            )
+                    )
+                } else {
+                    CircularProgressIndicator(color = Color.White)
+                }
+            }
+
+            // Simple Top Bar
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+                    .background(Color.Black.copy(alpha = 0.45f))
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = item.name,
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            fontFamily = JakartaFontFamily
+                        )
+                        Text(
+                            text = "${item.albumName} • ${formatBytes(item.sizeBytes)}",
+                            color = Color.White.copy(alpha = 0.75f),
+                            fontSize = 12.sp,
+                            fontFamily = JakartaFontFamily
+                        )
+                    }
+                }
+                IconButton(onClick = onToggleFavorite) {
+                    Icon(
+                        imageVector = if (item.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        contentDescription = "Star",
+                        tint = if (item.isFavorite) Color(0xFFFF4D6D) else Color.White
+                    )
+                }
+            }
+
+            // Clean Bottom Action Bar
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .padding(vertical = 12.dp, horizontal = 16.dp)
+            ) {
+                if (item.localFile != null) {
+                    LightboxBottomButton(
+                        icon = Icons.Default.RotateRight,
+                        label = "Rotate",
+                        onClick = {
+                            gallery.saveEditedImage(
+                                item = item,
+                                rotationDegrees = 90f,
+                                flipHorizontal = false,
+                                filterPreset = PhotoFilterPreset.NONE,
+                                overwrite = true
+                            )
+                            refreshTrigger++
+                        }
+                    )
+                }
+                if (!item.isEncrypted && item.localFile != null) {
+                    LightboxBottomButton(
+                        icon = Icons.Default.Lock,
+                        label = "Safe Folder",
+                        onClick = onMoveToSafeFolder
+                    )
+                }
+                LightboxBottomButton(
+                    icon = Icons.Default.Share,
+                    label = "Save",
+                    onClick = onExport
+                )
+                LightboxBottomButton(
+                    icon = Icons.Default.Delete,
+                    label = "Delete",
+                    onClick = onDelete
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LightboxBottomButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Icon(imageVector = icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(22.dp))
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(text = label, color = Color.White, fontSize = 11.sp, fontFamily = JakartaFontFamily)
+    }
 }

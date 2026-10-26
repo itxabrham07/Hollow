@@ -2,10 +2,14 @@ package com.example.isolation.ui.screens
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,22 +24,32 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.NoteAdd
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -47,7 +61,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -55,29 +70,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.isolation.data.entity.VaultFileItem
 import com.example.isolation.ui.components.DecryptedPreviewDialog
-import com.example.isolation.ui.components.StatusBadge
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
-import com.example.ui.theme.ClaySecondary
-import com.example.ui.theme.ForestPrimary
-import com.example.ui.theme.FrauncesFontFamily
-import com.example.ui.theme.InkPrimary
-import com.example.ui.theme.InkSecondary
 import com.example.ui.theme.JakartaFontFamily
-import com.example.ui.theme.SageSoft
-import com.example.ui.theme.SageTint
-import com.example.ui.theme.WarmIvory
-import com.example.ui.theme.WarmSand
-import com.example.ui.theme.WarmStone
 
 @Composable
 fun VaultScreen(
-    viewModel: IsoVaultViewModel
+    viewModel: IsoVaultViewModel,
+    onBack: (() -> Unit)? = null
 ) {
+    val scheme = MaterialTheme.colorScheme
     val vaultFiles by viewModel.vaultFiles.collectAsState()
     val totalBytes by viewModel.totalEncryptedBytes.collectAsState()
     val previewItem by viewModel.previewDecryptedText.collectAsState()
+    val previewBitmap by viewModel.previewDecryptedBitmap.collectAsState()
 
-    var selectedPkgFilter by remember { mutableStateOf("ALL") }
+    var selectedTypeFilter by remember { mutableStateOf("ALL") }
     var showCreateDialog by remember { mutableStateOf(false) }
     var exportTarget by remember { mutableStateOf<VaultFileItem?>(null) }
 
@@ -90,12 +97,14 @@ fun VaultScreen(
         exportTarget = null
     }
 
-    val packages = listOf("ALL") + vaultFiles.map { it.packageName }.distinct()
-
-    val filteredFiles = if (selectedPkgFilter == "ALL") {
-        vaultFiles
-    } else {
-        vaultFiles.filter { it.packageName == selectedPkgFilter }
+    val filteredFiles = vaultFiles.filter { item ->
+        when (selectedTypeFilter) {
+            "IMAGES" -> item.mimeType.startsWith("image/") ||
+                item.relativePath.substringAfterLast('.', "").lowercase() in setOf("png", "jpg", "jpeg", "webp")
+            "TEXT" -> item.mimeType.startsWith("text/") ||
+                item.relativePath.substringAfterLast('.', "").lowercase() in setOf("txt", "md", "json", "log", "csv")
+            else -> true
+        }
     }
 
     Box(
@@ -106,107 +115,89 @@ fun VaultScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = 16.dp)
         ) {
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = "Private Locker",
-                fontSize = 24.sp,
-                fontWeight = FontWeight.SemiBold,
-                fontFamily = FrauncesFontFamily,
-                color = InkPrimary
-            )
-            Text(
-                text = "Files saved by protected apps are kept safely inside their own locker.",
-                fontSize = 13.sp,
-                color = InkSecondary,
-                fontFamily = JakartaFontFamily
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Locker Summary Card
-            Card(
-                colors = CardDefaults.cardColors(containerColor = SageTint),
-                shape = RoundedCornerShape(22.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, ForestPrimary.copy(alpha = 0.2f)),
-                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                modifier = Modifier.fillMaxWidth()
+            // Clean Google Files Safe Folder Header
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(18.dp)
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .background(SageSoft)
-                    ) {
+                if (onBack != null) {
+                    IconButton(onClick = onBack) {
                         Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = null,
-                            tint = ForestPrimary,
-                            modifier = Modifier.size(22.dp)
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = scheme.onSurface
                         )
                     }
-                    Spacer(modifier = Modifier.width(14.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "${vaultFiles.size} Saved Items • ${formatBytes(totalBytes)}",
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 16.sp,
-                            fontFamily = FrauncesFontFamily,
-                            color = InkPrimary
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Kept separate from your main gallery and other apps.",
-                            fontSize = 12.sp,
-                            color = InkSecondary,
-                            fontFamily = JakartaFontFamily
-                        )
-                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(scheme.primaryContainer)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = scheme.onPrimaryContainer,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Safe Folder",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        fontFamily = JakartaFontFamily,
+                        color = scheme.onSurface
+                    )
+                    Text(
+                        text = "${vaultFiles.size} locked items • ${formatBytes(totalBytes)}",
+                        fontSize = 12.sp,
+                        color = scheme.onSurfaceVariant,
+                        fontFamily = JakartaFontFamily
+                    )
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
-            // App Filter Chips
-            if (packages.size > 2) {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    items(packages) { pkg ->
-                        val isSelected = selectedPkgFilter == pkg
-                        val label = if (pkg == "ALL") "All Items" else pkg.substringAfterLast('.').replaceFirstChar { it.uppercase() }
+            // Simple Filter Chips
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                listOf(
+                    "ALL" to "All (${vaultFiles.size})",
+                    "IMAGES" to "Photos",
+                    "TEXT" to "Notes & Docs"
+                ).forEach { (key, label) ->
+                    val isSelected = selectedTypeFilter == key
+                    item {
                         FilterChip(
                             selected = isSelected,
-                            onClick = { selectedPkgFilter = pkg },
-                            label = { Text(label, fontFamily = JakartaFontFamily) },
+                            onClick = { selectedTypeFilter = key },
+                            label = { Text(label, fontFamily = JakartaFontFamily, fontSize = 12.sp) },
                             shape = RoundedCornerShape(50),
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = ForestPrimary,
-                                selectedLabelColor = Color.White,
-                                containerColor = WarmIvory,
-                                labelColor = InkSecondary
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = isSelected,
-                                borderColor = WarmStone,
-                                selectedBorderColor = ForestPrimary
+                                selectedContainerColor = scheme.primaryContainer,
+                                selectedLabelColor = scheme.onPrimaryContainer,
+                                containerColor = scheme.surface,
+                                labelColor = scheme.onSurfaceVariant
                             )
                         )
                     }
                 }
-                Spacer(modifier = Modifier.height(10.dp))
             }
 
-            // Files list
+            Spacer(modifier = Modifier.height(8.dp))
+
             if (filteredFiles.isEmpty()) {
                 Box(
                     modifier = Modifier
@@ -216,34 +207,34 @@ fun VaultScreen(
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(horizontal = 24.dp)
+                        modifier = Modifier.padding(horizontal = 32.dp)
                     ) {
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
                                 .size(64.dp)
                                 .clip(CircleShape)
-                                .background(WarmSand)
+                                .background(scheme.surfaceContainerLow)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Folder,
+                                imageVector = Icons.Default.Lock,
                                 contentDescription = null,
-                                tint = InkSecondary,
-                                modifier = Modifier.size(30.dp)
+                                tint = scheme.primary,
+                                modifier = Modifier.size(28.dp)
                             )
                         }
                         Spacer(modifier = Modifier.height(14.dp))
                         Text(
-                            text = "Your locker is empty",
-                            color = InkPrimary,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = FrauncesFontFamily
+                            text = "Safe Folder is empty",
+                            color = scheme.onSurface,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = JakartaFontFamily
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Tap 'Add Note' to lock a note, or 'Import' to lock any file with AES-256.",
-                            color = InkSecondary,
+                            text = "Keep private photos, documents, and notes locked away from other apps.",
+                            color = scheme.onSurfaceVariant,
                             fontSize = 13.sp,
                             fontFamily = JakartaFontFamily
                         )
@@ -251,13 +242,15 @@ fun VaultScreen(
                 }
             } else {
                 LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = 96.dp),
                     modifier = Modifier.weight(1f)
                 ) {
                     items(filteredFiles, key = { it.id }) { fileItem ->
                         VaultFileCard(
                             fileItem = fileItem,
                             onPreview = { viewModel.decryptAndPreviewFile(fileItem) },
+                            onDecryptToWorkspace = { viewModel.decryptVaultFileToWorkspace(fileItem) },
                             onExport = {
                                 exportTarget = fileItem
                                 exportLauncher.launch(fileItem.relativePath.substringAfterLast('/'))
@@ -265,55 +258,48 @@ fun VaultScreen(
                             onDelete = { viewModel.deleteVaultFile(fileItem) }
                         )
                     }
-
-                    item {
-                        Spacer(modifier = Modifier.height(84.dp))
-                    }
                 }
             }
         }
 
-        // Actions: import a file / write a note. Both encrypt into the locker.
-        Column(
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+        // Clean Google Files Floating Action Buttons
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(20.dp)
+                .padding(16.dp)
         ) {
             FloatingActionButton(
-                onClick = { importLauncher.launch(arrayOf("*/*")) },
-                containerColor = WarmSand,
-                contentColor = InkPrimary,
-                shape = RoundedCornerShape(50),
-                modifier = Modifier.testTag("fab_import_vault_file")
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp)
-                ) {
-                    Icon(imageVector = Icons.Default.Lock, contentDescription = "Import")
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Import", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, fontFamily = JakartaFontFamily)
-                }
-            }
-            FloatingActionButton(
                 onClick = { showCreateDialog = true },
-                containerColor = ForestPrimary,
-                contentColor = Color.White,
-                shape = RoundedCornerShape(50),
-                modifier = Modifier.testTag("fab_create_vault_file")
+                containerColor = scheme.secondaryContainer,
+                contentColor = scheme.onSecondaryContainer,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.testTag("fab_add_vault_file")
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp)
-                ) {
-                    Icon(imageVector = Icons.Default.Add, contentDescription = "Add")
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Add Note", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, fontFamily = JakartaFontFamily)
-                }
+                Icon(imageVector = Icons.Default.NoteAdd, contentDescription = "New Note")
             }
+
+            ExtendedFloatingActionButton(
+                onClick = { importLauncher.launch(arrayOf("*/*")) },
+                containerColor = scheme.primary,
+                contentColor = scheme.onPrimary,
+                shape = RoundedCornerShape(16.dp),
+                icon = { Icon(imageVector = Icons.Default.Add, contentDescription = null) },
+                text = { Text("Add File", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold) },
+                modifier = Modifier.testTag("fab_import_vault_file")
+            )
         }
+    }
+
+    if (showCreateDialog) {
+        CreateEncryptedNoteDialog(
+            onDismiss = { showCreateDialog = false },
+            onCreate = { fileName, content ->
+                viewModel.addNote(fileName, content)
+                showCreateDialog = false
+            }
+        )
     }
 
     previewItem?.let { (title, content) ->
@@ -324,12 +310,40 @@ fun VaultScreen(
         )
     }
 
-    if (showCreateDialog) {
-        CreateNoteDialog(
-            onDismiss = { showCreateDialog = false },
-            onCreate = { name, content ->
-                viewModel.addNote(name, content)
-                showCreateDialog = false
+    previewBitmap?.let { (title, bmp) ->
+        AlertDialog(
+            onDismissRequest = { viewModel.clearPreview() },
+            shape = RoundedCornerShape(24.dp),
+            containerColor = scheme.surface,
+            title = {
+                Text(
+                    text = title.substringAfterLast('/'),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = JakartaFontFamily
+                )
+            },
+            text = {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(320.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(scheme.surfaceContainerLow)
+                ) {
+                    Image(
+                        bitmap = bmp.asImageBitmap(),
+                        contentDescription = title,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.clearPreview() }) {
+                    Text("Close", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
+                }
             }
         )
     }
@@ -339,147 +353,202 @@ fun VaultScreen(
 fun VaultFileCard(
     fileItem: VaultFileItem,
     onPreview: () -> Unit,
+    onDecryptToWorkspace: () -> Unit,
     onExport: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val scheme = MaterialTheme.colorScheme
+    var showMenu by remember { mutableStateOf(false) }
+    val ext = fileItem.relativePath.substringAfterLast('.', "").lowercase()
+    val isImage = fileItem.mimeType.startsWith("image/") || ext in setOf("png", "jpg", "jpeg", "webp")
+    val isText = fileItem.mimeType.startsWith("text/") || ext in setOf("txt", "md", "json", "log", "csv")
+
+    val icon = when {
+        isImage -> Icons.Default.Image
+        isText -> Icons.Default.Description
+        else -> Icons.Default.Folder
+    }
+
+    val fileName = fileItem.relativePath.substringAfterLast('/')
+
     Card(
-        colors = CardDefaults.cardColors(containerColor = WarmIvory),
-        shape = RoundedCornerShape(20.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, WarmStone),
+        colors = CardDefaults.cardColors(containerColor = scheme.surface),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, scheme.outlineVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("vault_file_${fileItem.id}")
+            .clickable { onPreview() }
+            .testTag("vault_item_${fileItem.id}")
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(16.dp)
+            modifier = Modifier.padding(14.dp)
         ) {
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(42.dp)
                     .clip(CircleShape)
-                    .background(SageSoft)
+                    .background(scheme.primaryContainer)
             ) {
                 Icon(
-                    imageVector = Icons.Default.Description,
+                    imageVector = icon,
                     contentDescription = null,
-                    tint = ForestPrimary,
+                    tint = scheme.onPrimaryContainer,
                     modifier = Modifier.size(20.dp)
                 )
             }
 
-            Spacer(modifier = Modifier.width(14.dp))
+            Spacer(modifier = Modifier.width(12.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = fileItem.relativePath.substringAfterLast('/'),
+                    text = fileName,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 15.sp,
-                    color = InkPrimary,
+                    color = scheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     fontFamily = JakartaFontFamily
                 )
                 Spacer(modifier = Modifier.height(2.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    StatusBadge(text = "Private", color = ForestPrimary)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = formatBytes(fileItem.encryptedSizeBytes),
-                        fontSize = 12.sp,
-                        color = InkSecondary,
-                        fontFamily = JakartaFontFamily
-                    )
-                }
+                Text(
+                    text = "${formatBytes(fileItem.originalSizeBytes)} • Locked",
+                    fontSize = 12.sp,
+                    color = scheme.onSurfaceVariant,
+                    fontFamily = JakartaFontFamily
+                )
             }
 
-            Button(
+            IconButton(
                 onClick = onPreview,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = WarmSand,
-                    contentColor = InkPrimary
-                ),
-                shape = RoundedCornerShape(50),
                 modifier = Modifier.testTag("btn_preview_${fileItem.id}")
             ) {
-                Icon(imageVector = Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(15.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Open", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily)
+                Icon(
+                    imageVector = Icons.Default.Visibility,
+                    contentDescription = "View",
+                    tint = scheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
             }
 
-            TextButton(onClick = onExport) {
-                Text("Export", fontSize = 12.sp, color = InkSecondary, fontFamily = JakartaFontFamily)
-            }
-            TextButton(onClick = onDelete) {
-                Text("Delete", fontSize = 12.sp, color = InkSecondary, fontFamily = JakartaFontFamily)
+            Box {
+                IconButton(onClick = { showMenu = true }) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "More options",
+                        tint = scheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("View", fontFamily = JakartaFontFamily) },
+                        leadingIcon = { Icon(Icons.Default.Visibility, contentDescription = null) },
+                        onClick = {
+                            showMenu = false
+                            onPreview()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Move out of Safe Folder", fontFamily = JakartaFontFamily) },
+                        leadingIcon = { Icon(Icons.Default.LockOpen, contentDescription = null) },
+                        onClick = {
+                            showMenu = false
+                            onDecryptToWorkspace()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Save to phone", fontFamily = JakartaFontFamily) },
+                        leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
+                        onClick = {
+                            showMenu = false
+                            onExport()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete", color = scheme.error, fontFamily = JakartaFontFamily) },
+                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = scheme.error) },
+                        onClick = {
+                            showMenu = false
+                            onDelete()
+                        }
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-fun CreateNoteDialog(
+fun CreateEncryptedNoteDialog(
     onDismiss: () -> Unit,
-    onCreate: (name: String, content: String) -> Unit
+    onCreate: (fileName: String, content: String) -> Unit
 ) {
-    var name by remember { mutableStateOf("") }
+    val scheme = MaterialTheme.colorScheme
+    var fileName by remember { mutableStateOf("Private_Note.txt") }
     var content by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(24.dp),
-        containerColor = WarmIvory,
+        containerColor = scheme.surface,
         title = {
             Text(
-                "New Private Note",
-                fontWeight = FontWeight.SemiBold,
-                fontFamily = FrauncesFontFamily,
-                color = InkPrimary
+                text = "New Safe Folder Note",
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                fontFamily = JakartaFontFamily,
+                color = scheme.onSurface
             )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(modifier = Modifier.fillMaxWidth()) {
                 OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Note name", fontSize = 12.sp, fontFamily = JakartaFontFamily) },
+                    value = fileName,
+                    onValueChange = { fileName = it },
+                    label = { Text("Title", fontFamily = JakartaFontFamily) },
+                    singleLine = true,
                     shape = RoundedCornerShape(14.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = ForestPrimary,
-                        unfocusedBorderColor = WarmStone
-                    ),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_vault_filename")
                 )
-
+                Spacer(modifier = Modifier.height(10.dp))
                 OutlinedTextField(
                     value = content,
                     onValueChange = { content = it },
-                    label = { Text("Note Content", fontSize = 12.sp, fontFamily = JakartaFontFamily) },
-                    maxLines = 4,
+                    label = { Text("Note", fontFamily = JakartaFontFamily) },
+                    placeholder = { Text("Write something private...") },
+                    minLines = 4,
+                    maxLines = 7,
                     shape = RoundedCornerShape(14.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = ForestPrimary,
-                        unfocusedBorderColor = WarmStone
-                    ),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_vault_content")
                 )
             }
         },
         confirmButton = {
             Button(
-                onClick = { onCreate(name, content) },
-                enabled = content.isNotBlank(),
-                colors = ButtonDefaults.buttonColors(containerColor = ForestPrimary, contentColor = Color.White),
-                shape = RoundedCornerShape(50)
+                onClick = {
+                    if (fileName.isNotBlank() && content.isNotBlank()) {
+                        onCreate(fileName.trim(), content)
+                    }
+                },
+                shape = RoundedCornerShape(50),
+                modifier = Modifier.testTag("btn_confirm_encrypt")
             ) {
-                Text("Save to Locker", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
+                Text("Save to Safe Folder", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = InkSecondary, fontFamily = JakartaFontFamily)
+                Text("Cancel", color = scheme.onSurfaceVariant, fontFamily = JakartaFontFamily)
             }
         }
     )

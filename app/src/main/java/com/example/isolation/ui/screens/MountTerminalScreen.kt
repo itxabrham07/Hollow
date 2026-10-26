@@ -1,5 +1,6 @@
 package com.example.isolation.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -20,16 +21,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
-import androidx.compose.material3.TabRowDefaults
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,7 +40,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
@@ -49,24 +47,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.isolation.model.IsolationMode
+import com.example.isolation.ui.components.ProSegmentedTabRow
 import com.example.isolation.ui.components.StatusBadge
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
-import com.example.ui.theme.CoralError
-import com.example.ui.theme.ForestPrimary
 import com.example.ui.theme.FrauncesFontFamily
-import com.example.ui.theme.HoneyTertiary
-import com.example.ui.theme.InkPrimary
-import com.example.ui.theme.InkSecondary
 import com.example.ui.theme.JakartaFontFamily
-import com.example.ui.theme.WarmIvory
-import com.example.ui.theme.WarmSand
-import com.example.ui.theme.WarmStone
+import com.example.ui.theme.JetBrainsMonoFontFamily
 
 @Composable
 fun MountTerminalScreen(
     viewModel: IsoVaultViewModel
 ) {
+    val scheme = MaterialTheme.colorScheme
     val terminalLogs by viewModel.terminalLogs.collectAsState()
     val systemMounts by viewModel.systemMounts.collectAsState()
     val isLsposedActive by viewModel.isLsposedActive.collectAsState()
@@ -84,7 +76,7 @@ fun MountTerminalScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 20.dp)
+            .padding(horizontal = 16.dp)
             .testTag("mount_terminal_screen")
     ) {
         Spacer(modifier = Modifier.height(6.dp))
@@ -96,55 +88,36 @@ fun MountTerminalScreen(
         ) {
             Column {
                 Text(
-                    text = "System Details",
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 24.sp,
+                    text = "System & Mount Terminal",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 22.sp,
                     fontFamily = FrauncesFontFamily,
-                    color = InkPrimary
+                    color = scheme.onBackground
                 )
                 Text(
-                    text = "Diagnostic logs and storage folders",
-                    fontSize = 13.sp,
-                    color = InkSecondary,
+                    text = "Namespace diagnostics, Magisk/KSU boot script & active mounts",
+                    fontSize = 12.sp,
+                    color = scheme.onSurfaceVariant,
                     fontFamily = JakartaFontFamily
                 )
             }
             StatusBadge(
-                text = if (isLsposedActive) "Connected" else "Standby",
-                color = if (isLsposedActive) ForestPrimary else HoneyTertiary
+                text = if (isLsposedActive) "Hooked" else "Standby",
+                color = if (isLsposedActive) scheme.primary else scheme.tertiary
             )
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        TabRow(
-            selectedTabIndex = activeTab,
-            containerColor = WarmSand,
-            contentColor = ForestPrimary,
-            indicator = { tabPositions ->
-                TabRowDefaults.SecondaryIndicator(
-                    modifier = Modifier.tabIndicatorOffset(tabPositions[activeTab]),
-                    color = ForestPrimary
-                )
-            },
-            modifier = Modifier.clip(RoundedCornerShape(14.dp))
-        ) {
-            Tab(
-                selected = activeTab == 0,
-                onClick = { activeTab = 0 },
-                text = { Text("Event Log", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily) }
-            )
-            Tab(
-                selected = activeTab == 1,
-                onClick = { activeTab = 1 },
-                text = { Text("Boot Service", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily) }
-            )
-            Tab(
-                selected = activeTab == 2,
-                onClick = { activeTab = 2 },
-                text = { Text("Storage (${systemMounts.size})", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily) }
-            )
-        }
+        ProSegmentedTabRow(
+            options = listOf(
+                "Event Log" to Icons.Default.Terminal,
+                "Boot Script" to null,
+                "Mounts (${systemMounts.size})" to Icons.Default.Storage
+            ),
+            selectedIndex = activeTab,
+            onSelect = { activeTab = it }
+        )
 
         Spacer(modifier = Modifier.height(12.dp))
 
@@ -155,17 +128,17 @@ fun MountTerminalScreen(
                         .weight(1f)
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(18.dp))
-                        .background(WarmIvory)
-                        .border(1.dp, WarmStone, RoundedCornerShape(18.dp))
+                        .background(scheme.surface)
+                        .border(1.dp, scheme.outlineVariant, RoundedCornerShape(18.dp))
                         .padding(14.dp)
                 ) {
                     LazyColumn(state = listState) {
                         items(terminalLogs) { log ->
                             Text(
                                 text = log,
-                                color = if (log.contains("BLOCKED") || log.contains("Error")) CoralError else InkPrimary,
+                                color = if (log.contains("BLOCKED") || log.contains("Error")) scheme.error else scheme.onSurface,
                                 fontSize = 12.sp,
-                                fontFamily = JakartaFontFamily,
+                                fontFamily = JetBrainsMonoFontFamily,
                                 modifier = Modifier.padding(vertical = 3.dp)
                             )
                         }
@@ -179,10 +152,7 @@ fun MountTerminalScreen(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Button(
-                        onClick = {
-                            viewModel.runRootCheck()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = ForestPrimary, contentColor = Color.White),
+                        onClick = { viewModel.runRootCheck() },
                         shape = RoundedCornerShape(50),
                         modifier = Modifier
                             .weight(1f)
@@ -198,8 +168,6 @@ fun MountTerminalScreen(
                             val text = terminalLogs.joinToString("\n")
                             clipboard.setText(AnnotatedString(text))
                         },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = InkPrimary),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, WarmStone),
                         shape = RoundedCornerShape(50),
                         modifier = Modifier.weight(1f)
                     ) {
@@ -219,17 +187,17 @@ fun MountTerminalScreen(
                             .weight(1f)
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(18.dp))
-                            .background(WarmIvory)
-                            .border(1.dp, WarmStone, RoundedCornerShape(18.dp))
+                            .background(scheme.surface)
+                            .border(1.dp, scheme.outlineVariant, RoundedCornerShape(18.dp))
                             .padding(14.dp)
                     ) {
                         LazyColumn {
                             item {
                                 Text(
                                     text = script,
-                                    color = InkPrimary,
+                                    color = scheme.onSurface,
                                     fontSize = 12.sp,
-                                    fontFamily = JakartaFontFamily
+                                    fontFamily = JetBrainsMonoFontFamily
                                 )
                             }
                         }
@@ -238,10 +206,7 @@ fun MountTerminalScreen(
                     Spacer(modifier = Modifier.height(12.dp))
 
                     Button(
-                        onClick = {
-                            clipboard.setText(AnnotatedString(script))
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = ForestPrimary, contentColor = Color.White),
+                        onClick = { clipboard.setText(AnnotatedString(script)) },
                         shape = RoundedCornerShape(50),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -249,7 +214,7 @@ fun MountTerminalScreen(
                     ) {
                         Icon(imageVector = Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Copy Script", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, fontFamily = JakartaFontFamily)
+                        Text("Copy Boot Service Script", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, fontFamily = JakartaFontFamily)
                     }
                 }
             }
@@ -261,9 +226,9 @@ fun MountTerminalScreen(
                 ) {
                     items(systemMounts) { entry ->
                         Card(
-                            colors = CardDefaults.cardColors(containerColor = WarmIvory),
+                            colors = CardDefaults.cardColors(containerColor = scheme.surface),
                             shape = RoundedCornerShape(16.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, WarmStone),
+                            border = BorderStroke(1.dp, scheme.outlineVariant),
                             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -276,21 +241,21 @@ fun MountTerminalScreen(
                                     Text(
                                         text = entry.mountPoint,
                                         fontWeight = FontWeight.SemiBold,
-                                        fontSize = 14.sp,
-                                        color = InkPrimary,
+                                        fontSize = 13.sp,
+                                        color = scheme.onSurface,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
-                                        fontFamily = JakartaFontFamily,
+                                        fontFamily = JetBrainsMonoFontFamily,
                                         modifier = Modifier.weight(1f)
                                     )
-                                    StatusBadge(text = entry.fsType, color = ForestPrimary)
+                                    StatusBadge(text = entry.fsType, color = scheme.primary)
                                 }
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
                                     text = entry.device,
-                                    fontSize = 12.sp,
-                                    color = InkSecondary,
-                                    fontFamily = JakartaFontFamily
+                                    fontSize = 11.sp,
+                                    color = scheme.onSurfaceVariant,
+                                    fontFamily = JetBrainsMonoFontFamily
                                 )
                             }
                         }

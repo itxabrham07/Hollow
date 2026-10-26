@@ -2,53 +2,99 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Warm Editorial & Organic Palette (Alabaster, Forest Sage, Terracotta & Soft Sand)
-val ForestPrimary = Color(0xFF1F4E3D)
-val ForestDark = Color(0xFF15382B)
-val SageSoft = Color(0xFFDDF0E6)
-val SageTint = Color(0xFFEBF6F0)
+// Material 3 Pro Palette — Emerald Slate, Cobalt Indigo & Warm Amber Accents
+val ProEmeraldPrimary = Color(0xFF0F6B56)
+val ProEmeraldDark = Color(0xFF084739)
+val ProEmeraldLight = Color(0xFF53D6B4)
+val ProEmeraldContainer = Color(0xFFD2F5EA)
+val ProEmeraldContainerDark = Color(0xFF0A4335)
 
-val ClaySecondary = Color(0xFFC46446)
-val ClaySoft = Color(0xFFFAE7E1)
+val ProIndigoSecondary = Color(0xFF3E5476)
+val ProIndigoContainer = Color(0xFFDCE5F7)
+val ProIndigoDark = Color(0xFFA9C3EA)
+val ProIndigoContainerDark = Color(0xFF243754)
 
-val HoneyTertiary = Color(0xFFB57C1E)
-val HoneySoft = Color(0xFFFDF3DF)
+val ProAmberTertiary = Color(0xFF9C5D0B)
+val ProAmberContainer = Color(0xFFFFDFBA)
+val ProAmberDark = Color(0xFFF6B966)
+val ProAmberContainerDark = Color(0xFF5A3300)
 
-val CoralError = Color(0xFFC94A4A)
-val CoralSoft = Color(0xFFFCE8E8)
+val ProCoralError = Color(0xFFC93B3B)
+val ProCoralContainer = Color(0xFFFCE4E4)
+val ProCoralDark = Color(0xFFFF8982)
+val ProCoralContainerDark = Color(0xFF691414)
 
-val LavenderAccent = Color(0xFF5E548E)
-val LavenderSoft = Color(0xFFEDEAF6)
+val ProVioletAccent = Color(0xFF634FA2)
+val ProVioletContainer = Color(0xFFEDE8FA)
+val ProCyanAccent = Color(0xFF007791)
 
-// Warm Daylight Surfaces
-val WarmLinen = Color(0xFFF9F6F0)
-val WarmIvory = Color(0xFFFFFFFF)
-val WarmSand = Color(0xFFF2ECE1)
-val WarmStone = Color(0xFFE6DFD3)
+// Material 3 Pro Light Surfaces
+val ProBackgroundLight = Color(0xFFF5F8F7)
+val ProSurfaceLight = Color(0xFFFFFFFF)
+val ProSurfaceLowLight = Color(0xFFEEF3F1)
+val ProSurfaceContainerLight = Color(0xFFE5ECE9)
+val ProSurfaceHighLight = Color(0xFFDBE4E0)
+val ProOutlineLight = Color(0xFFCED8D4)
+val ProOutlineSubtleLight = Color(0xFFE0E8E5)
 
-// Warm Espresso Ink Typography
-val InkPrimary = Color(0xFF1C1917)
-val InkSecondary = Color(0xFF655E57)
-val InkTertiary = Color(0xFF968E85)
+// Material 3 Pro Dark Surfaces
+val ProBackgroundDark = Color(0xFF0C1210)
+val ProSurfaceDark = Color(0xFF131B18)
+val ProSurfaceLowDark = Color(0xFF18221F)
+val ProSurfaceContainerDark = Color(0xFF1E2A26)
+val ProSurfaceHighDark = Color(0xFF273631)
+val ProOutlineDark = Color(0xFF344640)
+val ProOutlineSubtleDark = Color(0xFF25332E)
 
-// Compatibility aliases mapped to the new warm organic palette
-val CyberCyan = ForestPrimary
-val CyberCyanDark = ForestDark
-val CyberEmerald = Color(0xFF2B6E52)
-val CyberEmeraldDark = ForestDark
-val CyberAmber = HoneyTertiary
-val CyberRed = CoralError
-val CyberViolet = LavenderAccent
+// Typography Tones
+val ProInkPrimary = Color(0xFF111A17)
+val ProInkSecondary = Color(0xFF4F605A)
+val ProInkTertiary = Color(0xFF7A8C85)
 
-val DeepObsidian = WarmLinen
-val SurfaceObsidian = WarmIvory
-val SurfaceElevated = WarmSand
-val SurfaceCard = WarmIvory
-val SurfaceBorder = WarmStone
+// Legacy aliases mapped to the Material 3 Pro tokens for compatibility
+val ForestPrimary = ProEmeraldPrimary
+val ForestDark = ProEmeraldDark
+val SageSoft = ProEmeraldContainer
+val SageTint = Color(0xFFE9F8F3)
 
-val TextPrimary = InkPrimary
-val TextSecondary = InkSecondary
-val TextTertiary = InkTertiary
+val ClaySecondary = Color(0xFFC45B3E)
+val ClaySoft = Color(0xFFFAE6E0)
 
-val TerminalBlack = Color(0xFFF3EFE8)
-val TerminalGreen = ForestPrimary
+val HoneyTertiary = ProAmberTertiary
+val HoneySoft = ProAmberContainer
+
+val CoralError = ProCoralError
+val CoralSoft = ProCoralContainer
+
+val LavenderAccent = ProVioletAccent
+val LavenderSoft = ProVioletContainer
+
+val WarmLinen = ProBackgroundLight
+val WarmIvory = ProSurfaceLight
+val WarmSand = ProSurfaceLowLight
+val WarmStone = ProOutlineLight
+
+val InkPrimary = ProInkPrimary
+val InkSecondary = ProInkSecondary
+val InkTertiary = ProInkTertiary
+
+val CyberCyan = ProEmeraldPrimary
+val CyberCyanDark = ProEmeraldDark
+val CyberEmerald = Color(0xFF198268)
+val CyberEmeraldDark = ProEmeraldDark
+val CyberAmber = ProAmberTertiary
+val CyberRed = ProCoralError
+val CyberViolet = ProVioletAccent
+
+val DeepObsidian = ProBackgroundLight
+val SurfaceObsidian = ProSurfaceLight
+val SurfaceElevated = ProSurfaceLowLight
+val SurfaceCard = ProSurfaceLight
+val SurfaceBorder = ProOutlineLight
+
+val TextPrimary = ProInkPrimary
+val TextSecondary = ProInkSecondary
+val TextTertiary = ProInkTertiary
+
+val TerminalBlack = Color(0xFF0E1714)
+val TerminalGreen = Color(0xFF53D6B4)

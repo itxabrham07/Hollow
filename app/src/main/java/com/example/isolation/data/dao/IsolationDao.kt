@@ -57,6 +57,9 @@ interface IsolationDao {
     @Query("SELECT * FROM vault_files ORDER BY lastModified DESC")
     fun getAllVaultFiles(): Flow<List<VaultFileItem>>
 
+    @Query("SELECT * FROM vault_files ORDER BY lastModified DESC")
+    suspend fun getAllVaultFilesSync(): List<VaultFileItem>
+
     @Query("SELECT * FROM vault_files WHERE packageName = :pkg ORDER BY lastModified DESC")
     fun getVaultFilesForPackage(pkg: String): Flow<List<VaultFileItem>>
 

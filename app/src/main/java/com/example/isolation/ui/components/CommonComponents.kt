@@ -1,5 +1,6 @@
 package com.example.isolation.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,8 +20,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -28,6 +29,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -36,7 +38,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -49,21 +50,8 @@ import androidx.compose.ui.unit.sp
 import com.example.isolation.model.AuditAction
 import com.example.isolation.model.IsolationMode
 import com.example.ui.theme.ClaySecondary
-import com.example.ui.theme.CoralError
-import com.example.ui.theme.ForestDark
-import com.example.ui.theme.ForestPrimary
-import com.example.ui.theme.FrauncesFontFamily
-import com.example.ui.theme.HoneySoft
-import com.example.ui.theme.HoneyTertiary
-import com.example.ui.theme.InkPrimary
-import com.example.ui.theme.InkSecondary
 import com.example.ui.theme.JakartaFontFamily
 import com.example.ui.theme.LavenderAccent
-import com.example.ui.theme.SageSoft
-import com.example.ui.theme.SageTint
-import com.example.ui.theme.WarmIvory
-import com.example.ui.theme.WarmSand
-import com.example.ui.theme.WarmStone
 
 @Composable
 fun StatusBadge(
@@ -100,25 +88,28 @@ fun StatusBadge(
 
 @Composable
 fun ModeBadge(mode: IsolationMode) {
+    val scheme = MaterialTheme.colorScheme
     val (color, label) = when (mode) {
-        IsolationMode.ENCRYPTED_VAULT -> Pair(ForestPrimary, "Private Locker")
-        IsolationMode.SANDBOX_REDIRECT -> Pair(Color(0xFF2B6E52), "Separate Folder")
-        IsolationMode.FAKE_EMPTY -> Pair(HoneyTertiary, "Blank Gallery")
-        IsolationMode.READ_ONLY -> Pair(LavenderAccent, "View Only")
+        IsolationMode.ENCRYPTED_VAULT -> Pair(scheme.primary, "Per-App Locker")
+        IsolationMode.SANDBOX_REDIRECT -> Pair(scheme.secondary, "Per-App Sandbox")
+        IsolationMode.SHARED_WORKSPACE -> Pair(scheme.primary, "Hollow Workspace")
+        IsolationMode.FAKE_EMPTY -> Pair(scheme.tertiary, "Hide Photos")
+        IsolationMode.READ_ONLY -> Pair(LavenderAccent, "Read-Only")
     }
     StatusBadge(text = label, color = color)
 }
 
 @Composable
 fun AuditActionBadge(action: AuditAction) {
-    val color = when (action) {
-        AuditAction.ENCRYPTED -> ForestPrimary
-        AuditAction.REDIRECTED -> Color(0xFF2B6E52)
-        AuditAction.BLOCKED -> ClaySecondary
-        AuditAction.SPOOFED_EMPTY -> HoneyTertiary
-        AuditAction.PERMITTED -> InkSecondary
+    val scheme = MaterialTheme.colorScheme
+    val (color, text) = when (action) {
+        AuditAction.ENCRYPTED -> Pair(scheme.primary, "Saved Privately")
+        AuditAction.REDIRECTED -> Pair(scheme.secondary, "Kept Private")
+        AuditAction.BLOCKED -> Pair(ClaySecondary, "Blocked")
+        AuditAction.SPOOFED_EMPTY -> Pair(scheme.tertiary, "Hidden")
+        AuditAction.PERMITTED -> Pair(scheme.onSurfaceVariant, "Allowed")
     }
-    StatusBadge(text = action.label, color = color)
+    StatusBadge(text = text, color = color)
 }
 
 @Composable
@@ -131,58 +122,52 @@ fun CyberStatCard(
     modifier: Modifier = Modifier,
     testTag: String = ""
 ) {
+    val scheme = MaterialTheme.colorScheme
     Card(
-        colors = CardDefaults.cardColors(containerColor = WarmIvory),
-        shape = RoundedCornerShape(22.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, WarmStone),
+        colors = CardDefaults.cardColors(containerColor = scheme.surface),
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, scheme.outlineVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = modifier.testTag(testTag)
     ) {
-        Column(modifier = Modifier.padding(18.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(14.dp)
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(accentColor.copy(alpha = 0.12f))
             ) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(accentColor.copy(alpha = 0.12f))
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = accentColor,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = accentColor,
+                    modifier = Modifier.size(20.dp)
+                )
             }
-            Spacer(modifier = Modifier.height(14.dp))
-            Text(
-                text = value,
-                fontSize = 26.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = InkPrimary,
-                fontFamily = FrauncesFontFamily
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = title,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = InkPrimary,
-                fontFamily = JakartaFontFamily
-            )
-            Text(
-                text = subtitle,
-                fontSize = 11.sp,
-                color = InkSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                fontFamily = JakartaFontFamily
-            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = scheme.onSurface,
+                    fontFamily = JakartaFontFamily,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = if (subtitle.isNotBlank()) "$value • $subtitle" else value,
+                    fontSize = 12.sp,
+                    color = scheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontFamily = JakartaFontFamily
+                )
+            }
         }
     }
 }
@@ -193,89 +178,130 @@ fun LsposedStatusBanner(
     onToggle: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val bgBrush = if (isActive) {
-        Brush.linearGradient(
-            colors = listOf(Color(0xFF1F4E3D), Color(0xFF2B6852))
-        )
-    } else {
-        Brush.linearGradient(
-            colors = listOf(Color(0xFFF6EFE4), Color(0xFFEDE3D2))
-        )
-    }
-    val contentColor = if (isActive) Color.White else InkPrimary
-    val secondaryColor = if (isActive) Color.White.copy(alpha = 0.82f) else InkSecondary
+    val scheme = MaterialTheme.colorScheme
+    val containerColor = if (isActive) scheme.primaryContainer else scheme.surfaceContainerLow
+    val contentColor = if (isActive) scheme.onPrimaryContainer else scheme.onSurface
 
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-        shape = RoundedCornerShape(26.dp),
-        border = if (isActive) null else androidx.compose.foundation.BorderStroke(1.dp, WarmStone),
+        colors = CardDefaults.cardColors(containerColor = containerColor),
+        shape = RoundedCornerShape(24.dp),
+        border = if (isActive) null else BorderStroke(1.dp, scheme.outlineVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(26.dp))
-            .background(bgBrush)
             .clickable { onToggle() }
             .testTag("lsposed_status_banner")
     ) {
-        Column(modifier = Modifier.padding(22.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(18.dp)
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(if (isActive) scheme.primary else scheme.primaryContainer)
             ) {
-                Surface(
-                    color = if (isActive) Color.White.copy(alpha = 0.18f) else HoneyTertiary.copy(alpha = 0.14f),
-                    shape = RoundedCornerShape(50)
+                Icon(
+                    imageVector = if (isActive) Icons.Default.CheckCircle else Icons.Default.Shield,
+                    contentDescription = null,
+                    tint = if (isActive) scheme.onPrimary else scheme.onPrimaryContainer,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = if (isActive) "App Protection is On" else "Hollow Files & Safe Folder",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = JakartaFontFamily,
+                    color = contentColor
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = if (isActive) {
+                        "Protected apps only see their own private folder, keeping your personal photos hidden."
+                    } else {
+                        "Manage files, browse photos, or lock private items in your Safe Folder."
+                    },
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                    color = contentColor.copy(alpha = 0.8f),
+                    fontFamily = JakartaFontFamily
+                )
+            }
+            IconButton(onClick = onToggle) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Refresh status",
+                    tint = contentColor.copy(alpha = 0.7f),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ProSegmentedTabRow(
+    options: List<Pair<String, ImageVector?>>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(
+        color = scheme.surfaceContainerLow,
+        shape = RoundedCornerShape(50),
+        border = BorderStroke(1.dp, scheme.outlineVariant),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            options.forEachIndexed { index, (label, icon) ->
+                val selected = selectedIndex == index
+                val bgColor = if (selected) scheme.primaryContainer else Color.Transparent
+                val contentColor = if (selected) scheme.onPrimaryContainer else scheme.onSurfaceVariant
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(50))
+                        .background(bgColor)
+                        .clickable { onSelect(index) }
+                        .padding(vertical = 10.dp, horizontal = 8.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        horizontalArrangement = Arrangement.Center
                     ) {
-                        Icon(
-                            imageVector = if (isActive) Icons.Default.CheckCircle else Icons.Default.Info,
-                            contentDescription = null,
-                            tint = if (isActive) Color(0xFFA7F3D0) else HoneyTertiary,
-                            modifier = Modifier.size(15.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        if (icon != null) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                tint = contentColor,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                        }
                         Text(
-                            text = if (isActive) "Privacy Shield Active" else "Setup Needed",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (isActive) Color.White else HoneyTertiary,
+                            text = label,
+                            color = contentColor,
+                            fontSize = 13.sp,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             fontFamily = JakartaFontFamily
                         )
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Text(
-                text = if (isActive) {
-                    "Your photos & personal folders are tucked away safely."
-                } else {
-                    "Turn on IsoVault in Vector or LSPosed to hide your gallery."
-                },
-                fontSize = 22.sp,
-                lineHeight = 28.sp,
-                fontWeight = FontWeight.SemiBold,
-                fontFamily = FrauncesFontFamily,
-                color = contentColor
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = if (isActive) {
-                    "Selected apps only see their own private folder instead of your personal camera roll."
-                } else {
-                    "Once enabled in your module manager, force-stop Snapchat or WhatsApp to apply."
-                },
-                fontSize = 13.sp,
-                lineHeight = 19.sp,
-                color = secondaryColor,
-                fontFamily = JakartaFontFamily
-            )
         }
     }
 }
@@ -287,11 +313,12 @@ fun DecryptedPreviewDialog(
     onDismiss: () -> Unit
 ) {
     val clipboard = LocalClipboardManager.current
+    val scheme = MaterialTheme.colorScheme
 
     AlertDialog(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(24.dp),
-        containerColor = WarmIvory,
+        containerColor = scheme.surface,
         title = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -300,30 +327,30 @@ fun DecryptedPreviewDialog(
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(38.dp)
                         .clip(CircleShape)
-                        .background(SageSoft)
+                        .background(scheme.primaryContainer)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Lock,
                         contentDescription = null,
-                        tint = ForestPrimary,
+                        tint = scheme.onPrimaryContainer,
                         modifier = Modifier.size(18.dp)
                     )
                 }
-                Spacer(modifier = Modifier.width(10.dp))
+                Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
-                        text = "Private File Preview",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        fontFamily = FrauncesFontFamily,
-                        color = InkPrimary
+                        text = title.substringAfterLast('/'),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = JakartaFontFamily,
+                        color = scheme.onSurface
                     )
                     Text(
-                        text = title.substringAfterLast('/'),
+                        text = "Safe Folder note",
                         fontSize = 12.sp,
-                        color = InkSecondary,
+                        color = scheme.onSurfaceVariant,
                         fontFamily = JakartaFontFamily
                     )
                 }
@@ -339,14 +366,14 @@ fun DecryptedPreviewDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(16.dp))
-                        .background(WarmSand)
+                        .background(scheme.surfaceContainerLow)
                         .padding(16.dp)
                 ) {
                     Text(
                         text = content,
                         fontSize = 14.sp,
                         lineHeight = 20.sp,
-                        color = InkPrimary,
+                        color = scheme.onSurface,
                         fontFamily = JakartaFontFamily
                     )
                 }
@@ -359,8 +386,8 @@ fun DecryptedPreviewDialog(
                     onDismiss()
                 },
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = ForestPrimary,
-                    contentColor = Color.White
+                    containerColor = scheme.primary,
+                    contentColor = scheme.onPrimary
                 ),
                 shape = RoundedCornerShape(50)
             ) {
@@ -371,7 +398,7 @@ fun DecryptedPreviewDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Close", color = InkSecondary, fontFamily = JakartaFontFamily)
+                Text("Close", color = scheme.onSurfaceVariant, fontFamily = JakartaFontFamily)
             }
         }
     )

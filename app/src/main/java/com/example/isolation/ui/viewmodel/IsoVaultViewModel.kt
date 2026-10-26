@@ -1,6 +1,8 @@
 package com.example.isolation.ui.viewmodel
 
 import android.app.Application
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
@@ -10,8 +12,8 @@ import com.example.isolation.crypto.AesVaultCipher
 import com.example.isolation.data.entity.AccessAuditLog
 import com.example.isolation.data.entity.AppIsolationConfig
 import com.example.isolation.data.entity.VaultFileItem
-import com.example.isolation.model.IsolationMode
 import com.example.isolation.model.AppSettings
+import com.example.isolation.model.IsolationMode
 import com.example.isolation.model.IsolationRuleManager
 import com.example.isolation.model.PickerPolicy
 import com.example.isolation.model.SettingsStore
@@ -46,7 +48,8 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
 
     companion object {
         /** Largest locker file that is decrypted into memory for the text preview. */
-        private const val MAX_PREVIEW_BYTES = 1024 * 1024
+        private const val MAX_PREVIEW_BYTES = 2 * 1024 * 1024
+        private const val MAX_IMAGE_PREVIEW_BYTES = 25 * 1024 * 1024
     }
 
     private val app = application as IsoVaultApp
@@ -76,7 +79,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
     private val _searchQuery = MutableStateFlow("")
     val searchQuery = _searchQuery.asStateFlow()
 
-    private val _filter = MutableStateFlow(AppListFilter.ALL)
+    private val _filter = MutableStateFlow(AppListFilter.ISOLATED_ONLY)
     val filter = _filter.asStateFlow()
 
     private val _systemMounts = MutableStateFlow<List<MountEntry>>(emptyList())
@@ -106,16 +109,17 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
     private val _previewDecryptedText = MutableStateFlow<Pair<String, String>?>(null) // (Title, Content)
     val previewDecryptedText = _previewDecryptedText.asStateFlow()
 
+    private val _previewDecryptedBitmap = MutableStateFlow<Pair<String, Bitmap>?>(null)
+    val previewDecryptedBitmap = _previewDecryptedBitmap.asStateFlow()
+
     private val _statusMessage = MutableStateFlow<String?>(null)
     val statusMessage = _statusMessage.asStateFlow()
 
-    // Filtered apps list combining search and filter
-    val filteredApps: StateFlow<List<InstalledAppInfo>> = combine(
+    // Full list of installed apps merged with current isolation config (used by "+ Add Apps" picker)
+    val allInstalledApps: StateFlow<List<InstalledAppInfo>> = combine(
         _rawInstalledApps,
-        configs,
-        _searchQuery,
-        _filter
-    ) { apps, cfgList, query, flt ->
+        configs
+    ) { apps, cfgList ->
         val cfgMap = cfgList.associateBy { it.packageName }
         apps.map { app ->
             val cfg = cfgMap[app.packageName]
@@ -123,7 +127,16 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 isIsolated = cfg?.isIsolated ?: false,
                 isolationMode = cfg?.isolationMode ?: IsolationMode.ENCRYPTED_VAULT
             )
-        }.filter { app ->
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Filtered apps list combining search and filter
+    val filteredApps: StateFlow<List<InstalledAppInfo>> = combine(
+        allInstalledApps,
+        _searchQuery,
+        _filter
+    ) { apps, query, flt ->
+        apps.filter { app ->
             val matchesQuery = query.isBlank() ||
                     app.appName.contains(query, ignoreCase = true) ||
                     app.packageName.contains(query, ignoreCase = true)
@@ -158,10 +171,15 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
 
     fun clearPreview() {
         _previewDecryptedText.value = null
+        _previewDecryptedBitmap.value = null
     }
 
     fun clearStatusMessage() {
         _statusMessage.value = null
+    }
+
+    fun postStatusMessage(msg: String) {
+        _statusMessage.value = msg
     }
 
     fun loadInstalledApps() {
@@ -277,6 +295,10 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
 
     fun setEncryptVolumesAtRest(enabled: Boolean) = updateSettings { it.copy(encryptVolumesAtRest = enabled) }
 
+    fun setDarkTheme(enabled: Boolean) = updateSettings { it.copy(darkTheme = enabled) }
+
+    fun setDynamicColor(enabled: Boolean) = updateSettings { it.copy(dynamicColor = enabled) }
+
     fun setPickerPolicy(policy: PickerPolicy) {
         updateSettings { it.copy(pickerPolicy = policy) }
         _statusMessage.value = "System picker: ${policy.title}. Force-stop isolated apps to apply."
@@ -324,7 +346,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                     AesVaultCipher.encryptStream(content.toByteArray(Charsets.UTF_8).inputStream(), out)
                 }
                 appendTerminalLog("Locked note $fileName")
-                _statusMessage.value = "Saved $fileName to the locker."
+                _statusMessage.value = "Saved $fileName to the encrypted locker."
             } catch (e: Exception) {
                 _statusMessage.value = "Could not save note: ${e.message}"
             }
@@ -340,16 +362,60 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                     uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
                 )?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
                 val name = queriedName?.takeIf { it.isNotBlank() } ?: "file_${System.currentTimeMillis()}"
-                val mime = resolver.getType(uri) ?: "application/octet-stream"
+                val mime = resolver.getType(uri) ?: inferMimeType(name)
                 val input = resolver.openInputStream(uri) ?: throw IllegalStateException("File could not be opened")
                 input.use { src ->
                     storeInLocker(name, mime) { out -> AesVaultCipher.encryptStream(src, out) }
                 }
                 appendTerminalLog("Locked file $name")
-                _statusMessage.value = "Locked $name in the private locker."
+                _statusMessage.value = "Encrypted $name into the Private Locker."
             } catch (e: Exception) {
                 _statusMessage.value = "Import failed: ${e.message}"
             }
+        }
+    }
+
+    /** Encrypts a local File into the Private Locker, optionally deleting the plaintext original. */
+    fun encryptLocalFileToLocker(sourceFile: File, deleteOriginal: Boolean = false) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                if (!sourceFile.exists() || !sourceFile.isFile) {
+                    _statusMessage.value = "File not found."
+                    return@launch
+                }
+                val name = sourceFile.name
+                val mime = inferMimeType(name)
+                FileInputStream(sourceFile).use { src ->
+                    storeInLocker(name, mime) { out -> AesVaultCipher.encryptStream(src, out) }
+                }
+                if (deleteOriginal) {
+                    sourceFile.delete()
+                }
+                appendTerminalLog("Encrypted $name into Locker (deleteOriginal=$deleteOriginal)")
+                _statusMessage.value = if (deleteOriginal) {
+                    "Encrypted & shredded original: $name"
+                } else {
+                    "Encrypted copy of $name into Private Locker."
+                }
+            } catch (e: Exception) {
+                _statusMessage.value = "Encryption failed: ${e.message}"
+            }
+        }
+    }
+
+    private fun inferMimeType(name: String): String {
+        val ext = name.substringAfterLast('.', "").lowercase()
+        return when (ext) {
+            "jpg", "jpeg" -> "image/jpeg"
+            "png" -> "image/png"
+            "webp" -> "image/webp"
+            "gif" -> "image/gif"
+            "mp4", "mkv", "mov", "webm" -> "video/mp4"
+            "mp3", "m4a", "wav", "ogg", "flac" -> "audio/mpeg"
+            "txt", "md", "log", "json", "xml", "csv", "sh", "ini", "conf", "properties" -> "text/plain"
+            "pdf" -> "application/pdf"
+            "zip" -> "application/zip"
+            else -> "application/octet-stream"
         }
     }
 
@@ -369,6 +435,24 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    /** Decrypts a locker file into the workspace directory so it can be managed in File Explorer. */
+    fun decryptVaultFileToWorkspace(item: VaultFileItem) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val workspaceExports = File(app.filesDir, "workspace/Decrypted").apply { mkdirs() }
+                val cleanName = item.relativePath.substringAfterLast('/').ifBlank { "decrypted_${item.id}" }
+                val dest = File(workspaceExports, cleanName)
+                FileOutputStream(dest).use { dst ->
+                    FileInputStream(File(item.physicalPath)).use { src -> AesVaultCipher.decryptStream(src, dst) }
+                }
+                appendTerminalLog("Decrypted ${cleanName} to Workspace/Decrypted")
+                _statusMessage.value = "Decrypted $cleanName to Workspace/Decrypted."
+            } catch (e: Exception) {
+                _statusMessage.value = "Decryption failed: ${e.message}"
+            }
+        }
+    }
+
     fun deleteVaultFile(item: VaultFileItem) {
         viewModelScope.launch(Dispatchers.IO) {
             File(item.physicalPath).delete()
@@ -377,7 +461,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    /** Decrypts a locker file and shows it as text. */
+    /** Decrypts a locker file and shows it as text or image bitmap. */
     fun decryptAndPreviewFile(item: VaultFileItem) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -386,6 +470,37 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                     _statusMessage.value = "Locker file does not exist on disk."
                     return@launch
                 }
+
+                val isImage = item.mimeType.startsWith("image/") ||
+                        item.relativePath.substringAfterLast('.', "").lowercase() in setOf("jpg", "jpeg", "png", "webp", "bmp", "gif")
+                val isText = item.mimeType.startsWith("text/") ||
+                        item.relativePath.substringAfterLast('.', "").lowercase() in setOf("txt", "md", "json", "xml", "log", "csv", "sh", "properties", "ini")
+
+                if (isImage) {
+                    if (item.originalSizeBytes > MAX_IMAGE_PREVIEW_BYTES) {
+                        _statusMessage.value = "Image too large to preview. Export it instead."
+                        return@launch
+                    }
+                    val bytes = if (item.isEncrypted) {
+                        val buffer = ByteArrayOutputStream()
+                        FileInputStream(file).use { AesVaultCipher.decryptStream(it, buffer) }
+                        buffer.toByteArray()
+                    } else {
+                        file.readBytes()
+                    }
+                    val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    if (bmp != null) {
+                        withContext(Dispatchers.Main) {
+                            _previewDecryptedBitmap.value = Pair(item.relativePath, bmp)
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            _statusMessage.value = "Could not decode image preview."
+                        }
+                    }
+                    return@launch
+                }
+
                 if (item.originalSizeBytes > MAX_PREVIEW_BYTES) {
                     _statusMessage.value = "Too large to preview. Export it instead."
                     return@launch
@@ -394,9 +509,9 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 val content = if (item.isEncrypted) {
                     val buffer = ByteArrayOutputStream()
                     FileInputStream(file).use { AesVaultCipher.decryptStream(it, buffer) }
-                    if (!item.mimeType.startsWith("text/")) {
+                    if (!isText) {
                         withContext(Dispatchers.Main) {
-                            _statusMessage.value = "${item.mimeType} cannot be previewed. Export it instead."
+                            _statusMessage.value = "${item.mimeType} cannot be previewed as text. Decrypt to Workspace or Export instead."
                         }
                         return@launch
                     }

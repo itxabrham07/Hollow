@@ -6,14 +6,19 @@ enum class IsolationMode(
     val badge: String
 ) {
     ENCRYPTED_VAULT(
-        title = "Private Locker",
-        description = "Keeps photos & files saved by this app locked in its own private space.",
-        badge = "Private Locker"
+        title = "Per-App Private Locker",
+        description = "Gives this app its own isolated private vault away from all other apps.",
+        badge = "Per-App Locker"
     ),
     SANDBOX_REDIRECT(
-        title = "Separate Folder",
-        description = "Gives this app its own clean folder away from your personal files.",
-        badge = "Separate Folder"
+        title = "Per-App Separate Folder",
+        description = "Gives this app its own clean sandbox folder away from your personal files.",
+        badge = "Per-App Sandbox"
+    ),
+    SHARED_WORKSPACE(
+        title = "Shared Hollow Workspace",
+        description = "Connects this app to the shared Hollow Workspace folder while hiding your real phone storage.",
+        badge = "Hollow Workspace"
     ),
     FAKE_EMPTY(
         title = "Blank Gallery",

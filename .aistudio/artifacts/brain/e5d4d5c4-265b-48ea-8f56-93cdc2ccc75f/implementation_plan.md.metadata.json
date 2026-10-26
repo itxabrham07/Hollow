@@ -1,0 +1,6 @@
+{
+  "summary":  "Revised implementation plan to hook at the Android System Framework (PackageManagerService / global ApplicationPackageManager / LauncherApps) and SystemUI level rather than individual launchers, ensuring any newly installed launcher, Recents, and SystemUI automatically respect hidden/disguised apps and providing a direct SystemUI entry point for Hollow.",
+  "updatedAt":  "2026-10-26T08:43:44.886102018Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

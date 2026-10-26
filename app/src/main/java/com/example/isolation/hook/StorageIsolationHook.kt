@@ -90,6 +90,16 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
         // Cache of URIs explicitly selected by the user via file/media pickers
         private val userAllowedUris = ConcurrentHashMap<String, Boolean>()
 
+        private val MEDIA_AUTHORITIES = setOf(
+            "media",
+            "com.android.providers.media.documents",
+            "com.android.providers.media.photopicker",
+            "com.google.android.providers.media.module",
+            "com.android.externalstorage.documents",
+            "com.android.providers.downloads.documents",
+            "downloads"
+        )
+
         private val DEFAULT_MEDIA_COLUMNS = arrayOf(
             "_id",
             "_data",
@@ -185,23 +195,20 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
         if (pkg == "android" || pkg.startsWith("com.android.systemui")) {
             return
         }
+        if (pkg.startsWith("com.android.providers.") ||
+            pkg.contains("documentsui") ||
+            pkg == "com.android.externalstorage" ||
+            pkg == "com.google.android.providers.media.module") return
 
-        // Self-hook for IsoVault Manager App to confirm module status
+        // Self-hook for Manager App to confirm module status
         if (pkg == MODULE_PKG) {
-            try {
-                XposedHelpers.findAndHookMethod(
-                    "com.example.MainActivity",
-                    lpparam.classLoader,
-                    "isLsposedModuleActiveReal",
-                    object : XC_MethodHook() {
-                        override fun beforeHookedMethod(param: MethodHookParam) {
-                            param.result = true
-                        }
-                    }
-                )
-                XposedBridge.log("[IsoVault] Manager self-check hooked: ACTIVE")
-            } catch (t: Throwable) {
-                Log.w(TAG, "Self-hook error: ${t.message}")
+            for (cls in listOf("com.example.MainActivity\$Companion", "com.example.MainActivity")) {
+                try {
+                    XposedHelpers.findAndHookMethod(cls, lpparam.classLoader, "isLsposedModuleActiveReal",
+                        object : XC_MethodHook() {
+                            override fun beforeHookedMethod(param: MethodHookParam) { param.result = true }
+                        })
+                } catch (_: Throwable) {}
             }
             return
         }
@@ -355,13 +362,7 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
         }
         if (scheme != "content") return false
         val auth = uri.authority?.lowercase() ?: return false
-        return auth == "media" ||
-            auth.contains("media") ||
-            auth.contains("photopicker") ||
-            auth.contains("externalstorage") ||
-            auth.contains("downloads") ||
-            auth.contains("gallery") ||
-            auth.contains("photos")
+        return auth in MEDIA_AUTHORITIES || auth.startsWith("com.google.android.apps.photos")
     }
 
     private fun isMediaFile(file: File): Boolean {
@@ -681,20 +682,13 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
                         targetFile.parentFile?.mkdirs()
                         try { targetFile.createNewFile() } catch (_: Throwable) {}
 
-                        val pfd = ParcelFileDescriptor.open(
-                            targetFile,
-                            ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_CREATE
-                        )
-
-                        when {
-                            methodName == "openOutputStream" -> {
-                                param.result = FileOutputStream(targetFile)
-                            }
-                            methodName == "openFileDescriptor" || methodName == "openFile" -> {
-                                param.result = pfd
-                            }
+                        when (methodName) {
+                            "openOutputStream" -> param.result = FileOutputStream(targetFile)
                             else -> {
-                                param.result = AssetFileDescriptor(pfd, 0, AssetFileDescriptor.UNKNOWN_LENGTH)
+                                val pfd = ParcelFileDescriptor.open(targetFile,
+                                    ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_CREATE)
+                                param.result = if (methodName == "openFileDescriptor" || methodName == "openFile") pfd
+                                               else AssetFileDescriptor(pfd, 0, AssetFileDescriptor.UNKNOWN_LENGTH)
                             }
                         }
 
@@ -711,19 +705,13 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
 
                     // READING MEDIA: If the file is in our sandbox, return real descriptor
                     if (targetFile != null && targetFile.exists()) {
-                        val pfd = ParcelFileDescriptor.open(targetFile, ParcelFileDescriptor.MODE_READ_ONLY)
-                        when {
-                            methodName == "openInputStream" -> {
-                                param.result = FileInputStream(targetFile)
-                            }
-                            methodName == "loadThumbnail" -> {
-                                param.result = BitmapFactory.decodeFile(targetFile.absolutePath)
-                            }
-                            methodName == "openFileDescriptor" || methodName == "openFile" -> {
-                                param.result = pfd
-                            }
+                        when (methodName) {
+                            "openInputStream" -> param.result = FileInputStream(targetFile)
+                            "loadThumbnail" -> param.result = BitmapFactory.decodeFile(targetFile.absolutePath)
                             else -> {
-                                param.result = AssetFileDescriptor(pfd, 0, AssetFileDescriptor.UNKNOWN_LENGTH)
+                                val pfd = ParcelFileDescriptor.open(targetFile, ParcelFileDescriptor.MODE_READ_ONLY)
+                                param.result = if (methodName == "openFileDescriptor" || methodName == "openFile") pfd
+                                               else AssetFileDescriptor(pfd, 0, AssetFileDescriptor.UNKNOWN_LENGTH)
                             }
                         }
                         return
@@ -768,9 +756,19 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             try { XposedBridge.hookAllMethods(ContentProviderClient::class.java, m, mediaStreamAndDescriptorHook) } catch (_: Throwable) {}
         }
 
+        val rewriteToSandboxFile = object : XC_MethodHook() {
+            override fun beforeHookedMethod(param: MethodHookParam) {
+                val i = param.args.indexOfFirst { it is Uri }
+                if (i < 0) return
+                val uri = param.args[i] as Uri
+                val file = virtualUriMap[uri.toString()]
+                    ?: uri.lastPathSegment?.toLongOrNull()?.let { virtualMediaMap[it] }
+                if (file != null && file.exists()) param.args[i] = Uri.fromFile(file)
+            }
+        }
         try {
-            XposedBridge.hookAllMethods(ImageDecoder::class.java, "createSource", mediaStreamAndDescriptorHook)
-            XposedBridge.hookAllMethods(MediaMetadataRetriever::class.java, "setDataSource", mediaStreamAndDescriptorHook)
+            XposedBridge.hookAllMethods(ImageDecoder::class.java, "createSource", rewriteToSandboxFile)
+            XposedBridge.hookAllMethods(MediaMetadataRetriever::class.java, "setDataSource", rewriteToSandboxFile)
         } catch (_: Throwable) {}
 
         // D. Delete and Update
@@ -934,55 +932,46 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             )
         } catch (_: Throwable) {}
 
-        // Track user-selected URIs in onActivityResult so the app can read & send them seamlessly
+        // Track user-selected URIs in dispatchActivityResult so every result passes through it, including Activity Result API
         try {
-            XposedBridge.hookAllMethods(
-                Activity::class.java,
-                "onActivityResult",
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        val resultCode = param.args.getOrNull(1) as? Int ?: return
-                        val data = param.args.getOrNull(2) as? Intent ?: return
-                        val activity = param.thisObject as? Activity
-
-                        if (resultCode == Activity.RESULT_OK) {
-                            val pickedUris = mutableListOf<Uri>()
-                            data.data?.let { pickedUris.add(it) }
-                            data.clipData?.let { clip ->
-                                for (i in 0 until clip.itemCount) {
-                                    clip.getItemAt(i).uri?.let { pickedUris.add(it) }
-                                }
-                            }
-
-                            for (u in pickedUris) {
-                                val uriString = u.toString()
-                                userAllowedUris[uriString] = true
-                                XposedBridge.log("[IsoVault] User picked file in $pkg: $uriString (allowed)")
-
-                                if (activity != null) {
-                                    auditExecutor.execute {
-                                        try {
-                                            val sandboxRoot = getOrCreateSandboxRoot(pkg)
-                                            val ext = guessExtension(u)
-                                            val picturesDir = File(sandboxRoot, "Pictures").apply { mkdirs() }
-                                            val targetFile = File(picturesDir, "picked_${System.currentTimeMillis()}.$ext")
-                                            activity.contentResolver.openInputStream(u)?.use { input ->
-                                                FileOutputStream(targetFile).use { output ->
-                                                    input.copyTo(output)
-                                                }
-                                            }
-                                            registerSandboxMedia(targetFile)
-                                            virtualUriMap[uriString] = targetFile
-                                            XposedBridge.log("[IsoVault] Cached user-picked file in sandbox: ${targetFile.absolutePath}")
-                                        } catch (_: Throwable) {}
-                                    }
-                                }
-                            }
-                        }
-                    }
+            XposedBridge.hookAllMethods(Activity::class.java, "dispatchActivityResult", object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    // signature: (String who, int requestCode, int resultCode, Intent data, String reason)
+                    val resultCode = param.args.getOrNull(2) as? Int ?: return
+                    val data = param.args.getOrNull(3) as? Intent
+                    handlePickResult(param.thisObject as? Activity, pkg, resultCode, data)
                 }
-            )
+            })
         } catch (_: Throwable) {}
+    }
+
+    private fun handlePickResult(activity: Activity?, pkg: String, resultCode: Int, data: Intent?) {
+        if (resultCode != Activity.RESULT_OK || data == null) return
+        val picked = mutableListOf<Uri>()
+        data.data?.let { picked.add(it) }
+        data.clipData?.let { clip ->
+            for (i in 0 until clip.itemCount) clip.getItemAt(i).uri?.let { picked.add(it) }
+        }
+        for (u in picked) {
+            val key = u.toString()
+            userAllowedUris[key] = true            // allow immediately, before any copy
+            if (activity == null) continue
+            auditExecutor.execute {
+                try {
+                    val dir = File(getOrCreateSandboxRoot(pkg), "Pictures").apply { mkdirs() }
+                    val name = "picked_${System.nanoTime()}.${guessExtension(u)}"
+                    val tmp = File(dir, "$name.part")      // fix for the truncated-copy race
+                    val dst = File(dir, name)
+                    activity.contentResolver.openInputStream(u)?.use { i ->
+                        FileOutputStream(tmp).use { o -> i.copyTo(o) }
+                    }
+                    if (tmp.renameTo(dst)) {
+                        registerSandboxMedia(dst)
+                        virtualUriMap[key] = dst           // only visible once fully written
+                    }
+                } catch (_: Throwable) {}
+            }
+        }
     }
 
     private fun isExternalPickerIntent(intent: Intent?, pkg: String): Boolean {
@@ -1372,6 +1361,7 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             return false
         }
         if (norm.contains("/IsoVault_Sandbox") ||
+            norm.contains("/Hollow_Workspace") ||
             (pkg.isNotBlank() && norm.contains("/Android/data/$pkg"))
         ) {
             return false
@@ -1417,6 +1407,24 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
     }
 
     private fun getOrCreateSandboxRoot(pkg: String): File {
+        val rule = try { resolveRuleForPackage(pkg) } catch (_: Throwable) { null }
+        if (rule?.mode == IsolationMode.SHARED_WORKSPACE) {
+            val sharedDir = File("/storage/emulated/0/Hollow_Workspace")
+            val sharedReady = try {
+                if (!sharedDir.exists()) sharedDir.mkdirs()
+                sharedDir.exists() && sharedDir.canWrite()
+            } catch (_: Throwable) {
+                false
+            }
+            if (sharedReady) {
+                val subDirs = listOf("DCIM", "DCIM/Camera", "Pictures", "Movies", "Download", "Documents", "Music")
+                for (sub in subDirs) {
+                    try { File(sharedDir, sub).mkdirs() } catch (_: Throwable) {}
+                }
+                return sharedDir
+            }
+        }
+
         val baseDir = try {
             val app = AndroidAppHelper.currentApplication()
             if (app != null) File(app.filesDir, "IsoVault_Sandbox") else null
@@ -1477,6 +1485,7 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
         val action = when (rule.mode) {
             IsolationMode.ENCRYPTED_VAULT -> AuditAction.REDIRECTED
             IsolationMode.SANDBOX_REDIRECT -> AuditAction.REDIRECTED
+            IsolationMode.SHARED_WORKSPACE -> AuditAction.REDIRECTED
             IsolationMode.FAKE_EMPTY -> AuditAction.SPOOFED_EMPTY
             IsolationMode.READ_ONLY -> AuditAction.BLOCKED
         }

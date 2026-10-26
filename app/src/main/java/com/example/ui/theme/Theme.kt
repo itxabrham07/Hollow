@@ -1,79 +1,117 @@
 package com.example.ui.theme
 
 import android.app.Activity
+import android.os.Build
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 
-private val IsoVaultWarmLightScheme = lightColorScheme(
-    primary = ForestPrimary,
+private val IsoVaultProLightScheme = lightColorScheme(
+    primary = ProEmeraldPrimary,
     onPrimary = Color.White,
-    primaryContainer = SageSoft,
-    onPrimaryContainer = ForestDark,
+    primaryContainer = ProEmeraldContainer,
+    onPrimaryContainer = ProEmeraldDark,
 
-    secondary = ClaySecondary,
+    secondary = ProIndigoSecondary,
     onSecondary = Color.White,
-    secondaryContainer = ClaySoft,
-    onSecondaryContainer = Color(0xFF4A1D10),
+    secondaryContainer = ProIndigoContainer,
+    onSecondaryContainer = Color(0xFF142742),
 
-    tertiary = HoneyTertiary,
+    tertiary = ProAmberTertiary,
     onTertiary = Color.White,
-    tertiaryContainer = HoneySoft,
-    onTertiaryContainer = Color(0xFF3E2700),
+    tertiaryContainer = ProAmberContainer,
+    onTertiaryContainer = Color(0xFF3E2200),
 
-    background = WarmLinen,
-    onBackground = InkPrimary,
-    surface = WarmIvory,
-    onSurface = InkPrimary,
-    surfaceVariant = WarmSand,
-    onSurfaceVariant = InkSecondary,
-    outline = WarmStone,
-    outlineVariant = Color(0xFFEDE7DC),
+    background = ProBackgroundLight,
+    onBackground = ProInkPrimary,
+    surface = ProSurfaceLight,
+    onSurface = ProInkPrimary,
+    surfaceVariant = ProSurfaceLowLight,
+    onSurfaceVariant = ProInkSecondary,
+    surfaceContainerLowest = Color.White,
+    surfaceContainerLow = ProSurfaceLowLight,
+    surfaceContainer = ProSurfaceContainerLight,
+    surfaceContainerHigh = ProSurfaceHighLight,
+    surfaceContainerHighest = Color(0xFFD1DDD8),
+    outline = ProOutlineLight,
+    outlineVariant = ProOutlineSubtleLight,
 
-    error = CoralError,
-    onError = Color.White
+    error = ProCoralError,
+    onError = Color.White,
+    errorContainer = ProCoralContainer,
+    onErrorContainer = Color(0xFF5C1010)
 )
 
-private val IsoVaultWarmDarkScheme = darkColorScheme(
-    primary = Color(0xFF8CD4B5),
-    onPrimary = Color(0xFF0B3324),
-    primaryContainer = Color(0xFF1B4B39),
-    onPrimaryContainer = Color(0xFFDDF0E6),
+private val IsoVaultProDarkScheme = darkColorScheme(
+    primary = ProEmeraldLight,
+    onPrimary = Color(0xFF00382B),
+    primaryContainer = ProEmeraldContainerDark,
+    onPrimaryContainer = Color(0xFFBFF5E3),
 
-    secondary = Color(0xFFE89980),
-    onSecondary = Color(0xFF4A1D10),
-    secondaryContainer = Color(0xFF692E1D),
-    onSecondaryContainer = Color(0xFFFAE7E1),
+    secondary = ProIndigoDark,
+    onSecondary = Color(0xFF0E233E),
+    secondaryContainer = ProIndigoContainerDark,
+    onSecondaryContainer = Color(0xFFDCE5F7),
 
-    tertiary = Color(0xFFE9BA67),
-    onTertiary = Color(0xFF3E2700),
-    tertiaryContainer = Color(0xFF593A00),
-    onTertiaryContainer = Color(0xFFFDF3DF),
+    tertiary = ProAmberDark,
+    onTertiary = Color(0xFF452600),
+    tertiaryContainer = ProAmberContainerDark,
+    onTertiaryContainer = Color(0xFFFFDFBA),
 
-    background = Color(0xFF181614),
-    onBackground = Color(0xFFF5F1EB),
-    surface = Color(0xFF221F1C),
-    onSurface = Color(0xFFF5F1EB),
-    surfaceVariant = Color(0xFF2D2925),
-    onSurfaceVariant = Color(0xFFBDB5AC),
-    outline = Color(0xFF3E3934),
-    outlineVariant = Color(0xFF2D2925),
+    background = ProBackgroundDark,
+    onBackground = Color(0xFFEAF2EE),
+    surface = ProSurfaceDark,
+    onSurface = Color(0xFFEAF2EE),
+    surfaceVariant = ProSurfaceLowDark,
+    onSurfaceVariant = Color(0xFFA5B8B1),
+    surfaceContainerLowest = Color(0xFF090E0C),
+    surfaceContainerLow = ProSurfaceLowDark,
+    surfaceContainer = ProSurfaceContainerDark,
+    surfaceContainerHigh = ProSurfaceHighDark,
+    surfaceContainerHighest = Color(0xFF31423C),
+    outline = ProOutlineDark,
+    outlineVariant = ProOutlineSubtleDark,
 
-    error = Color(0xFFF28B82),
-    onError = Color(0xFF601410)
+    error = ProCoralDark,
+    onError = Color(0xFF560A0A),
+    errorContainer = ProCoralContainerDark,
+    onErrorContainer = Color(0xFFFFDAD6)
+)
+
+val IsoVaultProShapes = Shapes(
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(22.dp),
+    extraLarge = RoundedCornerShape(28.dp)
 )
 
 @Composable
 fun IsoVaultTheme(
-    darkTheme: Boolean = false,
+    darkTheme: Boolean = true,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = if (darkTheme) IsoVaultWarmDarkScheme else IsoVaultWarmLightScheme
+    val context = LocalContext.current
+    val colorScheme = when {
+        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        }
+        darkTheme -> IsoVaultProDarkScheme
+        else -> IsoVaultProLightScheme
+    }
+
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
@@ -89,13 +127,14 @@ fun IsoVaultTheme(
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography,
+        shapes = IsoVaultProShapes,
         content = content
     )
 }
 
 @Composable
 fun MyApplicationTheme(
-    darkTheme: Boolean = false,
+    darkTheme: Boolean = true,
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
-) = IsoVaultTheme(darkTheme = darkTheme, content = content)
+) = IsoVaultTheme(darkTheme = darkTheme, dynamicColor = dynamicColor, content = content)
