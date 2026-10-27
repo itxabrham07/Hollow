@@ -26,7 +26,7 @@ class IsoVaultConverters {
     fun toIsolationMode(name: String): IsolationMode = try {
         IsolationMode.valueOf(name)
     } catch (_: Exception) {
-        IsolationMode.ENCRYPTED_VAULT
+        IsolationMode.SHARED_WORKSPACE
     }
 
     @TypeConverter
@@ -66,7 +66,7 @@ class IsoVaultConverters {
     fun toDeviceProfilePreset(name: String): DeviceProfilePreset = try {
         DeviceProfilePreset.valueOf(name)
     } catch (_: Exception) {
-        DeviceProfilePreset.PIXEL_9_PRO
+        DeviceProfilePreset.REAL_HARDWARE
     }
 }
 
@@ -76,7 +76,7 @@ class IsoVaultConverters {
         AccessAuditLog::class,
         VaultFileItem::class
     ],
-    version = 6,
+    version = 8,
     exportSchema = false
 )
 @TypeConverters(IsoVaultConverters::class)
@@ -87,57 +87,58 @@ abstract class IsoVaultDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: IsoVaultDatabase? = null
 
-        private val MIGRATION_5_6 = object : Migration(5, 6) {
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE `app_isolation_configs` RENAME TO `app_isolation_configs_old`")
-                db.execSQL(
-                    "CREATE TABLE IF NOT EXISTS `app_isolation_configs` (" +
-                        "`packageName` TEXT NOT NULL, `appName` TEXT NOT NULL, `isIsolated` INTEGER NOT NULL, " +
-                        "`isolationMode` TEXT NOT NULL, `encryptMediaOnly` INTEGER NOT NULL, `blockRootPollution` INTEGER NOT NULL, " +
-                        "`whitelistedFolders` TEXT NOT NULL, `customMountPath` TEXT NOT NULL, `totalFilesRedirected` INTEGER NOT NULL, " +
-                        "`totalBytesEncrypted` INTEGER NOT NULL, `lastAccessedTimestamp` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, " +
-                        "`isHiddenOrDisguised` INTEGER NOT NULL, `launcherVisibilityMode` TEXT NOT NULL, `customLauncherLabel` TEXT NOT NULL, " +
-                        "`disguiseIconPreset` TEXT NOT NULL, `hideInSystemUiRecents` INTEGER NOT NULL, `hideFromPlayStore` INTEGER NOT NULL, " +
-                        "`spoofInSettings` INTEGER NOT NULL, `customIconBase64` TEXT NOT NULL, `customIconDonorPkg` TEXT NOT NULL, " +
-                        "`isIdentitySpoofed` INTEGER NOT NULL, `deviceProfilePreset` TEXT NOT NULL, `spoofBrand` TEXT NOT NULL, " +
-                        "`spoofModel` TEXT NOT NULL, `spoofDevice` TEXT NOT NULL, `spoofAndroidId` TEXT NOT NULL, " +
-                        "`spoofImei` TEXT NOT NULL, `spoofAdvertisingId` TEXT NOT NULL, `spoofMacAddress` TEXT NOT NULL, " +
-                        "`spoofCarrierName` TEXT NOT NULL, `spoofSimOperator` TEXT NOT NULL, `spoofSerial` TEXT NOT NULL, " +
-                        "`spoofLocationEnabled` INTEGER NOT NULL, `spoofLatitude` REAL NOT NULL, `spoofLongitude` REAL NOT NULL, " +
-                        "`hideMockLocation` INTEGER NOT NULL, `preventScreenshots` INTEGER NOT NULL, `hideOtherApps` INTEGER NOT NULL, " +
-                        "`disableLogcatLogging` INTEGER NOT NULL, `fakeBatteryEnabled` INTEGER NOT NULL, `fakeBatteryLevel` INTEGER NOT NULL, " +
-                        "`knoxWarrantyBitSpoof` INTEGER NOT NULL, `hideRootAndXposed` INTEGER NOT NULL, `hideAdbAndDevOptions` INTEGER NOT NULL, " +
-                        "`hideVpnAndProxy` INTEGER NOT NULL, `blockClipboardRead` INTEGER NOT NULL, `spoofGpuFingerprint` INTEGER NOT NULL, " +
-                        "`spoofBrowserUserAgent` INTEGER NOT NULL, `anonymizeSensors` INTEGER NOT NULL, `blockCellTowerTracking` INTEGER NOT NULL, " +
-                        "`autoSyncTimezone` INTEGER NOT NULL, `disableAllNetworking` INTEGER NOT NULL, PRIMARY KEY(`packageName`))"
+                val alterStatements = listOf(
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `spoofManufacturer` TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `spoofProduct` TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `spoofBoard` TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `spoofHardware` TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `spoofBootloader` TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `spoofFingerprint` TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `spoofGpuVendor` TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `spoofGpuRenderer` TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `spoofCpuCores` INTEGER NOT NULL DEFAULT 0",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `spoofRamGb` INTEGER NOT NULL DEFAULT 0",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `spoofScreenResolution` TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `spoofScreenDpi` INTEGER NOT NULL DEFAULT 0",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `spoofTimezoneId` TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `spoofLocaleTag` TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `customUserAgent` TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `spoofWebRtc` INTEGER NOT NULL DEFAULT 1",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `spoofCanvasNoise` INTEGER NOT NULL DEFAULT 1",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `spoofAudioContext` INTEGER NOT NULL DEFAULT 1",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `spoofClientHints` INTEGER NOT NULL DEFAULT 1",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `spoofFontEnumeration` INTEGER NOT NULL DEFAULT 1",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `vpnProxyEnabled` INTEGER NOT NULL DEFAULT 0",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `proxyServerId` TEXT NOT NULL DEFAULT 'us_ny_vless'",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `requireVpnForNetwork` INTEGER NOT NULL DEFAULT 0",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `matchTimezoneWithIp` INTEGER NOT NULL DEFAULT 1",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `webViewProxyEnabled` INTEGER NOT NULL DEFAULT 1",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `trustAllCerts` INTEGER NOT NULL DEFAULT 0"
                 )
-                try {
-                    db.execSQL(
-                        "INSERT INTO `app_isolation_configs` (" +
-                            "`packageName`, `appName`, `isIsolated`, `isolationMode`, `encryptMediaOnly`, `blockRootPollution`, " +
-                            "`whitelistedFolders`, `customMountPath`, `totalFilesRedirected`, `totalBytesEncrypted`, `lastAccessedTimestamp`, `createdAt`, " +
-                            "`isHiddenOrDisguised`, `launcherVisibilityMode`, `customLauncherLabel`, `disguiseIconPreset`, `hideInSystemUiRecents`, " +
-                            "`hideFromPlayStore`, `spoofInSettings`, `customIconBase64`, `customIconDonorPkg`, `isIdentitySpoofed`, `deviceProfilePreset`, " +
-                            "`spoofBrand`, `spoofModel`, `spoofDevice`, `spoofAndroidId`, `spoofImei`, `spoofAdvertisingId`, `spoofMacAddress`, " +
-                            "`spoofCarrierName`, `spoofSimOperator`, `spoofSerial`, `spoofLocationEnabled`, `spoofLatitude`, `spoofLongitude`, " +
-                            "`hideMockLocation`, `preventScreenshots`, `hideOtherApps`, `disableLogcatLogging`, `fakeBatteryEnabled`, `fakeBatteryLevel`, " +
-                            "`knoxWarrantyBitSpoof`, `hideRootAndXposed`, `hideAdbAndDevOptions`, `hideVpnAndProxy`, `blockClipboardRead`, " +
-                            "`spoofGpuFingerprint`, `spoofBrowserUserAgent`, `anonymizeSensors`, `blockCellTowerTracking`, `autoSyncTimezone`, `disableAllNetworking`" +
-                            ") SELECT " +
-                            "`packageName`, `appName`, `isIsolated`, `isolationMode`, `encryptMediaOnly`, `blockRootPollution`, " +
-                            "`whitelistedFolders`, `customMountPath`, `totalFilesRedirected`, `totalBytesEncrypted`, `lastAccessedTimestamp`, `createdAt`, " +
-                            "`isHiddenOrDisguised`, `launcherVisibilityMode`, `customLauncherLabel`, `disguiseIconPreset`, `hideInSystemUiRecents`, " +
-                            "`hideFromPlayStore`, `spoofInSettings`, `customIconBase64`, `customIconDonorPkg`, `isIdentitySpoofed`, `deviceProfilePreset`, " +
-                            "`spoofBrand`, `spoofModel`, `spoofDevice`, `spoofAndroidId`, `spoofImei`, `spoofAdvertisingId`, `spoofMacAddress`, " +
-                            "`spoofCarrierName`, `spoofSimOperator`, `spoofSerial`, `spoofLocationEnabled`, `spoofLatitude`, `spoofLongitude`, " +
-                            "`hideMockLocation`, `preventScreenshots`, `hideOtherApps`, `disableLogcatLogging`, `fakeBatteryEnabled`, `fakeBatteryLevel`, " +
-                            "`knoxWarrantyBitSpoof`, `hideRootAndXposed`, `hideAdbAndDevOptions`, `hideVpnAndProxy`, `blockClipboardRead`, " +
-                            "1, 1, 1, 1, 1, `disableAllNetworking` FROM `app_isolation_configs_old`"
-                    )
-                } catch (_: Exception) {
-                    // Fallback to empty table if prior schema had different columns
+                for (sql in alterStatements) {
+                    try {
+                        db.execSQL(sql)
+                    } catch (_: Exception) {}
                 }
-                db.execSQL("DROP TABLE IF EXISTS `app_isolation_configs_old`")
+            }
+        }
+
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val alterStatements = listOf(
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `privacyProfileId` TEXT NOT NULL DEFAULT 'ghost_cloak'",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `deadmanSwitchEnabled` INTEGER NOT NULL DEFAULT 1",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `spoofDrmWidevine` INTEGER NOT NULL DEFAULT 1",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `sensorBiasNeutralizer` INTEGER NOT NULL DEFAULT 1",
+                    "ALTER TABLE `app_isolation_configs` ADD COLUMN `spoofWifiBssid` INTEGER NOT NULL DEFAULT 1"
+                )
+                for (sql in alterStatements) {
+                    try {
+                        db.execSQL(sql)
+                    } catch (_: Exception) {}
+                }
             }
         }
 
@@ -148,7 +149,7 @@ abstract class IsoVaultDatabase : RoomDatabase() {
                     IsoVaultDatabase::class.java,
                     "isovault_database"
                 )
-                    .addMigrations(MIGRATION_5_6)
+                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8)
                     .fallbackToDestructiveMigration()
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build()

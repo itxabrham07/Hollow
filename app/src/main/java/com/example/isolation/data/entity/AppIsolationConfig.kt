@@ -13,7 +13,7 @@ data class AppIsolationConfig(
     val packageName: String,
     val appName: String,
     val isIsolated: Boolean = false,
-    val isolationMode: IsolationMode = IsolationMode.ENCRYPTED_VAULT,
+    val isolationMode: IsolationMode = IsolationMode.SHARED_WORKSPACE,
     val encryptMediaOnly: Boolean = false,
     val blockRootPollution: Boolean = true,
     val whitelistedFolders: String = "", // comma-separated
@@ -34,7 +34,7 @@ data class AppIsolationConfig(
     val customIconDonorPkg: String = "",
     // Independent Per-App Device Identity & Privacy Spoofing fields
     val isIdentitySpoofed: Boolean = false,
-    val deviceProfilePreset: DeviceProfilePreset = DeviceProfilePreset.PIXEL_9_PRO,
+    val deviceProfilePreset: DeviceProfilePreset = DeviceProfilePreset.REAL_HARDWARE,
     val spoofBrand: String = "",
     val spoofModel: String = "",
     val spoofDevice: String = "",
@@ -62,12 +62,47 @@ data class AppIsolationConfig(
     val hideAdbAndDevOptions: Boolean = true,
     val hideVpnAndProxy: Boolean = true,
     val blockClipboardRead: Boolean = false,
-    // Digital Footprint & Anti-Tracking Shield (Snap, Meta, Browsers)
+    // Digital Footprint & Anti-Tracking Shield (Snap, Meta, Chrome & Browsers)
     val spoofGpuFingerprint: Boolean = true,
     val spoofBrowserUserAgent: Boolean = true,
     val anonymizeSensors: Boolean = true,
     val blockCellTowerTracking: Boolean = true,
     val autoSyncTimezone: Boolean = true,
     // Networking
-    val disableAllNetworking: Boolean = false
+    val disableAllNetworking: Boolean = false,
+    // Extended Real-First Editable Hardware & Build Fields
+    val spoofManufacturer: String = "",
+    val spoofProduct: String = "",
+    val spoofBoard: String = "",
+    val spoofHardware: String = "",
+    val spoofBootloader: String = "",
+    val spoofFingerprint: String = "",
+    val spoofGpuVendor: String = "",
+    val spoofGpuRenderer: String = "",
+    val spoofCpuCores: Int = 0, // 0 = use real hardware unless edited
+    val spoofRamGb: Int = 0,    // 0 = use real hardware unless edited
+    val spoofScreenResolution: String = "",
+    val spoofScreenDpi: Int = 0,
+    val spoofTimezoneId: String = "",
+    val spoofLocaleTag: String = "",
+    val customUserAgent: String = "",
+    // Chrome / Browser & WebView Deep Fingerprint Spoofing
+    val spoofWebRtc: Boolean = true,
+    val spoofCanvasNoise: Boolean = true,
+    val spoofAudioContext: Boolean = true,
+    val spoofClientHints: Boolean = true,
+    val spoofFontEnumeration: Boolean = true,
+    // Per-App VPN / Proxy (V2Ray / SOCKS5 / HTTP) & VPN-Gated Controls
+    val vpnProxyEnabled: Boolean = false,
+    val proxyServerId: String = "us_ny_vless",
+    val requireVpnForNetwork: Boolean = false,
+    val matchTimezoneWithIp: Boolean = true,
+    val webViewProxyEnabled: Boolean = true,
+    val trustAllCerts: Boolean = false,
+    // Reusable Privacy Profiles & Anonymity Suite
+    val privacyProfileId: String = "ghost_cloak",
+    val deadmanSwitchEnabled: Boolean = true,
+    val spoofDrmWidevine: Boolean = true,
+    val sensorBiasNeutralizer: Boolean = true,
+    val spoofWifiBssid: Boolean = true
 )

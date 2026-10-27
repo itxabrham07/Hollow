@@ -20,7 +20,7 @@ data class InstalledAppInfo(
     val isSystemApp: Boolean,
     val targetSdkVersion: Int,
     val isIsolated: Boolean = false,
-    val isolationMode: IsolationMode = IsolationMode.ENCRYPTED_VAULT,
+    val isolationMode: IsolationMode = IsolationMode.SHARED_WORKSPACE,
     val hasStoragePermission: Boolean = true,
     val icon: Drawable? = null,
     // Independent App Hider & Disguise fields (separate from Storage Protection)
@@ -35,7 +35,7 @@ data class InstalledAppInfo(
     val customIconDonorPkg: String = "",
     // Independent Per-App Device Identity & Privacy Spoofing fields
     val isIdentitySpoofed: Boolean = false,
-    val deviceProfilePreset: DeviceProfilePreset = DeviceProfilePreset.PIXEL_9_PRO,
+    val deviceProfilePreset: DeviceProfilePreset = DeviceProfilePreset.REAL_HARDWARE,
     val spoofBrand: String = "",
     val spoofModel: String = "",
     val spoofDevice: String = "",
@@ -63,14 +63,49 @@ data class InstalledAppInfo(
     val hideAdbAndDevOptions: Boolean = true,
     val hideVpnAndProxy: Boolean = true,
     val blockClipboardRead: Boolean = false,
-    // Digital Footprint & Anti-Tracking Shield (Snap, Meta, Browsers)
+    // Digital Footprint & Anti-Tracking Shield (Snap, Meta, Chrome & Browsers)
     val spoofGpuFingerprint: Boolean = true,
     val spoofBrowserUserAgent: Boolean = true,
     val anonymizeSensors: Boolean = true,
     val blockCellTowerTracking: Boolean = true,
     val autoSyncTimezone: Boolean = true,
     // Networking
-    val disableAllNetworking: Boolean = false
+    val disableAllNetworking: Boolean = false,
+    // Extended Real-First Editable Hardware & Build Fields
+    val spoofManufacturer: String = "",
+    val spoofProduct: String = "",
+    val spoofBoard: String = "",
+    val spoofHardware: String = "",
+    val spoofBootloader: String = "",
+    val spoofFingerprint: String = "",
+    val spoofGpuVendor: String = "",
+    val spoofGpuRenderer: String = "",
+    val spoofCpuCores: Int = 0,
+    val spoofRamGb: Int = 0,
+    val spoofScreenResolution: String = "",
+    val spoofScreenDpi: Int = 0,
+    val spoofTimezoneId: String = "",
+    val spoofLocaleTag: String = "",
+    val customUserAgent: String = "",
+    // Chrome / Browser & WebView Deep Fingerprint Spoofing
+    val spoofWebRtc: Boolean = true,
+    val spoofCanvasNoise: Boolean = true,
+    val spoofAudioContext: Boolean = true,
+    val spoofClientHints: Boolean = true,
+    val spoofFontEnumeration: Boolean = true,
+    // Per-App VPN / Proxy (V2Ray / SOCKS5 / HTTP) & VPN-Gated Controls
+    val vpnProxyEnabled: Boolean = false,
+    val proxyServerId: String = "us_ny_vless",
+    val requireVpnForNetwork: Boolean = false,
+    val matchTimezoneWithIp: Boolean = true,
+    val webViewProxyEnabled: Boolean = true,
+    val trustAllCerts: Boolean = false,
+    // Reusable Privacy Profiles & Anonymity Suite
+    val privacyProfileId: String = "ghost_cloak",
+    val deadmanSwitchEnabled: Boolean = true,
+    val spoofDrmWidevine: Boolean = true,
+    val sensorBiasNeutralizer: Boolean = true,
+    val spoofWifiBssid: Boolean = true
 )
 
 class AppPackageRepository(private val context: Context) {
@@ -91,7 +126,7 @@ class AppPackageRepository(private val context: Context) {
             isSystemApp = isSystem,
             targetSdkVersion = targetSdk,
             isIsolated = config?.isIsolated ?: false,
-            isolationMode = config?.isolationMode ?: IsolationMode.ENCRYPTED_VAULT,
+            isolationMode = config?.isolationMode ?: IsolationMode.SHARED_WORKSPACE,
             hasStoragePermission = true,
             icon = icon,
             isHiddenOrDisguised = config?.isHiddenOrDisguised ?: false,
@@ -104,7 +139,7 @@ class AppPackageRepository(private val context: Context) {
             customIconBase64 = config?.customIconBase64 ?: "",
             customIconDonorPkg = config?.customIconDonorPkg ?: "",
             isIdentitySpoofed = config?.isIdentitySpoofed ?: false,
-            deviceProfilePreset = config?.deviceProfilePreset ?: DeviceProfilePreset.PIXEL_9_PRO,
+            deviceProfilePreset = config?.deviceProfilePreset ?: DeviceProfilePreset.REAL_HARDWARE,
             spoofBrand = config?.spoofBrand ?: "",
             spoofModel = config?.spoofModel ?: "",
             spoofDevice = config?.spoofDevice ?: "",
@@ -134,7 +169,38 @@ class AppPackageRepository(private val context: Context) {
             anonymizeSensors = config?.anonymizeSensors ?: true,
             blockCellTowerTracking = config?.blockCellTowerTracking ?: true,
             autoSyncTimezone = config?.autoSyncTimezone ?: true,
-            disableAllNetworking = config?.disableAllNetworking ?: false
+            disableAllNetworking = config?.disableAllNetworking ?: false,
+            spoofManufacturer = config?.spoofManufacturer ?: "",
+            spoofProduct = config?.spoofProduct ?: "",
+            spoofBoard = config?.spoofBoard ?: "",
+            spoofHardware = config?.spoofHardware ?: "",
+            spoofBootloader = config?.spoofBootloader ?: "",
+            spoofFingerprint = config?.spoofFingerprint ?: "",
+            spoofGpuVendor = config?.spoofGpuVendor ?: "",
+            spoofGpuRenderer = config?.spoofGpuRenderer ?: "",
+            spoofCpuCores = config?.spoofCpuCores ?: 0,
+            spoofRamGb = config?.spoofRamGb ?: 0,
+            spoofScreenResolution = config?.spoofScreenResolution ?: "",
+            spoofScreenDpi = config?.spoofScreenDpi ?: 0,
+            spoofTimezoneId = config?.spoofTimezoneId ?: "",
+            spoofLocaleTag = config?.spoofLocaleTag ?: "",
+            customUserAgent = config?.customUserAgent ?: "",
+            spoofWebRtc = config?.spoofWebRtc ?: true,
+            spoofCanvasNoise = config?.spoofCanvasNoise ?: true,
+            spoofAudioContext = config?.spoofAudioContext ?: true,
+            spoofClientHints = config?.spoofClientHints ?: true,
+            spoofFontEnumeration = config?.spoofFontEnumeration ?: true,
+            vpnProxyEnabled = config?.vpnProxyEnabled ?: false,
+            proxyServerId = config?.proxyServerId ?: "us_ny_vless",
+            requireVpnForNetwork = config?.requireVpnForNetwork ?: false,
+            matchTimezoneWithIp = config?.matchTimezoneWithIp ?: true,
+            webViewProxyEnabled = config?.webViewProxyEnabled ?: true,
+            trustAllCerts = config?.trustAllCerts ?: false,
+            privacyProfileId = config?.privacyProfileId ?: "ghost_cloak",
+            deadmanSwitchEnabled = config?.deadmanSwitchEnabled ?: true,
+            spoofDrmWidevine = config?.spoofDrmWidevine ?: true,
+            sensorBiasNeutralizer = config?.sensorBiasNeutralizer ?: true,
+            spoofWifiBssid = config?.spoofWifiBssid ?: true
         )
     }
 
@@ -145,7 +211,7 @@ class AppPackageRepository(private val context: Context) {
         val configMap = configs.associateBy { it.packageName }
         val resultMap = mutableMapOf<String, InstalledAppInfo>()
 
-        // 1. Query launcher apps (user-visible installed apps like Snapchat, WhatsApp, etc.)
+        // 1. Query launcher apps (user-visible installed apps like Snapchat, Chrome, WhatsApp, etc.)
         try {
             val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
                 addCategory(Intent.CATEGORY_LAUNCHER)
@@ -157,7 +223,8 @@ class AppPackageRepository(private val context: Context) {
                 if (pkg == context.packageName) continue
 
                 val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-                if (!includeSystemApps && isSystem) continue
+                val isBrowser = pkg == "com.android.chrome" || pkg.contains("browser") || pkg.contains("webview")
+                if (!includeSystemApps && isSystem && !isBrowser) continue
 
                 val appName = try {
                     packageManager.getApplicationLabel(appInfo).toString()
@@ -191,7 +258,8 @@ class AppPackageRepository(private val context: Context) {
                 if (pkg == context.packageName || resultMap.containsKey(pkg)) continue
 
                 val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-                if (!includeSystemApps && isSystem) continue
+                val isBrowser = pkg == "com.android.chrome" || pkg.contains("browser") || pkg.contains("webview")
+                if (!includeSystemApps && isSystem && !isBrowser) continue
 
                 val appName = try {
                     packageManager.getApplicationLabel(appInfo).toString()
@@ -231,8 +299,9 @@ class AppPackageRepository(private val context: Context) {
         }
 
         resultMap.values.sortedWith(
-            compareByDescending<InstalledAppInfo> { it.isIsolated || it.isHiddenOrDisguised || it.isIdentitySpoofed }
-                .thenBy { it.appName.lowercase() }
+            compareByDescending<InstalledAppInfo> {
+                it.isIsolated || it.isHiddenOrDisguised || it.isIdentitySpoofed || it.vpnProxyEnabled
+            }.thenBy { it.appName.lowercase() }
         )
     }
 }

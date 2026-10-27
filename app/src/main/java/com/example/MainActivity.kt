@@ -78,7 +78,8 @@ enum class NavDestination(val label: String) {
     DEVICE_SPOOFER("Privacy"),
     AUDIT("Activity"),
     SETTINGS("Settings"),
-    MOUNTS("System")
+    MOUNTS("System"),
+    VPN_PROXY("V2Ray & Proxy")
 }
 
 class MainActivity : ComponentActivity() {
@@ -307,7 +308,8 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                         currentScreen = NavDestination.VAULT
                     },
                     onNavigateToTerminal = { currentScreen = NavDestination.MOUNTS },
-                    onNavigateToAudit = { currentScreen = NavDestination.AUDIT }
+                    onNavigateToAudit = { currentScreen = NavDestination.AUDIT },
+                    onNavigateToVpnProxy = { currentScreen = NavDestination.VPN_PROXY }
                 )
                 NavDestination.APPS -> AppsScreen(
                     viewModel = viewModel,
@@ -318,6 +320,10 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                     onBack = { currentScreen = NavDestination.DASHBOARD }
                 )
                 NavDestination.DEVICE_SPOOFER -> DeviceSpooferScreen(
+                    viewModel = viewModel,
+                    onBack = { currentScreen = NavDestination.DASHBOARD }
+                )
+                NavDestination.VPN_PROXY -> com.example.isolation.ui.screens.VpnProxyScreen(
                     viewModel = viewModel,
                     onBack = { currentScreen = NavDestination.DASHBOARD }
                 )

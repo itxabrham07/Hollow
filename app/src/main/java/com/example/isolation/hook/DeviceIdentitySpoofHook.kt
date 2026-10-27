@@ -135,6 +135,7 @@ object DeviceIdentitySpoofHook {
         attachLocationMockHooks(lpparam, currentPkg, xSharedPrefs)
         attachAppClonerPrivacyHooks(lpparam, currentPkg, xSharedPrefs)
         attachDigitalFootprintHooks(lpparam, currentPkg, xSharedPrefs)
+        attachDeadmanSwitchHooks(lpparam, currentPkg, xSharedPrefs)
     }
 
     private fun obtainXPrefs(passed: XSharedPreferences?): XSharedPreferences? {
@@ -261,13 +262,24 @@ object DeviceIdentitySpoofHook {
                 XposedHelpers.setStaticObjectField(Build::class.java, "DEVICE", rule.device)
                 XposedHelpers.setStaticObjectField(Build::class.java, "PRODUCT", rule.product)
                 XposedHelpers.setStaticObjectField(Build::class.java, "BOARD", rule.board)
-                XposedHelpers.setStaticObjectField(Build::class.java, "HARDWARE", rule.board)
+                XposedHelpers.setStaticObjectField(Build::class.java, "HARDWARE", rule.hardware.ifBlank { rule.board })
+                if (rule.bootloader.isNotBlank()) {
+                    XposedHelpers.setStaticObjectField(Build::class.java, "BOOTLOADER", rule.bootloader)
+                }
                 XposedHelpers.setStaticObjectField(Build::class.java, "FINGERPRINT", rule.fingerprint)
                 XposedHelpers.setStaticObjectField(Build::class.java, "SERIAL", rule.serial)
             }
             if (rule.hideRootAndXposed) {
                 XposedHelpers.setStaticObjectField(Build::class.java, "TAGS", "release-keys")
                 XposedHelpers.setStaticObjectField(Build::class.java, "TYPE", "user")
+            }
+            if (rule.vpnProxyEnabled) {
+                System.setProperty("socksProxyHost", rule.proxyHost)
+                System.setProperty("socksProxyPort", rule.proxyPort.toString())
+                System.setProperty("http.proxyHost", rule.proxyHost)
+                System.setProperty("http.proxyPort", rule.proxyPort.toString())
+                System.setProperty("https.proxyHost", rule.proxyHost)
+                System.setProperty("https.proxyPort", rule.proxyPort.toString())
             }
         } catch (_: Throwable) {}
     }
@@ -296,7 +308,9 @@ object DeviceIdentitySpoofHook {
                                 "ro.product.model", "ro.product.system.model", "ro.product.vendor.model" -> if (isIdentityOn) rule.model else null
                                 "ro.product.device", "ro.product.system.device", "ro.product.vendor.device", "ro.build.product" -> if (isIdentityOn) rule.device else null
                                 "ro.product.name", "ro.product.system.name", "ro.product.vendor.name" -> if (isIdentityOn) rule.product else null
-                                "ro.product.board", "ro.hardware" -> if (isIdentityOn) rule.board else null
+                                "ro.product.board" -> if (isIdentityOn) rule.board else null
+                                "ro.hardware", "ro.boot.hardware" -> if (isIdentityOn) rule.hardware.ifBlank { rule.board } else null
+                                "ro.bootloader", "ro.boot.bootloader" -> if (isIdentityOn && rule.bootloader.isNotBlank()) rule.bootloader else null
                                 "ro.build.fingerprint", "ro.system.build.fingerprint", "ro.vendor.build.fingerprint", "ro.bootimage.build.fingerprint" -> if (isIdentityOn) rule.fingerprint else null
                                 "ro.serialno", "ro.boot.serialno" -> if (isIdentityOn) rule.serial else null
                                 "gsm.sim.operator.alpha", "gsm.operator.alpha" -> if (isIdentityOn) rule.carrierName else null
@@ -309,7 +323,13 @@ object DeviceIdentitySpoofHook {
                                 "ro.boot.vbmeta.device_state" -> if (rule.hideRootAndXposed) "locked" else null
                                 "ro.boot.verifiedbootstate" -> if (rule.hideRootAndXposed) "green" else null
                                 "ro.boot.flash.locked" -> if (rule.hideRootAndXposed) "1" else null
-                                "persist.sys.timezone" -> if (rule.autoSyncTimezone) resolveTimezoneForCoordinates(rule.spoofLatitude, rule.spoofLongitude) else null
+                                "persist.sys.timezone" -> when {
+                                    rule.vpnProxyEnabled && rule.matchTimezoneWithIp && rule.proxyTimezoneId.isNotBlank() -> rule.proxyTimezoneId
+                                    rule.isIdentitySpoofed && rule.timezoneId.isNotBlank() -> rule.timezoneId
+                                    rule.autoSyncTimezone && rule.spoofLocationEnabled -> resolveTimezoneForCoordinates(rule.spoofLatitude, rule.spoofLongitude)
+                                    else -> null
+                                }
+                                "persist.sys.locale", "ro.product.locale" -> if (isIdentityOn && rule.localeTag.isNotBlank()) rule.localeTag else null
                                 else -> null
                             }
                             if (spoofed != null) {
@@ -592,7 +612,7 @@ object DeviceIdentitySpoofHook {
                         val prop = param.args.firstOrNull() as? String ?: return
                         if (prop == MediaDrm.PROPERTY_DEVICE_UNIQUE_ID || prop == "deviceUniqueId") {
                             val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
-                            if (!rule.isIdentitySpoofed) return
+                            if (!rule.isIdentitySpoofed && !rule.spoofDrmWidevine) return
                             val seed = "${rule.androidId}:${rule.imei}:${rule.serial}"
                             val digest = MessageDigest.getInstance("SHA-256").digest(seed.toByteArray())
                             param.result = digest
@@ -994,7 +1014,7 @@ object DeviceIdentitySpoofHook {
             )
         } catch (_: Throwable) {}
 
-        // 5. Network Kill Switch (Block All Internet Access)
+        // 5. Network Kill Switch & Per-App VPN/Proxy Gate (V2Ray / SOCKS5 / HTTP)
         try {
             XposedBridge.hookAllMethods(
                 Socket::class.java,
@@ -1003,8 +1023,24 @@ object DeviceIdentitySpoofHook {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
                         if (rule.disableAllNetworking) {
-                            throw ConnectException("IsoVault Privacy Shield: All networking blocked for $currentPkg")
+                            throw ConnectException("Hollow Privacy Shield: All networking blocked for $currentPkg")
                         }
+                        if (rule.requireVpnForNetwork && !rule.vpnProxyEnabled) {
+                            throw ConnectException("Hollow VPN Kill-Switch: VPN/Proxy is required for $currentPkg")
+                        }
+                    }
+                }
+            )
+            XposedBridge.hookAllMethods(
+                java.net.ProxySelector::class.java,
+                "select",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                        if (!rule.vpnProxyEnabled) return
+                        val type = if (rule.proxyProtocol == "HTTP") java.net.Proxy.Type.HTTP else java.net.Proxy.Type.SOCKS
+                        val addr = java.net.InetSocketAddress.createUnresolved(rule.proxyHost, rule.proxyPort)
+                        param.result = listOf(java.net.Proxy(type, addr))
                     }
                 }
             )
@@ -1026,10 +1062,10 @@ object DeviceIdentitySpoofHook {
                     val name = param.args.firstOrNull() as? Int ?: return
                     when (name) {
                         GLES20.GL_RENDERER -> { // 0x1F01
-                            param.result = rule.preset.glRenderer
+                            param.result = rule.gpuRenderer.ifBlank { rule.preset.glRenderer }
                         }
                         GLES20.GL_VENDOR -> { // 0x1F00
-                            param.result = rule.preset.glVendor
+                            param.result = rule.gpuVendor.ifBlank { rule.preset.glVendor }
                         }
                     }
                 }
@@ -1045,17 +1081,13 @@ object DeviceIdentitySpoofHook {
             } catch (_: Throwable) {}
         } catch (_: Throwable) {}
 
-        // 2. Browser & In-App WebView User-Agent Cloaking
+        // 2. Chrome, Browser & In-App WebView User-Agent + Deep JS Fingerprint Cloaking
         try {
             val uaHook = object : XC_MethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam) {
                     val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
                     if (!rule.spoofBrowserUserAgent) return
-                    val chromeVersion = "128.0.0.0"
-                    val releaseVer = rule.fingerprint.split(":").getOrNull(1)?.split("/")?.firstOrNull() ?: "14"
-                    val modelStr = rule.model.ifBlank { rule.preset.model }
-                    val buildIdStr = rule.fingerprint.split("/").getOrNull(3) ?: "AP1A.240505.004"
-                    param.result = "Mozilla/5.0 (Linux; Android $releaseVer; $modelStr Build/$buildIdStr) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$chromeVersion Mobile Safari/537.36"
+                    param.result = buildEffectiveUserAgent(rule)
                 }
             }
 
@@ -1065,11 +1097,85 @@ object DeviceIdentitySpoofHook {
             try {
                 XposedBridge.hookAllMethods(WebSettings::class.java, "getUserAgentString", uaHook)
             } catch (_: Throwable) {}
+
+            // Inject Chrome/WebView JS Fingerprint Shield into WebView loads
+            val webViewCls = android.webkit.WebView::class.java
+            val webViewInjectHook = object : XC_MethodHook() {
+                override fun afterHookedMethod(param: MethodHookParam) {
+                    val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                    if (!rule.isIdentitySpoofed && !rule.spoofBrowserUserAgent && !rule.spoofWebRtc && !rule.spoofCanvasNoise) return
+                    val wv = param.thisObject as? android.webkit.WebView ?: return
+                    try {
+                        if (rule.spoofBrowserUserAgent) {
+                            wv.settings.userAgentString = buildEffectiveUserAgent(rule)
+                        }
+                        val js = buildBrowserFingerprintCloakJs(rule)
+                        wv.evaluateJavascript(js, null)
+                    } catch (_: Throwable) {}
+                }
+            }
+            for (m in listOf("loadUrl", "loadData", "loadDataWithBaseURL", "onAttachedToWindow")) {
+                try {
+                    XposedBridge.hookAllMethods(webViewCls, m, webViewInjectHook)
+                } catch (_: Throwable) {}
+            }
         } catch (_: Throwable) {}
 
-        // 3. Hardware Sensor Footprint Anonymizer (Block acoustic & sensor bias hardware fingerprinting)
+        // 3. CPU Cores (Runtime.availableProcessors), RAM (ActivityManager.getMemoryInfo), & Screen DisplayMetrics
         try {
-            // Anonymize Sensor.getVendor() & Sensor.getName()
+            XposedBridge.hookAllMethods(
+                Runtime::class.java,
+                "availableProcessors",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                        if (rule.isIdentitySpoofed && rule.cpuCores > 0) {
+                            param.result = rule.cpuCores
+                        }
+                    }
+                }
+            )
+            XposedBridge.hookAllMethods(
+                android.app.ActivityManager::class.java,
+                "getMemoryInfo",
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                        if (!rule.isIdentitySpoofed || rule.ramGb <= 0) return
+                        val memInfo = param.args.firstOrNull() as? android.app.ActivityManager.MemoryInfo ?: return
+                        val totalBytes = rule.ramGb.toLong() * 1024L * 1024L * 1024L
+                        memInfo.totalMem = totalBytes
+                        memInfo.availMem = (totalBytes * 58L) / 100L
+                    }
+                }
+            )
+            XposedBridge.hookAllMethods(
+                android.content.res.Resources::class.java,
+                "getDisplayMetrics",
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                        if (!rule.isIdentitySpoofed) return
+                        val dm = param.result as? android.util.DisplayMetrics ?: return
+                        if (rule.screenResolution.contains("x")) {
+                            val w = rule.screenResolution.substringBefore("x").toIntOrNull()
+                            val h = rule.screenResolution.substringAfter("x").toIntOrNull()
+                            if (w != null && h != null && w > 0 && h > 0) {
+                                dm.widthPixels = w
+                                dm.heightPixels = h
+                            }
+                        }
+                        if (rule.screenDpi > 0) {
+                            dm.densityDpi = rule.screenDpi
+                            dm.density = rule.screenDpi / 160f
+                        }
+                    }
+                }
+            )
+        } catch (_: Throwable) {}
+
+        // 4. Hardware Sensor Footprint Anonymizer (Block acoustic & sensor bias hardware fingerprinting)
+        try {
             try {
                 XposedBridge.hookAllMethods(
                     Sensor::class.java,
@@ -1103,7 +1209,7 @@ object DeviceIdentitySpoofHook {
             } catch (_: Throwable) {}
         } catch (_: Throwable) {}
 
-        // 4. Cell Tower & Radio Triangulation Shield (Blocks cellular positioning bypass)
+        // 5. Cell Tower & Radio Triangulation Shield (Blocks cellular positioning bypass)
         try {
             val tmCls = TelephonyManager::class.java
             val emptyCellInfoHook = object : XC_MethodHook() {
@@ -1150,7 +1256,7 @@ object DeviceIdentitySpoofHook {
             } catch (_: Throwable) {}
         } catch (_: Throwable) {}
 
-        // 5. TimeZone Auto-Synchronization with Coordinates
+        // 6. TimeZone Synchronization with Exit IP (VPN/Proxy) or Spoofed Timezone / Coordinates
         try {
             XposedBridge.hookAllMethods(
                 TimeZone::class.java,
@@ -1158,14 +1264,115 @@ object DeviceIdentitySpoofHook {
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
-                        if (rule.autoSyncTimezone) {
-                            val tzId = resolveTimezoneForCoordinates(rule.spoofLatitude, rule.spoofLongitude)
+                        val tzId = when {
+                            rule.vpnProxyEnabled && rule.matchTimezoneWithIp && rule.proxyTimezoneId.isNotBlank() ->
+                                rule.proxyTimezoneId
+                            rule.isIdentitySpoofed && rule.timezoneId.isNotBlank() ->
+                                rule.timezoneId
+                            rule.autoSyncTimezone && rule.spoofLocationEnabled ->
+                                resolveTimezoneForCoordinates(rule.spoofLatitude, rule.spoofLongitude)
+                            else -> null
+                        }
+                        if (tzId != null) {
                             param.result = TimeZone.getTimeZone(tzId)
                         }
                     }
                 }
             )
         } catch (_: Throwable) {}
+    }
+
+    private fun buildEffectiveUserAgent(rule: IsolationRuleManager.IdentitySpoofRule): String {
+        if (rule.customUserAgent.isNotBlank()) return rule.customUserAgent
+        val chromeVersion = "131.0.6778.200"
+        val releaseVer = rule.fingerprint.split(":").getOrNull(1)?.split("/")?.firstOrNull() ?: "15"
+        val modelStr = rule.model.ifBlank { rule.preset.model }
+        val buildIdStr = rule.fingerprint.split("/").getOrNull(3) ?: "AP3A.241005.015"
+        return "Mozilla/5.0 (Linux; Android $releaseVer; $modelStr Build/$buildIdStr) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$chromeVersion Mobile Safari/537.36"
+    }
+
+    /**
+     * Generates a comprehensive JavaScript stealth payload injected into Chrome & WebViews
+     * so browser fingerprinting scripts (FingerprintJS, Cloudflare, CreepJS, Meta/Snap WebViews)
+     * see the spoofed hardware, WebGL, Canvas, AudioContext, WebRTC, and Exit-IP Timezone.
+     */
+    private fun buildBrowserFingerprintCloakJs(rule: IsolationRuleManager.IdentitySpoofRule): String {
+        val ua = buildEffectiveUserAgent(rule).replace("'", "\\'")
+        val model = rule.model.ifBlank { "Pixel 9 Pro" }.replace("'", "\\'")
+        val glVendor = rule.gpuVendor.ifBlank { "Qualcomm" }.replace("'", "\\'")
+        val glRenderer = rule.gpuRenderer.ifBlank { "Adreno (TM) 750" }.replace("'", "\\'")
+        val cores = rule.cpuCores.coerceIn(2, 16)
+        val ram = rule.ramGb.coerceIn(2, 24)
+        val tz = (if (rule.vpnProxyEnabled && rule.matchTimezoneWithIp) rule.proxyTimezoneId else rule.timezoneId)
+            .ifBlank { "America/New_York" }.replace("'", "\\'")
+        val lang = rule.localeTag.ifBlank { "en-US" }.replace("'", "\\'")
+        val screenW = rule.screenResolution.substringBefore("x").toIntOrNull() ?: 1080
+        val screenH = rule.screenResolution.substringAfter("x").toIntOrNull() ?: 2400
+        val noiseSeed = (rule.androidId.take(6).toIntOrNull(16) ?: 42) % 7 + 1
+
+        return """
+            (function() {
+                if (window.__hollowFpCloaked) return;
+                window.__hollowFpCloaked = true;
+                try {
+                    Object.defineProperty(navigator, 'userAgent', { get: () => '$ua' });
+                    Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => $cores });
+                    Object.defineProperty(navigator, 'deviceMemory', { get: () => $ram });
+                    Object.defineProperty(navigator, 'language', { get: () => '$lang' });
+                    Object.defineProperty(navigator, 'languages', { get: () => ['$lang', 'en'] });
+                    Object.defineProperty(navigator, 'doNotTrack', { get: () => '1' });
+                    Object.defineProperty(navigator, 'globalPrivacyControl', { get: () => true });
+                    Object.defineProperty(screen, 'width', { get: () => $screenW });
+                    Object.defineProperty(screen, 'height', { get: () => $screenH });
+                    if (${rule.spoofClientHints} && navigator.userAgentData) {
+                        Object.defineProperty(navigator, 'userAgentData', {
+                            get: () => ({
+                                brands: [{brand: 'Google Chrome', version: '131'}, {brand: 'Chromium', version: '131'}],
+                                mobile: true,
+                                platform: 'Android',
+                                getHighEntropyValues: async () => ({
+                                    architecture: 'arm',
+                                    bitness: '64',
+                                    model: '$model',
+                                    platform: 'Android',
+                                    platformVersion: '15.0.0',
+                                    uaFullVersion: '131.0.6778.200'
+                                })
+                            })
+                        });
+                    }
+                    if (${rule.spoofGpuFingerprint} && window.WebGLRenderingContext) {
+                        const origGetParam = WebGLRenderingContext.prototype.getParameter;
+                        WebGLRenderingContext.prototype.getParameter = function(p) {
+                            if (p === 37445) return '$glVendor';
+                            if (p === 37446) return '$glRenderer';
+                            return origGetParam.apply(this, arguments);
+                        };
+                    }
+                    if (${rule.spoofCanvasNoise} && window.HTMLCanvasElement) {
+                        const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
+                        HTMLCanvasElement.prototype.toDataURL = function() {
+                            const ctx = this.getContext && this.getContext('2d');
+                            if (ctx) {
+                                ctx.fillStyle = 'rgba($noiseSeed, $noiseSeed, $noiseSeed, 0.01)';
+                                ctx.fillRect(0, 0, 1, 1);
+                            }
+                            return origToDataURL.apply(this, arguments);
+                        };
+                    }
+                    if (${rule.spoofWebRtc}) {
+                        window.RTCPeerConnection = undefined;
+                        window.webkitRTCPeerConnection = undefined;
+                    }
+                    const origResolved = Intl.DateTimeFormat.prototype.resolvedOptions;
+                    Intl.DateTimeFormat.prototype.resolvedOptions = function() {
+                        const res = origResolved.apply(this, arguments);
+                        res.timeZone = '$tz';
+                        return res;
+                    };
+                } catch (e) {}
+            })();
+        """.trimIndent()
     }
 
     private fun resolveTimezoneForCoordinates(lat: Double, lng: Double): String {
@@ -1186,5 +1393,40 @@ object DeviceIdentitySpoofHook {
                 else "GMT$offsetHours"
             }
         }
+    }
+
+    private fun attachDeadmanSwitchHooks(
+        lpparam: XC_LoadPackage.LoadPackageParam,
+        currentPkg: String,
+        xSharedPrefs: XSharedPreferences?
+    ) {
+        val sensitivePaths = listOf(
+            "/proc/cpuinfo",
+            "/sys/class/net/wlan0/address",
+            "/sys/devices/soc0/serial_number",
+            "/sys/class/net/eth0/address",
+            "/proc/net/arp"
+        )
+        try {
+            XposedHelpers.findAndHookConstructor(
+                File::class.java,
+                String::class.java,
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val path = param.args.firstOrNull() as? String ?: return
+                        val norm = path.replace("\\", "/").trim()
+                        if (sensitivePaths.any { norm.startsWith(it) }) {
+                            val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                            if (rule.deadmanSwitchEnabled) {
+                                XposedBridge.log("[IsoVault DEADMAN] Intercepted identity leak attempt in $currentPkg: $norm")
+                                try {
+                                    android.os.Process.killProcess(android.os.Process.myPid())
+                                } catch (_: Throwable) {}
+                            }
+                        }
+                    }
+                }
+            )
+        } catch (_: Throwable) {}
     }
 }

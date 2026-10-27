@@ -336,8 +336,8 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
                 if (bundle != null && bundle.getBoolean("isConfigured", false)) {
                     val explicitlyDisabled = bundle.getBoolean("explicitlyDisabled", false)
                     val isolated = bundle.getBoolean("isIsolated", true) && !explicitlyDisabled
-                    val modeStr = bundle.getString("mode", "ENCRYPTED_VAULT") ?: "ENCRYPTED_VAULT"
-                    val mode = try { IsolationMode.valueOf(modeStr) } catch (_: Exception) { IsolationMode.ENCRYPTED_VAULT }
+                    val modeStr = bundle.getString("mode", "SHARED_WORKSPACE") ?: "SHARED_WORKSPACE"
+                    val mode = try { IsolationMode.valueOf(modeStr) } catch (_: Exception) { IsolationMode.SHARED_WORKSPACE }
                     val pollution = bundle.getBoolean("blockPollution", true)
                     val whitelistStr = bundle.getString("whitelistedFolders", "") ?: ""
                     val whitelist = whitelistStr.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
@@ -356,8 +356,8 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             if (prefs.getBoolean("${pkg}_configured", false)) {
                 val explicitlyDisabled = prefs.getBoolean("${pkg}_explicitly_disabled", false)
                 val isolated = prefs.getBoolean("${pkg}_isolated", true) && !explicitlyDisabled
-                val modeStr = prefs.getString("${pkg}_mode", "ENCRYPTED_VAULT") ?: "ENCRYPTED_VAULT"
-                val mode = try { IsolationMode.valueOf(modeStr) } catch (_: Exception) { IsolationMode.ENCRYPTED_VAULT }
+                val modeStr = prefs.getString("${pkg}_mode", "SHARED_WORKSPACE") ?: "SHARED_WORKSPACE"
+                val mode = try { IsolationMode.valueOf(modeStr) } catch (_: Exception) { IsolationMode.SHARED_WORKSPACE }
                 val pollution = prefs.getBoolean("${pkg}_pollution", true)
                 val whitelistStr = prefs.getString("${pkg}_whitelist", "") ?: ""
                 val whitelist = whitelistStr.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
@@ -366,8 +366,8 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             }
         } catch (_: Throwable) {}
 
-        // 3. Default: isolate regular apps in scope, but do not isolate home launchers by default
-        //    if the user only added the launcher to Vector scope for App Hider / Disguise hooks.
+        // 3. Default: connect regular apps in scope to Hollow Drive (SHARED_WORKSPACE),
+        //    but do not isolate home launchers by default.
         val isLauncherPkg = pkg.contains("launcher", ignoreCase = true) ||
                 pkg == "com.miui.home" ||
                 pkg == "com.bbk.launcher2" ||
@@ -375,7 +375,7 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
         return IsolationRuleManager.AppRule(
             packageName = pkg,
             isIsolated = !isLauncherPkg,
-            mode = IsolationMode.ENCRYPTED_VAULT,
+            mode = IsolationMode.SHARED_WORKSPACE,
             blockRootPollution = true,
             whitelistedFolders = emptySet()
         )
@@ -1422,7 +1422,10 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             return false
         }
         if (norm.contains("/IsoVault_Sandbox") ||
+            norm.contains("/hollow_drive") ||
+            norm.contains("/hollow_drives") ||
             norm.contains("/Hollow_Workspace") ||
+            norm.contains("/Hollow_Drives") ||
             (pkg.isNotBlank() && norm.contains("/Android/data/$pkg"))
         ) {
             return false
@@ -1469,34 +1472,46 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
 
     private fun getOrCreateSandboxRoot(pkg: String): File {
         val rule = try { resolveRuleForPackage(pkg) } catch (_: Throwable) { null }
-        if (rule?.mode == IsolationMode.SHARED_WORKSPACE) {
-            val sharedDir = File("/storage/emulated/0/Hollow_Workspace")
-            val sharedReady = try {
-                if (!sharedDir.exists()) sharedDir.mkdirs()
-                sharedDir.exists() && sharedDir.canWrite()
-            } catch (_: Throwable) {
-                false
+        val mode = rule?.mode ?: IsolationMode.SHARED_WORKSPACE
+        val app = try { AndroidAppHelper.currentApplication() } catch (_: Throwable) { null }
+
+        val rootDir = if (mode == IsolationMode.SHARED_WORKSPACE) {
+            // Unified private Hollow Drive for all apps
+            val candidateShared = File("/data/user/0/$MODULE_PKG/files/hollow_drive")
+            val candidateReady = try {
+                if (!candidateShared.exists()) candidateShared.mkdirs()
+                candidateShared.exists() && candidateShared.canWrite()
+            } catch (_: Throwable) { false }
+
+            if (candidateReady) {
+                candidateShared
+            } else {
+                val fallbackBase = if (app != null) File(app.filesDir, "hollow_drive")
+                                   else File("/data/user/0/$pkg/files/hollow_drive")
+                fallbackBase.apply { mkdirs() }
             }
-            if (sharedReady) {
-                val subDirs = listOf("DCIM", "DCIM/Camera", "Pictures", "Movies", "Download", "Documents", "Music")
-                for (sub in subDirs) {
-                    try { File(sharedDir, sub).mkdirs() } catch (_: Throwable) {}
-                }
-                return sharedDir
+        } else {
+            // Dedicated per-app separate drive
+            val candidateSeparate = File("/data/user/0/$MODULE_PKG/files/hollow_drives/$pkg")
+            val candidateReady = try {
+                if (!candidateSeparate.exists()) candidateSeparate.mkdirs()
+                candidateSeparate.exists() && candidateSeparate.canWrite()
+            } catch (_: Throwable) { false }
+
+            if (candidateReady) {
+                candidateSeparate
+            } else {
+                val fallbackBase = if (app != null) File(app.filesDir, "hollow_drives/$pkg")
+                                   else File("/data/user/0/$pkg/files/hollow_drives/$pkg")
+                fallbackBase.apply { mkdirs() }
             }
         }
 
-        val baseDir = try {
-            val app = AndroidAppHelper.currentApplication()
-            if (app != null) File(app.filesDir, "IsoVault_Sandbox") else null
-        } catch (_: Throwable) { null }
+        try {
+            val nomedia = File(rootDir, ".nomedia")
+            if (!nomedia.exists()) nomedia.createNewFile()
+        } catch (_: Throwable) {}
 
-        val sandbox = baseDir ?: File("/data/user/0/$pkg/files/IsoVault_Sandbox")
-        if (!sandbox.exists()) {
-            sandbox.mkdirs()
-        }
-
-        // Pre-create standard storage hierarchy so the app finds a real Android filesystem layout
         val subDirs = listOf(
             "DCIM",
             "DCIM/Camera",
@@ -1508,9 +1523,9 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             "Android/media/$pkg"
         )
         for (sub in subDirs) {
-            try { File(sandbox, sub).mkdirs() } catch (_: Throwable) {}
+            try { File(rootDir, sub).mkdirs() } catch (_: Throwable) {}
         }
-        return sandbox
+        return rootDir
     }
 
     private fun redirectPathForApp(

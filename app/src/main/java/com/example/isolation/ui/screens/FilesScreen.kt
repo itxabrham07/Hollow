@@ -180,6 +180,10 @@ fun FilesScreen(
                         }
                         subView = GoogleFilesSubView.FOLDER_EXPLORER
                     },
+                    onOpenSeparateDrive = { pkg, name ->
+                        fmViewModel.openSeparateAppDrive(pkg, name)
+                        subView = GoogleFilesSubView.FOLDER_EXPLORER
+                    },
                     onOpenApps = onNavigateToApps
                 )
             }
@@ -216,6 +220,7 @@ private fun GoogleFilesBrowseHome(
     onOpenCategoryGallery: (String) -> Unit,
     onOpenSafeFolder: () -> Unit,
     onOpenFolder: (StorageRootType, String?) -> Unit,
+    onOpenSeparateDrive: (packageName: String, appName: String) -> Unit = { _, _ -> },
     onOpenApps: () -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
@@ -422,11 +427,16 @@ private fun GoogleFilesBrowseHome(
             }
         }
 
-        // 4. Hollow Workspace Storage Card (Internal device storage removed as requested)
+        // 4. Storage Devices: Internal Storage (Hollow Drive) & External Storage (Assigned App Drives)
         item {
+            val allApps by isoViewModel.allInstalledApps.collectAsState()
+            val separateDriveApps = allApps.filter {
+                it.isIsolated && it.isolationMode != com.example.isolation.model.IsolationMode.SHARED_WORKSPACE
+            }
+
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "Workspace storage",
+                    text = "Storage devices",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
                     color = scheme.onSurface,
@@ -439,13 +449,49 @@ private fun GoogleFilesBrowseHome(
                         breakdown.docsAndCodeBytes +
                         breakdown.archivesBytes
 
+                // Main Internal Storage: Hollow Drive
                 GoogleFilesStorageDeviceCard(
-                    title = "Hollow workspace",
-                    subtitle = "${formatBytes(workspaceUsedBytes)} in isolated folders, notes & archives",
+                    title = "Hollow Drive (Internal Storage)",
+                    subtitle = "${formatBytes(workspaceUsedBytes)} • Zero-exposure private storage (Hidden from Google Files)",
                     icon = Icons.Default.Folder,
                     progressFraction = 0.28f,
                     onClick = { onOpenFolder(StorageRootType.WORKSPACE, null) }
                 )
+
+                // Assigned App Drives (Appearing like SD Cards / External Storage below Hollow Drive)
+                if (separateDriveApps.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Assigned drives (External storage)",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = scheme.onSurfaceVariant,
+                        fontFamily = JakartaFontFamily
+                    )
+                    separateDriveApps.forEach { app ->
+                        GoogleFilesStorageDeviceCard(
+                            title = "${app.appName} Drive",
+                            subtitle = "Dedicated isolated storage volume • Tap to explore",
+                            icon = Icons.AutoMirrored.Filled.InsertDriveFile,
+                            progressFraction = 0.15f,
+                            onClick = { onOpenSeparateDrive(app.packageName, app.appName) }
+                        )
+                    }
+                } else {
+                    Surface(
+                        color = scheme.surfaceContainerLow,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "All apps use unified Hollow Drive by default. Per-app assigned drives appear here like SD cards.",
+                            fontSize = 12.sp,
+                            color = scheme.onSurfaceVariant,
+                            fontFamily = JakartaFontFamily,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                        )
+                    }
+                }
             }
         }
         }

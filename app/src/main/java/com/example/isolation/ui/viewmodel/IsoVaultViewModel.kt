@@ -23,11 +23,19 @@ import com.example.isolation.model.IsolationMode
 import com.example.isolation.model.IsolationRuleManager
 import com.example.isolation.model.LauncherVisibilityMode
 import com.example.isolation.model.PickerPolicy
+import com.example.isolation.model.RealDeviceHardware
+import com.example.isolation.model.RealHardwareSnapshot
 import com.example.isolation.model.SettingsStore
+import com.example.isolation.model.VpnProxyPresets
+import com.example.isolation.model.VpnProxyServer
 import com.example.isolation.mount.MountEntry
 import com.example.isolation.mount.MountExecutionResult
 import com.example.isolation.mount.MountManager
 import com.example.isolation.pkg.InstalledAppInfo
+import com.example.isolation.model.PrivacyProfile
+import com.example.isolation.model.PrivacyProfileStore
+import com.example.isolation.service.DeadmanIncident
+import com.example.isolation.service.RootDeadmanWatchdog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -128,7 +136,15 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
     private val _statusMessage = MutableStateFlow<String?>(null)
     val statusMessage = _statusMessage.asStateFlow()
 
-    // Full list of installed apps merged with current isolation & stealth config
+    val realHardware: RealHardwareSnapshot = RealDeviceHardware.read(app)
+
+    // Reusable Privacy Profiles & Deadman Switch State
+    private val _privacyProfiles = MutableStateFlow<List<PrivacyProfile>>(PrivacyProfileStore.loadProfiles(app))
+    val privacyProfiles: StateFlow<List<PrivacyProfile>> = _privacyProfiles.asStateFlow()
+
+    val deadmanBlockedIncidents: StateFlow<List<DeadmanIncident>> = RootDeadmanWatchdog.blockedUidsFlow
+
+    // Full list of installed apps merged with current isolation, stealth, identity & VPN config
     val allInstalledApps: StateFlow<List<InstalledAppInfo>> = combine(
         _rawInstalledApps,
         configs
@@ -138,7 +154,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             val cfg = cfgMap[app.packageName]
             app.copy(
                 isIsolated = cfg?.isIsolated ?: false,
-                isolationMode = cfg?.isolationMode ?: IsolationMode.ENCRYPTED_VAULT,
+                isolationMode = cfg?.isolationMode ?: IsolationMode.SHARED_WORKSPACE,
                 isHiddenOrDisguised = cfg?.isHiddenOrDisguised ?: false,
                 launcherVisibilityMode = cfg?.launcherVisibilityMode ?: LauncherVisibilityMode.VISIBLE,
                 customLauncherLabel = cfg?.customLauncherLabel ?: "",
@@ -149,7 +165,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 customIconBase64 = cfg?.customIconBase64 ?: "",
                 customIconDonorPkg = cfg?.customIconDonorPkg ?: "",
                 isIdentitySpoofed = cfg?.isIdentitySpoofed ?: false,
-                deviceProfilePreset = cfg?.deviceProfilePreset ?: DeviceProfilePreset.PIXEL_9_PRO,
+                deviceProfilePreset = cfg?.deviceProfilePreset ?: DeviceProfilePreset.REAL_HARDWARE,
                 spoofBrand = cfg?.spoofBrand ?: "",
                 spoofModel = cfg?.spoofModel ?: "",
                 spoofDevice = cfg?.spoofDevice ?: "",
@@ -179,12 +195,43 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 spoofBrowserUserAgent = cfg?.spoofBrowserUserAgent ?: true,
                 anonymizeSensors = cfg?.anonymizeSensors ?: true,
                 blockCellTowerTracking = cfg?.blockCellTowerTracking ?: true,
-                autoSyncTimezone = cfg?.autoSyncTimezone ?: true
+                autoSyncTimezone = cfg?.autoSyncTimezone ?: true,
+                spoofManufacturer = cfg?.spoofManufacturer ?: "",
+                spoofProduct = cfg?.spoofProduct ?: "",
+                spoofBoard = cfg?.spoofBoard ?: "",
+                spoofHardware = cfg?.spoofHardware ?: "",
+                spoofBootloader = cfg?.spoofBootloader ?: "",
+                spoofFingerprint = cfg?.spoofFingerprint ?: "",
+                spoofGpuVendor = cfg?.spoofGpuVendor ?: "",
+                spoofGpuRenderer = cfg?.spoofGpuRenderer ?: "",
+                spoofCpuCores = cfg?.spoofCpuCores ?: 0,
+                spoofRamGb = cfg?.spoofRamGb ?: 0,
+                spoofScreenResolution = cfg?.spoofScreenResolution ?: "",
+                spoofScreenDpi = cfg?.spoofScreenDpi ?: 0,
+                spoofTimezoneId = cfg?.spoofTimezoneId ?: "",
+                spoofLocaleTag = cfg?.spoofLocaleTag ?: "",
+                customUserAgent = cfg?.customUserAgent ?: "",
+                spoofWebRtc = cfg?.spoofWebRtc ?: true,
+                spoofCanvasNoise = cfg?.spoofCanvasNoise ?: true,
+                spoofAudioContext = cfg?.spoofAudioContext ?: true,
+                spoofClientHints = cfg?.spoofClientHints ?: true,
+                spoofFontEnumeration = cfg?.spoofFontEnumeration ?: true,
+                vpnProxyEnabled = cfg?.vpnProxyEnabled ?: false,
+                proxyServerId = cfg?.proxyServerId ?: _settings.value.activeProxyServerId,
+                requireVpnForNetwork = cfg?.requireVpnForNetwork ?: false,
+                matchTimezoneWithIp = cfg?.matchTimezoneWithIp ?: true,
+                webViewProxyEnabled = cfg?.webViewProxyEnabled ?: true,
+                trustAllCerts = cfg?.trustAllCerts ?: false,
+                privacyProfileId = cfg?.privacyProfileId ?: "ghost_cloak",
+                deadmanSwitchEnabled = cfg?.deadmanSwitchEnabled ?: true,
+                spoofDrmWidevine = cfg?.spoofDrmWidevine ?: true,
+                sensorBiasNeutralizer = cfg?.sensorBiasNeutralizer ?: true,
+                spoofWifiBssid = cfg?.spoofWifiBssid ?: true
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Filtered apps list combining search and filter (for Protected Apps screen)
+    // Filtered apps list combining search and filter (for Storage Isolate screen)
     val filteredApps: StateFlow<List<InstalledAppInfo>> = combine(
         allInstalledApps,
         _searchQuery,
@@ -294,9 +341,18 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             dao.insertOrUpdateConfig(updated)
 
             if (enable) {
+                if (updated.isolationMode == IsolationMode.SANDBOX_REDIRECT || updated.isolationMode == IsolationMode.ENCRYPTED_VAULT) {
+                    withContext(Dispatchers.IO) {
+                        FileManagerViewModel.resolveSeparateAppDriveRoot(app, updated.packageName)
+                    }
+                } else {
+                    withContext(Dispatchers.IO) {
+                        FileManagerViewModel.resolveHollowDriveRoot(app)
+                    }
+                }
                 updated.publishEnabled()
-                appendTerminalLog("Isolation enabled for ${appInfo.appName} (${updated.isolationMode.badge})")
-                _statusMessage.value = "${appInfo.appName} is now isolated (${updated.isolationMode.title}). Force-stop ${appInfo.appName} to apply hooks immediately."
+                appendTerminalLog("Storage Isolate enabled for ${appInfo.appName} -> ${updated.isolationMode.badge}")
+                _statusMessage.value = "${appInfo.appName} connected to ${updated.isolationMode.title}."
             } else {
                 IsolationRuleManager.disableRule(
                     packageName = updated.packageName,
@@ -318,10 +374,21 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             val existing = dao.getConfigForPackage(packageName) ?: return@launch
             val updated = existing.copy(isolationMode = newMode)
             dao.insertOrUpdateConfig(updated)
+            withContext(Dispatchers.IO) {
+                if (newMode == IsolationMode.SANDBOX_REDIRECT || newMode == IsolationMode.ENCRYPTED_VAULT) {
+                    FileManagerViewModel.resolveSeparateAppDriveRoot(app, packageName)
+                } else {
+                    FileManagerViewModel.resolveHollowDriveRoot(app)
+                }
+            }
             if (updated.isIsolated) updated.publishEnabled()
             notifyConfigChanged()
             appendTerminalLog("Mode for $packageName set to ${newMode.name}")
-            _statusMessage.value = "Updated to ${newMode.title}."
+            _statusMessage.value = if (newMode == IsolationMode.SANDBOX_REDIRECT || newMode == IsolationMode.ENCRYPTED_VAULT) {
+                "Assigned Separate App Drive (${newMode.badge}) — now visible below Hollow Drive in Files!"
+            } else {
+                "Connected to ${newMode.title}."
+            }
         }
     }
 
@@ -530,20 +597,77 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
         spoofBrowserUserAgent: Boolean = appInfo.spoofBrowserUserAgent,
         anonymizeSensors: Boolean = appInfo.anonymizeSensors,
         blockCellTowerTracking: Boolean = appInfo.blockCellTowerTracking,
-        autoSyncTimezone: Boolean = appInfo.autoSyncTimezone
+        autoSyncTimezone: Boolean = appInfo.autoSyncTimezone,
+        spoofManufacturer: String = appInfo.spoofManufacturer,
+        spoofProduct: String = appInfo.spoofProduct,
+        spoofBoard: String = appInfo.spoofBoard,
+        spoofHardware: String = appInfo.spoofHardware,
+        spoofBootloader: String = appInfo.spoofBootloader,
+        spoofFingerprint: String = appInfo.spoofFingerprint,
+        spoofGpuVendor: String = appInfo.spoofGpuVendor,
+        spoofGpuRenderer: String = appInfo.spoofGpuRenderer,
+        spoofCpuCores: Int = appInfo.spoofCpuCores,
+        spoofRamGb: Int = appInfo.spoofRamGb,
+        spoofScreenResolution: String = appInfo.spoofScreenResolution,
+        spoofScreenDpi: Int = appInfo.spoofScreenDpi,
+        spoofTimezoneId: String = appInfo.spoofTimezoneId,
+        spoofLocaleTag: String = appInfo.spoofLocaleTag,
+        customUserAgent: String = appInfo.customUserAgent,
+        spoofWebRtc: Boolean = appInfo.spoofWebRtc,
+        spoofCanvasNoise: Boolean = appInfo.spoofCanvasNoise,
+        spoofAudioContext: Boolean = appInfo.spoofAudioContext,
+        spoofClientHints: Boolean = appInfo.spoofClientHints,
+        spoofFontEnumeration: Boolean = appInfo.spoofFontEnumeration,
+        vpnProxyEnabled: Boolean = appInfo.vpnProxyEnabled,
+        proxyServerId: String = appInfo.proxyServerId,
+        requireVpnForNetwork: Boolean = false,
+        matchTimezoneWithIp: Boolean = appInfo.matchTimezoneWithIp,
+        webViewProxyEnabled: Boolean = appInfo.webViewProxyEnabled,
+        trustAllCerts: Boolean = appInfo.trustAllCerts,
+        // Reusable Privacy Profiles & Shields
+        privacyProfileId: String = appInfo.privacyProfileId,
+        deadmanSwitchEnabled: Boolean = appInfo.deadmanSwitchEnabled,
+        spoofDrmWidevine: Boolean = appInfo.spoofDrmWidevine,
+        sensorBiasNeutralizer: Boolean = appInfo.sensorBiasNeutralizer,
+        spoofWifiBssid: Boolean = appInfo.spoofWifiBssid
     ) {
         viewModelScope.launch {
             val existing = dao.getConfigForPackage(appInfo.packageName)
-            val resolvedBrand = brand.trim().ifBlank { preset.brand }
-            val resolvedModel = model.trim().ifBlank { preset.model }
-            val resolvedDevice = device.trim().ifBlank { preset.device }
-            val resolvedAndroidId = androidId.trim().ifBlank { IsolationRuleManager.generateAndroidId() }
+            val useRealBase = preset == DeviceProfilePreset.REAL_HARDWARE
+            val resolvedBrand = brand.trim().ifBlank { if (useRealBase) realHardware.brand else preset.brand }
+            val resolvedManufacturer = spoofManufacturer.trim().ifBlank { if (useRealBase) realHardware.manufacturer else preset.manufacturer }
+            val resolvedModel = model.trim().ifBlank { if (useRealBase) realHardware.model else preset.model }
+            val resolvedDevice = device.trim().ifBlank { if (useRealBase) realHardware.device else preset.device }
+            val resolvedProduct = spoofProduct.trim().ifBlank { if (useRealBase) realHardware.product else preset.product }
+            val resolvedBoard = spoofBoard.trim().ifBlank { if (useRealBase) realHardware.board else preset.board }
+            val resolvedHardware = spoofHardware.trim().ifBlank { if (useRealBase) realHardware.hardware else resolvedBoard }
+            val resolvedBootloader = spoofBootloader.trim().ifBlank { realHardware.bootloader }
+            val resolvedFingerprint = spoofFingerprint.trim().ifBlank { if (useRealBase) realHardware.fingerprint else preset.fingerprint }
+            val resolvedAndroidId = androidId.trim().ifBlank { realHardware.androidId }
             val resolvedImei = imei.trim().ifBlank { IsolationRuleManager.generateLuhnImei() }
             val resolvedAdId = advertisingId.trim().ifBlank { IsolationRuleManager.generateAdvertisingId() }
             val resolvedMac = macAddress.trim().ifBlank { IsolationRuleManager.generateMacAddress() }
-            val resolvedCarrier = carrierName.trim().ifBlank { "T-Mobile" }
-            val resolvedSimOp = simOperator.trim().ifBlank { "310260" }
-            val resolvedSerial = serial.trim().ifBlank { IsolationRuleManager.generateSerial() }
+            val resolvedCarrier = carrierName.trim().ifBlank { realHardware.carrierName }
+            val resolvedSimOp = simOperator.trim().ifBlank { realHardware.simOperator }
+            val resolvedSerial = serial.trim().ifBlank { realHardware.serial }
+            val resolvedGpuVendor = spoofGpuVendor.trim().ifBlank { if (useRealBase) realHardware.glVendor else preset.glVendor }
+            val resolvedGpuRenderer = spoofGpuRenderer.trim().ifBlank { if (useRealBase) realHardware.glRenderer else preset.glRenderer }
+            val resolvedScreenRes = spoofScreenResolution.trim().ifBlank { realHardware.screenResolution }
+            val resolvedScreenDpi = if (spoofScreenDpi > 0) spoofScreenDpi else realHardware.screenDpi
+            val resolvedCpu = if (spoofCpuCores > 0) spoofCpuCores else realHardware.cpuCores
+            val resolvedRam = if (spoofRamGb > 0) spoofRamGb else realHardware.ramGb
+
+            val activeNode = VpnProxyPresets.findById(proxyServerId.ifBlank { _settings.value.activeProxyServerId }, _settings.value.customProxyServers)
+            val resolvedTz = if (vpnProxyEnabled && matchTimezoneWithIp) {
+                activeNode.timezoneId
+            } else {
+                spoofTimezoneId.trim().ifBlank { realHardware.timezoneId }
+            }
+            val resolvedLocale = if (vpnProxyEnabled && matchTimezoneWithIp) {
+                activeNode.localeTag
+            } else {
+                spoofLocaleTag.trim().ifBlank { realHardware.localeTag }
+            }
 
             val updated = existing?.copy(
                 isIdentitySpoofed = enabled,
@@ -577,7 +701,38 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 spoofBrowserUserAgent = spoofBrowserUserAgent,
                 anonymizeSensors = anonymizeSensors,
                 blockCellTowerTracking = blockCellTowerTracking,
-                autoSyncTimezone = autoSyncTimezone
+                autoSyncTimezone = autoSyncTimezone,
+                spoofManufacturer = resolvedManufacturer,
+                spoofProduct = resolvedProduct,
+                spoofBoard = resolvedBoard,
+                spoofHardware = resolvedHardware,
+                spoofBootloader = resolvedBootloader,
+                spoofFingerprint = resolvedFingerprint,
+                spoofGpuVendor = resolvedGpuVendor,
+                spoofGpuRenderer = resolvedGpuRenderer,
+                spoofCpuCores = resolvedCpu,
+                spoofRamGb = resolvedRam,
+                spoofScreenResolution = resolvedScreenRes,
+                spoofScreenDpi = resolvedScreenDpi,
+                spoofTimezoneId = resolvedTz,
+                spoofLocaleTag = resolvedLocale,
+                customUserAgent = customUserAgent.trim(),
+                spoofWebRtc = spoofWebRtc,
+                spoofCanvasNoise = spoofCanvasNoise,
+                spoofAudioContext = spoofAudioContext,
+                spoofClientHints = spoofClientHints,
+                spoofFontEnumeration = spoofFontEnumeration,
+                vpnProxyEnabled = vpnProxyEnabled,
+                proxyServerId = proxyServerId.ifBlank { _settings.value.activeProxyServerId },
+                requireVpnForNetwork = requireVpnForNetwork,
+                matchTimezoneWithIp = matchTimezoneWithIp,
+                webViewProxyEnabled = webViewProxyEnabled,
+                trustAllCerts = trustAllCerts,
+                privacyProfileId = privacyProfileId,
+                deadmanSwitchEnabled = deadmanSwitchEnabled,
+                spoofDrmWidevine = spoofDrmWidevine,
+                sensorBiasNeutralizer = sensorBiasNeutralizer,
+                spoofWifiBssid = spoofWifiBssid
             ) ?: AppIsolationConfig(
                 packageName = appInfo.packageName,
                 appName = appInfo.appName,
@@ -613,7 +768,38 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 spoofBrowserUserAgent = spoofBrowserUserAgent,
                 anonymizeSensors = anonymizeSensors,
                 blockCellTowerTracking = blockCellTowerTracking,
-                autoSyncTimezone = autoSyncTimezone
+                autoSyncTimezone = autoSyncTimezone,
+                spoofManufacturer = resolvedManufacturer,
+                spoofProduct = resolvedProduct,
+                spoofBoard = resolvedBoard,
+                spoofHardware = resolvedHardware,
+                spoofBootloader = resolvedBootloader,
+                spoofFingerprint = resolvedFingerprint,
+                spoofGpuVendor = resolvedGpuVendor,
+                spoofGpuRenderer = resolvedGpuRenderer,
+                spoofCpuCores = resolvedCpu,
+                spoofRamGb = resolvedRam,
+                spoofScreenResolution = resolvedScreenRes,
+                spoofScreenDpi = resolvedScreenDpi,
+                spoofTimezoneId = resolvedTz,
+                spoofLocaleTag = resolvedLocale,
+                customUserAgent = customUserAgent.trim(),
+                spoofWebRtc = spoofWebRtc,
+                spoofCanvasNoise = spoofCanvasNoise,
+                spoofAudioContext = spoofAudioContext,
+                spoofClientHints = spoofClientHints,
+                spoofFontEnumeration = spoofFontEnumeration,
+                vpnProxyEnabled = vpnProxyEnabled,
+                proxyServerId = proxyServerId.ifBlank { _settings.value.activeProxyServerId },
+                requireVpnForNetwork = requireVpnForNetwork,
+                matchTimezoneWithIp = matchTimezoneWithIp,
+                webViewProxyEnabled = webViewProxyEnabled,
+                trustAllCerts = trustAllCerts,
+                privacyProfileId = privacyProfileId,
+                deadmanSwitchEnabled = deadmanSwitchEnabled,
+                spoofDrmWidevine = spoofDrmWidevine,
+                sensorBiasNeutralizer = sensorBiasNeutralizer,
+                spoofWifiBssid = spoofWifiBssid
             )
 
             dao.insertOrUpdateConfig(updated)
@@ -633,11 +819,11 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             loadInstalledApps()
 
             if (enabled) {
-                appendTerminalLog("Spoofed device identity for ${appInfo.appName} -> $resolvedBrand $resolvedModel (AID=$resolvedAndroidId)")
-                _statusMessage.value = "Device identity spoofed for ${appInfo.appName} ($resolvedModel)."
+                appendTerminalLog("Spoofed device identity for ${appInfo.appName} -> $resolvedBrand $resolvedModel (AID=$resolvedAndroidId, TZ=$resolvedTz)")
+                _statusMessage.value = "Device & Chrome identity saved for ${appInfo.appName} ($resolvedModel)."
             } else {
-                appendTerminalLog("Updated privacy settings for ${appInfo.appName}")
-                _statusMessage.value = "Privacy settings updated for ${appInfo.appName}."
+                appendTerminalLog("Updated privacy & VPN settings for ${appInfo.appName}")
+                _statusMessage.value = "Privacy & network settings updated for ${appInfo.appName}."
             }
         }
     }
@@ -646,17 +832,17 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
         saveAppIdentitySpoofConfig(
             appInfo = appInfo,
             enabled = false,
-            preset = appInfo.deviceProfilePreset,
-            brand = appInfo.spoofBrand,
-            model = appInfo.spoofModel,
-            device = appInfo.spoofDevice,
-            androidId = appInfo.spoofAndroidId,
-            imei = appInfo.spoofImei,
-            advertisingId = appInfo.spoofAdvertisingId,
-            macAddress = appInfo.spoofMacAddress,
-            carrierName = appInfo.spoofCarrierName,
-            simOperator = appInfo.spoofSimOperator,
-            serial = appInfo.spoofSerial,
+            preset = DeviceProfilePreset.REAL_HARDWARE,
+            brand = realHardware.brand,
+            model = realHardware.model,
+            device = realHardware.device,
+            androidId = realHardware.androidId,
+            imei = "",
+            advertisingId = "",
+            macAddress = "",
+            carrierName = realHardware.carrierName,
+            simOperator = realHardware.simOperator,
+            serial = realHardware.serial,
             hideRootAndXposed = appInfo.hideRootAndXposed,
             hideAdbAndDevOptions = appInfo.hideAdbAndDevOptions,
             hideVpnAndProxy = appInfo.hideVpnAndProxy,
@@ -676,8 +862,243 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             spoofBrowserUserAgent = false,
             anonymizeSensors = false,
             blockCellTowerTracking = false,
-            autoSyncTimezone = false
+            autoSyncTimezone = false,
+            vpnProxyEnabled = false,
+            requireVpnForNetwork = false
         )
+    }
+
+    // ---- Privacy Profiles & Deadman Switch ------------------------------------------------
+
+    fun savePrivacyProfile(profile: PrivacyProfile) {
+        val current = _privacyProfiles.value.toMutableList()
+        val index = current.indexOfFirst { it.id == profile.id }
+        if (index >= 0) {
+            current[index] = profile
+        } else {
+            current.add(profile)
+        }
+        _privacyProfiles.value = current
+        PrivacyProfileStore.saveProfiles(app, current)
+        _statusMessage.value = "Privacy Profile '${profile.name}' saved."
+    }
+
+    fun deletePrivacyProfile(profileId: String) {
+        val current = _privacyProfiles.value.filterNot { it.id == profileId && !it.isBuiltIn }
+        _privacyProfiles.value = current
+        PrivacyProfileStore.saveProfiles(app, current)
+        _statusMessage.value = "Profile removed."
+    }
+
+    fun resetPrivacyProfilesToDefaults() {
+        val defaults = PrivacyProfileStore.resetToDefaults(app)
+        _privacyProfiles.value = defaults
+        _statusMessage.value = "Reset all Privacy Profiles to default presets."
+    }
+
+    fun applyPrivacyProfileToApp(appInfo: InstalledAppInfo, profile: PrivacyProfile) {
+        saveAppIdentitySpoofConfig(
+            appInfo = appInfo,
+            enabled = true,
+            preset = when (profile.id) {
+                PrivacyProfile.PROFILE_ANTI_FRAUD -> DeviceProfilePreset.PIXEL_9_PRO
+                PrivacyProfile.PROFILE_SOCIAL_MEDIA -> DeviceProfilePreset.SAMSUNG_S24_ULTRA
+                else -> DeviceProfilePreset.REAL_HARDWARE
+            },
+            brand = if (appInfo.spoofBrand.isNotBlank()) appInfo.spoofBrand else realHardware.brand,
+            model = if (appInfo.spoofModel.isNotBlank()) appInfo.spoofModel else realHardware.model,
+            device = if (appInfo.spoofDevice.isNotBlank()) appInfo.spoofDevice else realHardware.device,
+            androidId = if (appInfo.spoofAndroidId.isNotBlank()) appInfo.spoofAndroidId else IsolationRuleManager.generateAndroidId(),
+            imei = if (appInfo.spoofImei.isNotBlank()) appInfo.spoofImei else IsolationRuleManager.generateLuhnImei(),
+            advertisingId = if (appInfo.spoofAdvertisingId.isNotBlank()) appInfo.spoofAdvertisingId else java.util.UUID.randomUUID().toString(),
+            macAddress = if (appInfo.spoofMacAddress.isNotBlank()) appInfo.spoofMacAddress else IsolationRuleManager.generateMacAddress(),
+            carrierName = appInfo.spoofCarrierName.ifBlank { realHardware.carrierName },
+            simOperator = appInfo.spoofSimOperator.ifBlank { realHardware.simOperator },
+            serial = appInfo.spoofSerial.ifBlank { realHardware.serial },
+            hideRootAndXposed = profile.hideRootAndXposed,
+            hideAdbAndDevOptions = profile.hideAdbAndDevOptions,
+            hideVpnAndProxy = profile.hideVpnAndProxy,
+            blockClipboardRead = profile.blockClipboardRead,
+            preventScreenshots = profile.preventScreenshots,
+            disableLogcatLogging = profile.disableLogcatLogging,
+            fakeBatteryEnabled = profile.fakeBatteryEnabled,
+            fakeBatteryLevel = profile.fakeBatteryLevel,
+            autoSyncTimezone = profile.autoSyncTimezone,
+            spoofGpuFingerprint = profile.spoofGpuFingerprint,
+            spoofGpuVendor = profile.gpuVendor,
+            spoofGpuRenderer = profile.gpuRenderer,
+            spoofCanvasNoise = profile.spoofCanvasNoise,
+            spoofAudioContext = profile.spoofAudioContext,
+            spoofScreenResolution = profile.spoofScreenResolution,
+            spoofScreenDpi = profile.spoofScreenDpi,
+            anonymizeSensors = profile.anonymizeSensors,
+            sensorBiasNeutralizer = profile.sensorBiasNeutralizer,
+            spoofWebRtc = profile.spoofWebRtc,
+            blockCellTowerTracking = profile.blockCellTowerTracking,
+            spoofWifiBssid = profile.spoofWifiBssid,
+            spoofBrowserUserAgent = profile.spoofBrowserUserAgent,
+            privacyProfileId = profile.id,
+            deadmanSwitchEnabled = profile.deadmanSwitchEnabled
+        )
+        _statusMessage.value = "Applied '${profile.name}' to ${appInfo.appName}."
+    }
+
+    fun restoreAppNetwork(appUid: Int) {
+        RootDeadmanWatchdog.restoreAppNetwork(appUid)
+        _statusMessage.value = "Network restored for UID $appUid."
+    }
+
+    fun restoreAllNetworks() {
+        RootDeadmanWatchdog.restoreAllNetworks()
+        _statusMessage.value = "All network blackholes cleared."
+    }
+
+    fun simulateIdentityLeak(packageName: String, appName: String, uid: Int) {
+        RootDeadmanWatchdog.simulateIdentityLeak(app, packageName, appName, uid)
+        _statusMessage.value = "Simulated identity leak trigger for $appName (UID $uid)."
+    }
+
+    // ---- Global V2Ray / Proxy & Per-App VPN Control ----------------------------------------
+
+    fun setVpnTunnelEnabled(enabled: Boolean) {
+        updateSettings { it.copy(vpnTunnelEnabled = enabled) }
+        syncStealthRulesToHooks()
+        val server = _settings.value.activeServer
+        _statusMessage.value = if (enabled) {
+            "V2Ray / Proxy Tunnel ACTIVE -> ${server.name} (${server.exitIp} · TZ ${server.timezoneId})"
+        } else {
+            "V2Ray / Proxy Tunnel paused. VPN-dependent controls are now gated."
+        }
+    }
+
+    fun selectActiveProxyServer(serverId: String) {
+        updateSettings { it.copy(activeProxyServerId = serverId, vpnTunnelEnabled = true) }
+        syncStealthRulesToHooks()
+        val server = VpnProxyPresets.findById(serverId, _settings.value.customProxyServers)
+        _statusMessage.value = "Switched Exit Node to ${server.name} (${server.exitIp} · Timezone ${server.timezoneId})"
+    }
+
+    fun importProxyServerFromUri(uriOrConfig: String): Boolean {
+        val parsed = VpnProxyPresets.parseUri(uriOrConfig) ?: return false
+        updateSettings { current ->
+            current.copy(
+                customProxyServers = listOf(parsed) + current.customProxyServers,
+                activeProxyServerId = parsed.id,
+                vpnTunnelEnabled = true
+            )
+        }
+        syncStealthRulesToHooks()
+        _statusMessage.value = "Imported ${parsed.protocol.badge} node '${parsed.name}' (${parsed.host}:${parsed.port})."
+        return true
+    }
+
+    fun addCustomProxyServer(server: VpnProxyServer) {
+        updateSettings { current ->
+            current.copy(
+                customProxyServers = listOf(server) + current.customProxyServers,
+                activeProxyServerId = server.id,
+                vpnTunnelEnabled = true
+            )
+        }
+        syncStealthRulesToHooks()
+        _statusMessage.value = "Added ${server.protocol.badge} node '${server.name}'."
+    }
+
+    fun deleteCustomProxyServer(serverId: String) {
+        updateSettings { current ->
+            val remaining = current.customProxyServers.filterNot { it.id == serverId }
+            val nextActive = if (current.activeProxyServerId == serverId) "us_ny_vless" else current.activeProxyServerId
+            current.copy(customProxyServers = remaining, activeProxyServerId = nextActive)
+        }
+        syncStealthRulesToHooks()
+        _statusMessage.value = "Removed custom proxy node."
+    }
+
+    fun updateProxyingSuiteOptions(
+        socksProxy: Boolean = _settings.value.socksProxyEnabled,
+        httpProxy: Boolean = _settings.value.httpProxyEnabled,
+        webViewProxy: Boolean = _settings.value.webViewProxyEnabled,
+        trustAllCerts: Boolean = _settings.value.trustAllCertificates,
+        hideProxyConn: Boolean = _settings.value.hideProxyConnection,
+        hideVpnConn: Boolean = _settings.value.hideVpnConnection,
+        vpnKillSwitch: Boolean = _settings.value.vpnKillSwitchEnabled,
+        matchTzWithIp: Boolean = _settings.value.matchTimezoneWithIpGlobal,
+        showIpInfo: Boolean = _settings.value.showIpInfoInToolbar
+    ) {
+        updateSettings {
+            it.copy(
+                socksProxyEnabled = socksProxy,
+                httpProxyEnabled = httpProxy,
+                webViewProxyEnabled = webViewProxy,
+                trustAllCertificates = trustAllCerts,
+                hideProxyConnection = hideProxyConn,
+                hideVpnConnection = hideVpnConn,
+                vpnKillSwitchEnabled = vpnKillSwitch,
+                matchTimezoneWithIpGlobal = matchTzWithIp,
+                showIpInfoInToolbar = showIpInfo
+            )
+        }
+        syncStealthRulesToHooks()
+    }
+
+    fun toggleVpnGlobalKillSwitch() {
+        val current = _settings.value.vpnKillSwitchEnabled
+        updateProxyingSuiteOptions(vpnKillSwitch = !current)
+        _statusMessage.value = if (!current) "Global VPN Kill Switch: Active (Strict Zero-Leak)" else "Global VPN Kill Switch: Disabled"
+    }
+
+    fun toggleAppVpnProxy(
+        appInfo: InstalledAppInfo,
+        enabled: Boolean,
+        serverId: String = appInfo.proxyServerId.ifBlank { _settings.value.activeProxyServerId },
+        requireVpnForNetwork: Boolean = appInfo.requireVpnForNetwork,
+        matchTimezoneWithIp: Boolean = appInfo.matchTimezoneWithIp,
+        webViewProxyEnabled: Boolean = appInfo.webViewProxyEnabled,
+        trustAllCerts: Boolean = appInfo.trustAllCerts
+    ) {
+        viewModelScope.launch {
+            if (enabled && !_settings.value.vpnTunnelEnabled) {
+                updateSettings { it.copy(vpnTunnelEnabled = true) }
+            }
+            val server = VpnProxyPresets.findById(serverId, _settings.value.customProxyServers)
+            val existing = dao.getConfigForPackage(appInfo.packageName)
+            val nextTz = if (enabled && matchTimezoneWithIp) server.timezoneId else (existing?.spoofTimezoneId ?: "")
+            val nextLocale = if (enabled && matchTimezoneWithIp) server.localeTag else (existing?.spoofLocaleTag ?: "")
+            val updated = existing?.copy(
+                vpnProxyEnabled = enabled,
+                proxyServerId = serverId,
+                requireVpnForNetwork = requireVpnForNetwork,
+                matchTimezoneWithIp = matchTimezoneWithIp,
+                webViewProxyEnabled = webViewProxyEnabled,
+                trustAllCerts = trustAllCerts,
+                spoofTimezoneId = nextTz,
+                spoofLocaleTag = nextLocale
+            ) ?: AppIsolationConfig(
+                packageName = appInfo.packageName,
+                appName = appInfo.appName,
+                isIsolated = false,
+                vpnProxyEnabled = enabled,
+                proxyServerId = serverId,
+                requireVpnForNetwork = requireVpnForNetwork,
+                matchTimezoneWithIp = matchTimezoneWithIp,
+                webViewProxyEnabled = webViewProxyEnabled,
+                trustAllCerts = trustAllCerts,
+                spoofTimezoneId = nextTz,
+                spoofLocaleTag = nextLocale
+            )
+            dao.insertOrUpdateConfig(updated)
+            withContext(Dispatchers.IO) {
+                val allConfigs = dao.getAllConfigsSync()
+                IsolationRuleManager.publishStealthTable(allConfigs, _settings.value)
+                notifyConfigChanged()
+            }
+            loadInstalledApps()
+            _statusMessage.value = if (enabled) {
+                "${appInfo.appName} routed via ${server.name} (${server.exitIp} · TZ ${server.timezoneId})"
+            } else {
+                "Per-app VPN/Proxy disabled for ${appInfo.appName}."
+            }
+        }
     }
 
     fun updateHollowStealthConfig(

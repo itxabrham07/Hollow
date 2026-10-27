@@ -55,11 +55,11 @@ object IsolationRuleManager {
     )
 
     /**
-     * Per-App Device Identity & Privacy Spoofing rule read by hooked target apps.
+     * Per-App Device Identity, Chrome/WebView Footprint & VPN/Proxy rule read by hooked target apps.
      */
     data class IdentitySpoofRule(
         val packageName: String,
-        val preset: DeviceProfilePreset = DeviceProfilePreset.PIXEL_9_PRO,
+        val preset: DeviceProfilePreset = DeviceProfilePreset.REAL_HARDWARE,
         val brand: String,
         val manufacturer: String,
         val model: String,
@@ -91,12 +91,47 @@ object IsolationRuleManager {
         val fakeBatteryLevel: Int = 100,
         val knoxWarrantyBitSpoof: Boolean = false,
         val disableAllNetworking: Boolean = false,
-        // Digital Footprint & Anti-Tracking Shield (Snap, Meta, Browsers)
+        // Digital Footprint & Anti-Tracking Shield (Snap, Meta, Chrome & Browsers)
         val spoofGpuFingerprint: Boolean = true,
         val spoofBrowserUserAgent: Boolean = true,
         val anonymizeSensors: Boolean = true,
         val blockCellTowerTracking: Boolean = true,
-        val autoSyncTimezone: Boolean = true
+        val autoSyncTimezone: Boolean = true,
+        // Extended Real-First Editable Hardware & Build Fields
+        val hardware: String = "",
+        val bootloader: String = "",
+        val gpuVendor: String = "Qualcomm",
+        val gpuRenderer: String = "Adreno (TM) 750",
+        val cpuCores: Int = 8,
+        val ramGb: Int = 8,
+        val screenResolution: String = "1080x2400",
+        val screenDpi: Int = 420,
+        val timezoneId: String = "America/New_York",
+        val localeTag: String = "en-US",
+        val customUserAgent: String = "",
+        // Chrome / Browser & WebView Deep Fingerprint Spoofing
+        val spoofWebRtc: Boolean = true,
+        val spoofCanvasNoise: Boolean = true,
+        val spoofAudioContext: Boolean = true,
+        val spoofClientHints: Boolean = true,
+        val spoofFontEnumeration: Boolean = true,
+        // Per-App VPN / Proxy (V2Ray / SOCKS5 / HTTP) & VPN-Gated Controls
+        val vpnProxyEnabled: Boolean = false,
+        val proxyHost: String = "127.0.0.1",
+        val proxyPort: Int = 10808,
+        val proxyProtocol: String = "VLESS",
+        val proxyExitIp: String = "104.244.72.119",
+        val proxyTimezoneId: String = "America/New_York",
+        val requireVpnForNetwork: Boolean = false,
+        val matchTimezoneWithIp: Boolean = true,
+        val webViewProxyEnabled: Boolean = true,
+        val trustAllCerts: Boolean = false,
+        // Reusable Privacy Profiles & Anti-Fingerprint Shields
+        val privacyProfileId: String = "ghost_cloak",
+        val deadmanSwitchEnabled: Boolean = true,
+        val spoofDrmWidevine: Boolean = true,
+        val sensorBiasNeutralizer: Boolean = true,
+        val spoofWifiBssid: Boolean = true
     )
 
     const val KEY_PICKER_POLICY = "global_picker_policy"
@@ -200,19 +235,15 @@ object IsolationRuleManager {
     }
 
     /**
-     * Serializes all active app stealth rules + Hollow's own stealth settings into a compact
-     * newline-delimited table in world-readable SharedPreferences so `android`, `com.android.systemui`,
-     * `com.android.settings`, `com.android.vending`, and any launcher process can read the full
-     * stealth map in a single fast lookup.
-     *
-     * Backwards-compatible format per line (10 pipe-delimited fields, with customLabel at index 4):
-     * 0:pkg | 1:visMode | 2:iconPreset | 3:hideRecents | 4:customLabel | 5:hidePlayStore | 6:spoofSettings | 7:donorPkg | 8:donorSourceDir | 9:donorIconRes
+     * Serializes all active app stealth rules + Hollow's own stealth settings + Device Identity & VPN rules
+     * into world-readable SharedPreferences.
      */
     fun publishStealthTable(
         configs: List<AppIsolationConfig>,
         settings: AppSettings
     ) {
         val app = IsoVaultApp.instanceOrNull() ?: return
+        val realHw = RealDeviceHardware.read(app)
         val prefs = getReadableSharedPrefs(app)
         val editor = prefs.edit()
         val entries = mutableListOf<String>()
@@ -251,7 +282,7 @@ object IsolationRuleManager {
             editor.remove(customIconKey(MODULE_PKG))
         }
 
-        // 2. All apps enrolled in Hide & Disguise Apps (or hidden from Play Store)
+        // 2. All apps enrolled in Hide App
         for (cfg in configs) {
             val active = (cfg.isHiddenOrDisguised && cfg.launcherVisibilityMode != LauncherVisibilityMode.VISIBLE) ||
                     cfg.hideFromPlayStore
@@ -291,10 +322,11 @@ object IsolationRuleManager {
             }
         }
 
-        // 3. All apps enrolled in Device Identity & Privacy Spoofing
+        // 3. All apps enrolled in Device Identity, Chrome/WebView Footprint & VPN/Proxy
         val identityEntries = mutableListOf<String>()
         for (cfg in configs) {
             val hasActivePrivacy = cfg.isIdentitySpoofed ||
+                    cfg.vpnProxyEnabled ||
                     cfg.spoofLocationEnabled ||
                     cfg.preventScreenshots ||
                     cfg.hideOtherApps ||
@@ -309,60 +341,119 @@ object IsolationRuleManager {
 
             if (hasActivePrivacy) {
                 val preset = cfg.deviceProfilePreset
-                val brand = cfg.spoofBrand.ifBlank { preset.brand }.replace("|", " ").trim()
-                val manufacturer = if (cfg.spoofBrand.isNotBlank()) cfg.spoofBrand.replace("|", " ").trim() else preset.manufacturer
-                val model = cfg.spoofModel.ifBlank { preset.model }.replace("|", " ").trim()
-                val device = cfg.spoofDevice.ifBlank { preset.device }.replace("|", " ").trim()
-                val product = preset.product
-                val board = preset.board
-                val fingerprint = preset.fingerprint
-                val androidId = cfg.spoofAndroidId.ifBlank { generateAndroidId() }.replace("|", "").trim()
+                val useRealBase = preset == DeviceProfilePreset.REAL_HARDWARE
+                val brand = cfg.spoofBrand.ifBlank { if (useRealBase) realHw.brand else preset.brand }.replace("|", " ").trim()
+                val manufacturer = cfg.spoofManufacturer.ifBlank {
+                    if (cfg.spoofBrand.isNotBlank()) cfg.spoofBrand else if (useRealBase) realHw.manufacturer else preset.manufacturer
+                }.replace("|", " ").trim()
+                val model = cfg.spoofModel.ifBlank { if (useRealBase) realHw.model else preset.model }.replace("|", " ").trim()
+                val device = cfg.spoofDevice.ifBlank { if (useRealBase) realHw.device else preset.device }.replace("|", " ").trim()
+                val product = cfg.spoofProduct.ifBlank { if (useRealBase) realHw.product else preset.product }.replace("|", " ").trim()
+                val board = cfg.spoofBoard.ifBlank { if (useRealBase) realHw.board else preset.board }.replace("|", " ").trim()
+                val fingerprint = cfg.spoofFingerprint.ifBlank { if (useRealBase) realHw.fingerprint else preset.fingerprint }.replace("|", " ").trim()
+                val androidId = cfg.spoofAndroidId.ifBlank { realHw.androidId }.replace("|", "").trim()
                 val imei = cfg.spoofImei.ifBlank { generateLuhnImei() }.replace("|", "").trim()
                 val adId = cfg.spoofAdvertisingId.ifBlank { generateAdvertisingId() }.replace("|", "").trim()
                 val mac = cfg.spoofMacAddress.ifBlank { generateMacAddress() }.replace("|", "").trim()
-                val carrier = cfg.spoofCarrierName.ifBlank { "T-Mobile" }.replace("|", " ").trim()
-                val simOp = cfg.spoofSimOperator.ifBlank { "310260" }.replace("|", "").trim()
-                val serial = cfg.spoofSerial.ifBlank { generateSerial() }.replace("|", "").trim()
+                val carrier = cfg.spoofCarrierName.ifBlank { realHw.carrierName }.replace("|", " ").trim()
+                val simOp = cfg.spoofSimOperator.ifBlank { realHw.simOperator }.replace("|", "").trim()
+                val serial = cfg.spoofSerial.ifBlank { realHw.serial }.replace("|", "").trim()
+
+                val hardware = cfg.spoofHardware.ifBlank { if (useRealBase) realHw.hardware else board }.replace("|", " ").trim()
+                val bootloader = cfg.spoofBootloader.ifBlank { realHw.bootloader }.replace("|", " ").trim()
+                val gpuVendor = cfg.spoofGpuVendor.ifBlank { if (useRealBase) realHw.glVendor else preset.glVendor }.replace("|", " ").trim()
+                val gpuRenderer = cfg.spoofGpuRenderer.ifBlank { if (useRealBase) realHw.glRenderer else preset.glRenderer }.replace("|", " ").trim()
+                val cpuCores = if (cfg.spoofCpuCores > 0) cfg.spoofCpuCores else realHw.cpuCores
+                val ramGb = if (cfg.spoofRamGb > 0) cfg.spoofRamGb else realHw.ramGb
+                val screenRes = cfg.spoofScreenResolution.ifBlank { realHw.screenResolution }.replace("|", "").trim()
+                val screenDpi = if (cfg.spoofScreenDpi > 0) cfg.spoofScreenDpi else realHw.screenDpi
+
+                val server = VpnProxyPresets.findById(
+                    cfg.proxyServerId.ifBlank { settings.activeProxyServerId },
+                    settings.customProxyServers
+                )
+                val effectiveVpnActive = cfg.vpnProxyEnabled && settings.vpnTunnelEnabled
+                val tzId = when {
+                    effectiveVpnActive && cfg.matchTimezoneWithIp -> server.timezoneId
+                    cfg.spoofTimezoneId.isNotBlank() -> cfg.spoofTimezoneId
+                    else -> realHw.timezoneId
+                }.replace("|", "").trim()
+                val localeTag = when {
+                    effectiveVpnActive && cfg.matchTimezoneWithIp -> server.localeTag
+                    cfg.spoofLocaleTag.isNotBlank() -> cfg.spoofLocaleTag
+                    else -> realHw.localeTag
+                }.replace("|", "").trim()
 
                 identityEntries.add(
                     listOf(
-                        cfg.packageName,
-                        preset.name,
-                        brand,
-                        manufacturer,
-                        model,
-                        device,
-                        product,
-                        board,
-                        fingerprint,
-                        androidId,
-                        imei,
-                        adId,
-                        mac,
-                        carrier,
-                        simOp,
-                        serial,
-                        if (cfg.hideRootAndXposed) "1" else "0",
-                        if (cfg.hideAdbAndDevOptions) "1" else "0",
-                        if (cfg.hideVpnAndProxy) "1" else "0",
-                        if (cfg.blockClipboardRead) "1" else "0",
-                        if (cfg.isIdentitySpoofed) "1" else "0",
-                        if (cfg.spoofLocationEnabled) "1" else "0",
-                        cfg.spoofLatitude.toString(),
-                        cfg.spoofLongitude.toString(),
-                        if (cfg.hideMockLocation) "1" else "0",
-                        if (cfg.preventScreenshots) "1" else "0",
-                        if (cfg.hideOtherApps) "1" else "0",
-                        if (cfg.disableLogcatLogging) "1" else "0",
-                        if (cfg.fakeBatteryEnabled) "1" else "0",
-                        cfg.fakeBatteryLevel.toString(),
-                        if (cfg.knoxWarrantyBitSpoof) "1" else "0",
-                        if (cfg.disableAllNetworking) "1" else "0",
-                        if (cfg.spoofGpuFingerprint) "1" else "0",
-                        if (cfg.spoofBrowserUserAgent) "1" else "0",
-                        if (cfg.anonymizeSensors) "1" else "0",
-                        if (cfg.blockCellTowerTracking) "1" else "0",
-                        if (cfg.autoSyncTimezone) "1" else "0"
+                        cfg.packageName,                                    // 0
+                        preset.name,                                        // 1
+                        brand,                                              // 2
+                        manufacturer,                                       // 3
+                        model,                                              // 4
+                        device,                                             // 5
+                        product,                                            // 6
+                        board,                                              // 7
+                        fingerprint,                                        // 8
+                        androidId,                                          // 9
+                        imei,                                               // 10
+                        adId,                                               // 11
+                        mac,                                                // 12
+                        carrier,                                            // 13
+                        simOp,                                              // 14
+                        serial,                                             // 15
+                        if (cfg.hideRootAndXposed) "1" else "0",            // 16
+                        if (cfg.hideAdbAndDevOptions) "1" else "0",         // 17
+                        if (cfg.hideVpnAndProxy || settings.hideVpnConnection) "1" else "0", // 18
+                        if (cfg.blockClipboardRead) "1" else "0",           // 19
+                        if (cfg.isIdentitySpoofed) "1" else "0",            // 20
+                        if (cfg.spoofLocationEnabled) "1" else "0",         // 21
+                        cfg.spoofLatitude.toString(),                       // 22
+                        cfg.spoofLongitude.toString(),                      // 23
+                        if (cfg.hideMockLocation) "1" else "0",             // 24
+                        if (cfg.preventScreenshots) "1" else "0",           // 25
+                        if (cfg.hideOtherApps) "1" else "0",                // 26
+                        if (cfg.disableLogcatLogging) "1" else "0",         // 27
+                        if (cfg.fakeBatteryEnabled) "1" else "0",           // 28
+                        cfg.fakeBatteryLevel.toString(),                    // 29
+                        if (cfg.knoxWarrantyBitSpoof) "1" else "0",         // 30
+                        if (cfg.disableAllNetworking) "1" else "0",         // 31
+                        if (cfg.spoofGpuFingerprint) "1" else "0",          // 32
+                        if (cfg.spoofBrowserUserAgent) "1" else "0",        // 33
+                        if (cfg.anonymizeSensors) "1" else "0",             // 34
+                        if (cfg.blockCellTowerTracking) "1" else "0",       // 35
+                        if (cfg.autoSyncTimezone) "1" else "0",             // 36
+                        hardware,                                           // 37
+                        bootloader,                                         // 38
+                        gpuVendor,                                          // 39
+                        gpuRenderer,                                        // 40
+                        cpuCores.toString(),                                // 41
+                        ramGb.toString(),                                   // 42
+                        screenRes,                                          // 43
+                        screenDpi.toString(),                               // 44
+                        tzId,                                               // 45
+                        localeTag,                                          // 46
+                        cfg.customUserAgent.replace("|", " ").replace("\n", " ").trim(), // 47
+                        if (cfg.spoofWebRtc) "1" else "0",                  // 48
+                        if (cfg.spoofCanvasNoise) "1" else "0",             // 49
+                        if (cfg.spoofAudioContext) "1" else "0",            // 50
+                        if (cfg.spoofClientHints) "1" else "0",             // 51
+                        if (cfg.spoofFontEnumeration) "1" else "0",         // 52
+                        if (effectiveVpnActive) "1" else "0",               // 53
+                        server.host.replace("|", ""),                       // 54
+                        server.port.toString(),                             // 55
+                        server.protocol.name,                               // 56
+                        server.exitIp.replace("|", ""),                     // 57
+                        server.timezoneId.replace("|", ""),                 // 58
+                        if (cfg.requireVpnForNetwork || (cfg.vpnProxyEnabled && settings.vpnKillSwitchEnabled && !settings.vpnTunnelEnabled)) "1" else "0", // 59
+                        if (cfg.matchTimezoneWithIp) "1" else "0",          // 60
+                        if (cfg.webViewProxyEnabled && settings.webViewProxyEnabled) "1" else "0", // 61
+                        if (cfg.trustAllCerts || settings.trustAllCertificates) "1" else "0",      // 62
+                        cfg.privacyProfileId.replace("|", ""),                                     // 63
+                        if (cfg.deadmanSwitchEnabled) "1" else "0",                                // 64
+                        if (cfg.spoofDrmWidevine) "1" else "0",                                    // 65
+                        if (cfg.sensorBiasNeutralizer) "1" else "0",                               // 66
+                        if (cfg.spoofWifiBssid) "1" else "0"                                       // 67
                     ).joinToString("|")
                 )
             }
@@ -393,7 +484,7 @@ object IsolationRuleManager {
             val preset = try {
                 DeviceProfilePreset.valueOf(p[1])
             } catch (_: Exception) {
-                DeviceProfilePreset.PIXEL_9_PRO
+                DeviceProfilePreset.REAL_HARDWARE
             }
             out[pkg] = IdentitySpoofRule(
                 packageName = pkg,
@@ -432,7 +523,38 @@ object IsolationRuleManager {
                 spoofBrowserUserAgent = if (p.size > 33) p[33] == "1" else true,
                 anonymizeSensors = if (p.size > 34) p[34] == "1" else true,
                 blockCellTowerTracking = if (p.size > 35) p[35] == "1" else true,
-                autoSyncTimezone = if (p.size > 36) p[36] == "1" else true
+                autoSyncTimezone = if (p.size > 36) p[36] == "1" else true,
+                hardware = if (p.size > 37) p[37].ifBlank { preset.board } else preset.board,
+                bootloader = if (p.size > 38) p[38] else "unknown",
+                gpuVendor = if (p.size > 39) p[39].ifBlank { preset.glVendor } else preset.glVendor,
+                gpuRenderer = if (p.size > 40) p[40].ifBlank { preset.glRenderer } else preset.glRenderer,
+                cpuCores = if (p.size > 41) p[41].toIntOrNull() ?: 8 else 8,
+                ramGb = if (p.size > 42) p[42].toIntOrNull() ?: 8 else 8,
+                screenResolution = if (p.size > 43) p[43].ifBlank { "1080x2400" } else "1080x2400",
+                screenDpi = if (p.size > 44) p[44].toIntOrNull() ?: 420 else 420,
+                timezoneId = if (p.size > 45) p[45].ifBlank { "America/New_York" } else "America/New_York",
+                localeTag = if (p.size > 46) p[46].ifBlank { "en-US" } else "en-US",
+                customUserAgent = if (p.size > 47) p[47] else "",
+                spoofWebRtc = if (p.size > 48) p[48] == "1" else true,
+                spoofCanvasNoise = if (p.size > 49) p[49] == "1" else true,
+                spoofAudioContext = if (p.size > 50) p[50] == "1" else true,
+                spoofClientHints = if (p.size > 51) p[51] == "1" else true,
+                spoofFontEnumeration = if (p.size > 52) p[52] == "1" else true,
+                vpnProxyEnabled = if (p.size > 53) p[53] == "1" else false,
+                proxyHost = if (p.size > 54) p[54].ifBlank { "127.0.0.1" } else "127.0.0.1",
+                proxyPort = if (p.size > 55) p[55].toIntOrNull() ?: 10808 else 10808,
+                proxyProtocol = if (p.size > 56) p[56].ifBlank { "VLESS" } else "VLESS",
+                proxyExitIp = if (p.size > 57) p[57].ifBlank { "104.244.72.119" } else "104.244.72.119",
+                proxyTimezoneId = if (p.size > 58) p[58].ifBlank { "America/New_York" } else "America/New_York",
+                requireVpnForNetwork = if (p.size > 59) p[59] == "1" else false,
+                matchTimezoneWithIp = if (p.size > 60) p[60] == "1" else true,
+                webViewProxyEnabled = if (p.size > 61) p[61] == "1" else true,
+                trustAllCerts = if (p.size > 62) p[62] == "1" else false,
+                privacyProfileId = if (p.size > 63) p[63].ifBlank { "ghost_cloak" } else "ghost_cloak",
+                deadmanSwitchEnabled = if (p.size > 64) p[64] == "1" else true,
+                spoofDrmWidevine = if (p.size > 65) p[65] == "1" else true,
+                sensorBiasNeutralizer = if (p.size > 66) p[66] == "1" else true,
+                spoofWifiBssid = if (p.size > 67) p[67] == "1" else true
             )
         }
         return out
@@ -497,6 +619,27 @@ object IsolationRuleManager {
         return carriers[java.security.SecureRandom().nextInt(carriers.size)]
     }
 
+    fun generateRandomGpu(): Pair<String, String> {
+        val gpus = listOf(
+            "Qualcomm" to "Adreno (TM) 750",
+            "Qualcomm" to "Adreno (TM) 740",
+            "ARM" to "Mali-G715-Immortalis MC11",
+            "ARM" to "Mali-G710 MC10",
+            "Samsung" to "Xclipse 940"
+        )
+        return gpus[java.security.SecureRandom().nextInt(gpus.size)]
+    }
+
+    fun generateRandomScreen(): Pair<String, Int> {
+        val screens = listOf(
+            "1080x2400" to 420,
+            "1344x2992" to 480,
+            "1440x3120" to 560,
+            "1264x2780" to 450
+        )
+        return screens[java.security.SecureRandom().nextInt(screens.size)]
+    }
+
     fun parseStealthTable(
         raw: String?,
         customIconLookup: ((String) -> String?)? = null
@@ -528,7 +671,6 @@ object IsolationRuleManager {
             val donorIconRes: Int
             val customLabel: String
 
-            // Detect transitional format where parts[4] & parts[5] were "0"/"1" flags and parts[8] was integer resId
             val isTransitionalOrder = parts.size >= 10 &&
                     (parts[4] == "0" || parts[4] == "1") &&
                     (parts[5] == "0" || parts[5] == "1") &&
@@ -551,7 +693,6 @@ object IsolationRuleManager {
                 donorIconRes = parts[9].toIntOrNull() ?: 0
             } else {
                 val rawLabel = if (parts.size >= 5) parts[4].trim() else ""
-                // Guard against numeric resource IDs or "0"/"1" flags leaking into customLabel
                 customLabel = if (rawLabel == "0" || rawLabel == "1" || (rawLabel.length >= 8 && rawLabel.all { it.isDigit() })) {
                     preset.suggestedName.ifBlank { "Calculator" }
                 } else {
@@ -566,7 +707,6 @@ object IsolationRuleManager {
 
             if (visMode == LauncherVisibilityMode.VISIBLE && !hidePlayStore) continue
 
-            // Final sanity check: never allow a pure 8+ digit resource ID or single "0"/"1" flag as the label
             val cleanLabel = if (visMode == LauncherVisibilityMode.DISGUISED &&
                 (customLabel.isBlank() || customLabel == "0" || customLabel == "1" || (customLabel.length >= 8 && customLabel.all { it.isDigit() }))
             ) {
@@ -594,11 +734,6 @@ object IsolationRuleManager {
         return out
     }
 
-    /**
-     * Checks if Vector / LSPosed has hooked Context.getSharedPreferences(MODE_WORLD_READABLE).
-     * When a module with xposedsharedprefs="true" is enabled in Vector/LSPosed,
-     * MODE_WORLD_READABLE (1) succeeds without throwing SecurityException.
-     */
     @SuppressLint("WorldReadableFiles")
     @Suppress("DEPRECATION")
     fun isXSharedPrefsHooked(context: Context): Boolean {
@@ -620,10 +755,6 @@ object IsolationRuleManager {
         }
     }
 
-    /**
-     * Ensures that `isovault_rules.xml` and its parent directories have world-readable permissions
-     * after every `.commit()`, since Android's SharedPreferencesImpl recreates the XML file on write.
-     */
     @SuppressLint("SetWorldReadable")
     fun ensureWorldReadable(context: Context) {
         try {
@@ -659,7 +790,6 @@ object IsolationRuleManager {
         )
     }
 
-    /** Marks [packageName] as explicitly not isolated, keeping its other settings. */
     fun disableRule(
         packageName: String,
         mode: IsolationMode,
@@ -691,7 +821,7 @@ object IsolationRuleManager {
                 .putString("${pkg}_mode", mode.name)
                 .putBoolean("${pkg}_pollution", blockRootPollution)
                 .putString("${pkg}_whitelist", whitelist)
-                .commit() // Synchronous so XSharedPreferences readers see the change immediately
+                .commit()
             ensureWorldReadable(app)
         } catch (_: Throwable) {
         }
@@ -712,16 +842,11 @@ object IsolationRuleManager {
         for (p in prefixes) {
             if (path.startsWith(p)) return sanitizeRelative(path.removePrefix(p))
         }
-        // Bare roots ("/sdcard", "/storage/emulated/0") map to the sandbox root
         val roots = listOf("/storage/emulated/0", "/storage/self/primary", "/sdcard", "/mnt/sdcard")
         if (roots.any { path == it }) return ""
         return sanitizeRelative(path.trimStart('/'))
     }
 
-    /**
-     * Drops "." and ".." segments so a redirected path can never escape the sandbox root
-     * (e.g. "/sdcard/../../data/data/other.app/databases").
-     */
     fun sanitizeRelative(relative: String): String {
         val out = ArrayList<String>()
         for (segment in relative.split('/')) {

@@ -50,10 +50,10 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.max
 
 enum class GallerySourceTab(val title: String) {
-    WORKSPACE_ALBUMS("Albums"),
+    WORKSPACE_ALBUMS("Hollow Drive"),
     ENCRYPTED_LOCKER("Vault"),
     DEVICE_MEDIA("Device"),
-    ISOLATED_APPS("App Sandbox")
+    ISOLATED_APPS("App Drives")
 }
 
 enum class GalleryLayoutMode {
@@ -166,7 +166,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     private val ctx = application
     private val isoApp = application as? IsoVaultApp
     private val cacheDir = File(application.cacheDir, "gallery")
-    private val albumsRootDir = File(application.filesDir, "workspace/Pictures").apply { mkdirs() }
+    private val albumsRootDir = File(FileManagerViewModel.resolveHollowDriveRoot(application), "Pictures").apply { mkdirs() }
     private val lockerDir = File(application.filesDir, "locker").apply { mkdirs() }
 
     private val _state = MutableStateFlow(BrowserState())

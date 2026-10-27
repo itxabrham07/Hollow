@@ -30,10 +30,19 @@ import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
 enum class StorageRootType(val title: String, val subtitle: String) {
-    WORKSPACE("Workspace", "Private sandboxed folders"),
-    APP_INTERNAL("Internal", "App data & vault containers"),
-    SHARED_STORAGE("Device", "Shared phone storage")
+    WORKSPACE("Hollow Drive", "Default shared virtual storage & gallery"),
+    APP_INTERNAL("Separate Drive", "Dedicated per-app storage volume"),
+    SHARED_STORAGE("Phone Storage", "Real device storage")
 }
+
+data class SeparateAppDriveInfo(
+    val packageName: String,
+    val appName: String,
+    val badge: String,
+    val rootPath: String,
+    val usedBytes: Long,
+    val itemCount: Int
+)
 
 enum class FileSortField(val label: String) {
     NAME("Name"),
@@ -105,6 +114,8 @@ data class FilePropertiesDetail(
 
 data class FileManagerUiState(
     val activeRoot: StorageRootType = StorageRootType.WORKSPACE,
+    val activeSeparateDrivePkg: String? = null,
+    val activeDriveTitle: String = "Hollow Drive",
     val rootPath: String = "",
     val currentPath: String = "",
     val breadcrumbs: List<BreadcrumbSegment> = emptyList(),
@@ -126,12 +137,75 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
 
     private val ctx = application
     private val isoApp = application as? IsoVaultApp
-    private val workspaceRoot = File(application.filesDir, "workspace").apply { mkdirs() }
+    private val workspaceRoot: File = resolveHollowDriveRoot(application)
     private val lockerDir = File(application.filesDir, "locker").apply { mkdirs() }
+
+    companion object {
+        fun resolveHollowDriveRoot(context: android.content.Context): File {
+            val privateDir = File(context.filesDir, "hollow_drive").apply {
+                if (!exists()) {
+                    mkdirs()
+                    try {
+                        setReadable(true, true)
+                        setWritable(true, true)
+                        setExecutable(true, true)
+                    } catch (_: Throwable) {}
+                }
+            }
+            try {
+                val noMedia = File(privateDir, ".nomedia")
+                if (!noMedia.exists()) noMedia.createNewFile()
+            } catch (_: Throwable) {}
+
+            // Auto-migrate any legacy items from public storage into sandboxed Hollow Drive
+            try {
+                val legacy = File("/storage/emulated/0/Hollow_Workspace")
+                if (legacy.exists() && legacy.isDirectory) {
+                    legacy.copyRecursively(privateDir, overwrite = false)
+                    legacy.deleteRecursively()
+                }
+            } catch (_: Throwable) {}
+
+            listOf("DCIM", "DCIM/Camera", "Pictures", "Movies", "Download", "Downloads", "Documents", "Music", "Archives", "Notes")
+                .forEach { sub -> try { File(privateDir, sub).mkdirs() } catch (_: Throwable) {} }
+            return privateDir
+        }
+
+        fun resolveSeparateAppDriveRoot(context: android.content.Context, packageName: String): File {
+            val privateDir = File(context.filesDir, "hollow_drives/$packageName").apply {
+                if (!exists()) {
+                    mkdirs()
+                    try {
+                        setReadable(true, true)
+                        setWritable(true, true)
+                        setExecutable(true, true)
+                    } catch (_: Throwable) {}
+                }
+            }
+            try {
+                val noMedia = File(privateDir, ".nomedia")
+                if (!noMedia.exists()) noMedia.createNewFile()
+            } catch (_: Throwable) {}
+
+            try {
+                val legacy = File("/storage/emulated/0/Hollow_Drives/$packageName")
+                if (legacy.exists() && legacy.isDirectory) {
+                    legacy.copyRecursively(privateDir, overwrite = false)
+                    legacy.deleteRecursively()
+                }
+            } catch (_: Throwable) {}
+
+            listOf("DCIM", "DCIM/Camera", "Pictures", "Movies", "Download", "Documents", "Music")
+                .forEach { sub -> try { File(privateDir, sub).mkdirs() } catch (_: Throwable) {} }
+            return privateDir
+        }
+    }
 
     private val _uiState = MutableStateFlow(
         FileManagerUiState(
             activeRoot = StorageRootType.WORKSPACE,
+            activeSeparateDrivePkg = null,
+            activeDriveTitle = "Hollow Drive",
             rootPath = workspaceRoot.absolutePath,
             currentPath = workspaceRoot.absolutePath
         )
@@ -159,34 +233,32 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         try {
             val docsDir = File(workspaceRoot, "Documents").apply { mkdirs() }
             val picsDir = File(workspaceRoot, "Pictures").apply { mkdirs() }
+            val dcimDir = File(workspaceRoot, "DCIM/Camera").apply { mkdirs() }
+            val moviesDir = File(workspaceRoot, "Movies").apply { mkdirs() }
+            val musicDir = File(workspaceRoot, "Music").apply { mkdirs() }
             val downloadsDir = File(workspaceRoot, "Downloads").apply { mkdirs() }
+            File(workspaceRoot, "Download").mkdirs()
             val archivesDir = File(workspaceRoot, "Archives").apply { mkdirs() }
             val scriptsDir = File(workspaceRoot, "Scripts").apply { mkdirs() }
             val notesDir = File(workspaceRoot, "Notes").apply { mkdirs() }
             File(workspaceRoot, "Decrypted").mkdirs()
 
-            File(docsDir, "IsoVault_Architecture.md").writeText(
+            File(docsDir, "Hollow_Drive_Guide.md").writeText(
                 """
-                # IsoVault Pro Storage Architecture
+                # Hollow Drive (Default Shared Virtual Storage)
                 
-                ## 1. Per-App Storage Isolation
-                - **Encrypted Vault Mode**: Redirects reads & writes into AES-256-GCM containers.
-                - **Sandbox Redirect Mode**: Isolates app files inside `/files/IsoVault_Sandbox`.
-                - **Blank Gallery Mode**: Returns zero rows for MediaStore photo/video queries.
-                
-                ## 2. File Manager Capabilities
-                - Full multi-select Copy, Cut, Paste, Rename, Duplicate, and Delete.
-                - Built-in ZIP archive compression and extraction with path-traversal protection.
-                - Built-in Text/Code editor and cryptographic SHA-256 / MD5 file inspector.
-                - One-tap AES-256-GCM encryption into the Private Locker.
+                ## 1. How Hollow Drive Works
+                - By default, every isolated app connects to **Hollow Drive** as its virtual `/storage/emulated/0` and Camera Roll.
+                - Photos, videos, downloads, and documents placed in Hollow Drive are accessible to your isolated apps while your real phone storage stays completely hidden.
+                - When you assign an app to a **Separate App Drive**, it appears right below Hollow Drive in Files like an SD card volume.
                 """.trimIndent()
             )
 
             File(docsDir, "isolation_policy.json").writeText(
                 """
                 {
-                  "schemaVersion": 2,
-                  "engine": "IsoVault-M3-Pro",
+                  "schemaVersion": 3,
+                  "defaultDrive": "Hollow Drive (Shared Virtual Storage)",
                   "cipher": "AES-256-GCM",
                   "keystoreBacked": true,
                   "defaultRules": {
@@ -201,8 +273,8 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
             File(scriptsDir, "verify_mounts.sh").writeText(
                 """
                 #!/system/bin/sh
-                # IsoVault Namespace Diagnostic Helper
-                echo "=== IsoVault Active Mount Namespace Check ==="
+                # Hollow Namespace Diagnostic Helper
+                echo "=== Hollow Active Mount Namespace Check ==="
                 grep -E "emulated|isovault" /proc/self/mounts || echo "Standard mount table"
                 getenforce 2>/dev/null || echo "SELinux status queried"
                 """.trimIndent()
@@ -210,22 +282,21 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
 
             File(notesDir, "Recovery_Checklist.txt").writeText(
                 "1. Verify LSPosed / Vector module scope includes target apps.\n" +
-                    "2. Force-stop target app after changing isolation mode.\n" +
+                    "2. Force-stop target app after changing storage drive or identity mode.\n" +
                     "3. Export important locker files before factory reset (Keystore keys are hardware-bound).\n"
             )
 
             File(downloadsDir, "Audit_Report_Sample.csv").writeText(
                 "timestamp,package,action,path\n" +
-                    "2026-10-25T10:15:00Z,com.snapchat.android,SPOOFED_EMPTY,content://media/external/images/media\n" +
-                    "2026-10-25T10:16:22Z,com.whatsapp,REDIRECTED,/storage/emulated/0/WhatsApp/Media\n"
+                    "2026-10-25T10:15:00Z,com.snapchat.android,REDIRECTED,/storage/emulated/0/Hollow_Workspace/Pictures\n" +
+                    "2026-10-25T10:16:22Z,com.whatsapp,REDIRECTED,/storage/emulated/0/Hollow_Workspace/Download\n"
             )
 
-            // Create a real sample ZIP archive in Archives
             val sampleZip = File(archivesDir, "Starter_Templates.zip")
             if (!sampleZip.exists()) {
                 ZipOutputStream(BufferedOutputStream(FileOutputStream(sampleZip))).use { zos ->
                     zos.putNextEntry(ZipEntry("README_ARCHIVE.txt"))
-                    zos.write("This is a real ZIP archive created by IsoVault Pro File Manager.\nTap 'Extract' to unpack it!".toByteArray())
+                    zos.write("This is a real ZIP archive inside Hollow Drive.\nTap 'Extract' to unpack it!".toByteArray())
                     zos.closeEntry()
 
                     zos.putNextEntry(ZipEntry("config/sample_whitelist.conf"))
@@ -261,6 +332,8 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.update {
             it.copy(
                 activeRoot = type,
+                activeSeparateDrivePkg = null,
+                activeDriveTitle = type.title,
                 rootPath = rootDir.absolutePath,
                 currentPath = rootDir.absolutePath,
                 selectedPaths = emptySet(),
@@ -272,8 +345,51 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         refreshStorageBreakdown()
     }
 
+    fun openSeparateAppDrive(packageName: String, appName: String) {
+        val driveDir = resolveSeparateAppDriveRoot(ctx, packageName)
+        _uiState.update {
+            it.copy(
+                activeRoot = StorageRootType.APP_INTERNAL,
+                activeSeparateDrivePkg = packageName,
+                activeDriveTitle = "$appName Drive",
+                rootPath = driveDir.absolutePath,
+                currentPath = driveDir.absolutePath,
+                selectedPaths = emptySet(),
+                searchQuery = "",
+                errorMessage = null
+            )
+        }
+        refreshDirectory()
+        refreshStorageBreakdown()
+    }
+
+    fun inspectSeparateDriveStats(packageName: String, appName: String, badge: String): SeparateAppDriveInfo {
+        val dir = resolveSeparateAppDriveRoot(ctx, packageName)
+        var bytes = 0L
+        var count = 0
+        try {
+            dir.walkTopDown().maxDepth(4).forEach { f ->
+                if (f.absolutePath != dir.absolutePath && !f.name.startsWith(".")) {
+                    count++
+                    if (f.isFile) bytes += f.length()
+                }
+            }
+        } catch (_: Throwable) {}
+        return SeparateAppDriveInfo(
+            packageName = packageName,
+            appName = appName,
+            badge = badge,
+            rootPath = dir.absolutePath,
+            usedBytes = bytes,
+            itemCount = count
+        )
+    }
+
     fun navigateToPath(path: String) {
         val target = File(path)
+        if (!target.exists()) {
+            try { target.mkdirs() } catch (_: Throwable) {}
+        }
         if (!target.exists() || !target.isDirectory) {
             _notice.value = "Folder is not accessible."
             return
@@ -429,7 +545,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
 
             // Build breadcrumbs
             val crumbs = mutableListOf<BreadcrumbSegment>()
-            crumbs.add(BreadcrumbSegment(state.activeRoot.title, rootFile.absolutePath))
+            crumbs.add(BreadcrumbSegment(state.activeDriveTitle.ifBlank { state.activeRoot.title }, rootFile.absolutePath))
             if (currentDir.absolutePath.startsWith(rootFile.absolutePath) && currentDir.absolutePath != rootFile.absolutePath) {
                 val rel = currentDir.absolutePath.removePrefix(rootFile.absolutePath).trimStart('/')
                 var running = rootFile.absolutePath

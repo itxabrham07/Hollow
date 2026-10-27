@@ -22,6 +22,8 @@ class IsoVaultApp : Application() {
         super.onCreate()
         instance = this
 
+        com.example.isolation.service.RootDeadmanWatchdog.init(this)
+
         // Re-publish every stored rule so hooked apps see the current state after a reboot or update.
         applicationScope.launch { republishRules() }
     }
