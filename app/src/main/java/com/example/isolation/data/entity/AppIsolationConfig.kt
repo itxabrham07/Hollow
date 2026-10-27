@@ -62,6 +62,12 @@ data class AppIsolationConfig(
     val hideAdbAndDevOptions: Boolean = true,
     val hideVpnAndProxy: Boolean = true,
     val blockClipboardRead: Boolean = false,
+    // Digital Footprint & Anti-Tracking Shield (Snap, Meta, Browsers)
+    val spoofGpuFingerprint: Boolean = true,
+    val spoofBrowserUserAgent: Boolean = true,
+    val anonymizeSensors: Boolean = true,
+    val blockCellTowerTracking: Boolean = true,
+    val autoSyncTimezone: Boolean = true,
     // Networking
     val disableAllNetworking: Boolean = false
 )

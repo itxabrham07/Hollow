@@ -90,7 +90,13 @@ object IsolationRuleManager {
         val fakeBatteryEnabled: Boolean = false,
         val fakeBatteryLevel: Int = 100,
         val knoxWarrantyBitSpoof: Boolean = false,
-        val disableAllNetworking: Boolean = false
+        val disableAllNetworking: Boolean = false,
+        // Digital Footprint & Anti-Tracking Shield (Snap, Meta, Browsers)
+        val spoofGpuFingerprint: Boolean = true,
+        val spoofBrowserUserAgent: Boolean = true,
+        val anonymizeSensors: Boolean = true,
+        val blockCellTowerTracking: Boolean = true,
+        val autoSyncTimezone: Boolean = true
     )
 
     const val KEY_PICKER_POLICY = "global_picker_policy"
@@ -351,7 +357,12 @@ object IsolationRuleManager {
                         if (cfg.fakeBatteryEnabled) "1" else "0",
                         cfg.fakeBatteryLevel.toString(),
                         if (cfg.knoxWarrantyBitSpoof) "1" else "0",
-                        if (cfg.disableAllNetworking) "1" else "0"
+                        if (cfg.disableAllNetworking) "1" else "0",
+                        if (cfg.spoofGpuFingerprint) "1" else "0",
+                        if (cfg.spoofBrowserUserAgent) "1" else "0",
+                        if (cfg.anonymizeSensors) "1" else "0",
+                        if (cfg.blockCellTowerTracking) "1" else "0",
+                        if (cfg.autoSyncTimezone) "1" else "0"
                     ).joinToString("|")
                 )
             }
@@ -416,7 +427,12 @@ object IsolationRuleManager {
                 fakeBatteryEnabled = if (p.size > 28) p[28] == "1" else false,
                 fakeBatteryLevel = if (p.size > 29) p[29].toIntOrNull() ?: 100 else 100,
                 knoxWarrantyBitSpoof = if (p.size > 30) p[30] == "1" else false,
-                disableAllNetworking = if (p.size > 31) p[31] == "1" else false
+                disableAllNetworking = if (p.size > 31) p[31] == "1" else false,
+                spoofGpuFingerprint = if (p.size > 32) p[32] == "1" else true,
+                spoofBrowserUserAgent = if (p.size > 33) p[33] == "1" else true,
+                anonymizeSensors = if (p.size > 34) p[34] == "1" else true,
+                blockCellTowerTracking = if (p.size > 35) p[35] == "1" else true,
+                autoSyncTimezone = if (p.size > 36) p[36] == "1" else true
             )
         }
         return out

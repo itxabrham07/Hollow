@@ -118,7 +118,8 @@ fun DeviceSpooferScreen(
                        hideRoot, hideAdb, hideVpn, blockClip,
                        spoofLoc, lat, lng, hideMock,
                        noScreenshots, hideApps, noLogcat,
-                       fakeBat, batLevel, knoxSpoof, noNet ->
+                       fakeBat, batLevel, knoxSpoof, noNet,
+                       spoofGpu, spoofUa, anonSensors, blockCells, syncTz ->
                 viewModel.saveAppIdentitySpoofConfig(
                     appInfo = target,
                     enabled = isIdentityOn,
@@ -147,7 +148,12 @@ fun DeviceSpooferScreen(
                     fakeBatteryEnabled = fakeBat,
                     fakeBatteryLevel = batLevel,
                     knoxWarrantyBitSpoof = knoxSpoof,
-                    disableAllNetworking = noNet
+                    disableAllNetworking = noNet,
+                    spoofGpuFingerprint = spoofGpu,
+                    spoofBrowserUserAgent = spoofUa,
+                    anonymizeSensors = anonSensors,
+                    blockCellTowerTracking = blockCells,
+                    autoSyncTimezone = syncTz
                 )
                 editingApp = null
             },
@@ -162,14 +168,16 @@ fun DeviceSpooferScreen(
     val spoofedAppsCount = remember(allApps) {
         allApps.count {
             it.isIdentitySpoofed || it.spoofLocationEnabled || it.preventScreenshots ||
-                    it.hideOtherApps || it.disableLogcatLogging || it.fakeBatteryEnabled || it.disableAllNetworking
+                    it.hideOtherApps || it.disableLogcatLogging || it.fakeBatteryEnabled || it.disableAllNetworking ||
+                    it.spoofGpuFingerprint || it.spoofBrowserUserAgent || it.anonymizeSensors || it.blockCellTowerTracking || it.autoSyncTimezone
         }
     }
 
     val displayedApps = remember(allApps, searchQuery, showAllAppsMode, activeFilter) {
         allApps.filter { app ->
             val hasShields = app.isIdentitySpoofed || app.spoofLocationEnabled || app.preventScreenshots ||
-                    app.hideOtherApps || app.disableLogcatLogging || app.fakeBatteryEnabled || app.disableAllNetworking
+                    app.hideOtherApps || app.disableLogcatLogging || app.fakeBatteryEnabled || app.disableAllNetworking ||
+                    app.spoofGpuFingerprint || app.spoofBrowserUserAgent || app.anonymizeSensors || app.blockCellTowerTracking || app.autoSyncTimezone
             val matchesFilter = when (activeFilter) {
                 PrivacyAppFilter.SPOOFED_ONLY -> hasShields
                 PrivacyAppFilter.USER_APPS -> !app.isSystemApp
@@ -544,7 +552,12 @@ private fun SpoofedAppCard(
             appInfo.hideOtherApps ||
             appInfo.disableLogcatLogging ||
             appInfo.fakeBatteryEnabled ||
-            appInfo.disableAllNetworking
+            appInfo.disableAllNetworking ||
+            appInfo.spoofGpuFingerprint ||
+            appInfo.spoofBrowserUserAgent ||
+            appInfo.anonymizeSensors ||
+            appInfo.blockCellTowerTracking ||
+            appInfo.autoSyncTimezone
 
     val displayBrand = appInfo.spoofBrand.ifBlank { appInfo.deviceProfilePreset.brand }
     val displayModel = appInfo.spoofModel.ifBlank { appInfo.deviceProfilePreset.model }
@@ -690,6 +703,11 @@ private fun SpoofedAppCard(
                     if (appInfo.spoofLocationEnabled) {
                         IdentityMetaChip("GPS: ${"%.2f".format(appInfo.spoofLatitude)}, ${"%.2f".format(appInfo.spoofLongitude)}")
                     }
+                    if (appInfo.spoofGpuFingerprint) IdentityMetaChip("GPU: ${appInfo.deviceProfilePreset.glRenderer.take(12)}")
+                    if (appInfo.spoofBrowserUserAgent) IdentityMetaChip("UA Cloaked")
+                    if (appInfo.anonymizeSensors) IdentityMetaChip("Sensors Scrubbed")
+                    if (appInfo.blockCellTowerTracking) IdentityMetaChip("Cell Shield")
+                    if (appInfo.autoSyncTimezone) IdentityMetaChip("TZ Synced")
                     if (appInfo.preventScreenshots) IdentityMetaChip("No Screenshots")
                     if (appInfo.hideOtherApps) IdentityMetaChip("Apps Hidden")
                     if (appInfo.disableLogcatLogging) IdentityMetaChip("No Logcat")
@@ -802,7 +820,12 @@ private fun ConfigureDeviceIdentityFullScreen(
         fakeBat: Boolean,
         batLevel: Int,
         knoxSpoof: Boolean,
-        noNet: Boolean
+        noNet: Boolean,
+        spoofGpu: Boolean,
+        spoofUa: Boolean,
+        anonSensors: Boolean,
+        blockCells: Boolean,
+        syncTz: Boolean
     ) -> Unit,
     onDisable: () -> Unit
 ) {
@@ -817,7 +840,12 @@ private fun ConfigureDeviceIdentityFullScreen(
                 !appInfo.hideOtherApps &&
                 !appInfo.disableLogcatLogging &&
                 !appInfo.fakeBatteryEnabled &&
-                !appInfo.disableAllNetworking
+                !appInfo.disableAllNetworking &&
+                !appInfo.spoofGpuFingerprint &&
+                !appInfo.spoofBrowserUserAgent &&
+                !appInfo.anonymizeSensors &&
+                !appInfo.blockCellTowerTracking &&
+                !appInfo.autoSyncTimezone
             ) {
                 true // Default to true when opening a fresh unconfigured app
             } else {
@@ -837,6 +865,13 @@ private fun ConfigureDeviceIdentityFullScreen(
     var carrier by remember { mutableStateOf(appInfo.spoofCarrierName.ifBlank { "T-Mobile" }) }
     var simOp by remember { mutableStateOf(appInfo.spoofSimOperator.ifBlank { "310260" }) }
     var serial by remember { mutableStateOf(appInfo.spoofSerial.ifBlank { IsolationRuleManager.generateSerial() }) }
+
+    // Digital Footprint & Anti-Tracking Shield
+    var spoofGpuFingerprint by remember { mutableStateOf(appInfo.spoofGpuFingerprint) }
+    var spoofBrowserUserAgent by remember { mutableStateOf(appInfo.spoofBrowserUserAgent) }
+    var anonymizeSensors by remember { mutableStateOf(appInfo.anonymizeSensors) }
+    var blockCellTowerTracking by remember { mutableStateOf(appInfo.blockCellTowerTracking) }
+    var autoSyncTimezone by remember { mutableStateOf(appInfo.autoSyncTimezone) }
 
     // Security & Environment Shields
     var hideRoot by remember { mutableStateOf(appInfo.hideRootAndXposed) }
@@ -891,7 +926,12 @@ private fun ConfigureDeviceIdentityFullScreen(
             fakeBatteryEnabled,
             fakeBatteryLevel.coerceIn(1, 100),
             knoxWarrantyBitSpoof,
-            disableAllNetworking
+            disableAllNetworking,
+            spoofGpuFingerprint,
+            spoofBrowserUserAgent,
+            anonymizeSensors,
+            blockCellTowerTracking,
+            autoSyncTimezone
         )
     }
 
@@ -1181,6 +1221,132 @@ private fun ConfigureDeviceIdentityFullScreen(
                             )
                         }
                     }
+                }
+            }
+
+            // =========================================================================
+            // SECTION: DIGITAL FOOTPRINT & ANTI-TRACKING SHIELD (Snapchat, Meta, Browsers)
+            // =========================================================================
+            val isFootprintShieldActive = spoofGpuFingerprint || spoofBrowserUserAgent ||
+                    anonymizeSensors || blockCellTowerTracking || autoSyncTimezone
+
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isFootprintShieldActive) scheme.primaryContainer.copy(alpha = 0.16f) else scheme.surface
+                ),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(
+                    1.dp,
+                    if (isFootprintShieldActive) scheme.primary.copy(alpha = 0.45f) else scheme.outlineVariant
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("card_digital_footprint_shield")
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Digital Footprint & Anti-Tracking Shield",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = scheme.onSurface,
+                                fontFamily = JakartaFontFamily
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Neutralizes modern cross-app fingerprinting used by Meta (FB/IG), Snapchat, TikTok & Web Browsers",
+                                fontSize = 12.sp,
+                                color = scheme.onSurfaceVariant,
+                                fontFamily = JakartaFontFamily
+                            )
+                        }
+                    }
+
+                    FilledTonalButton(
+                        onClick = {
+                            spoofGpuFingerprint = true
+                            spoofBrowserUserAgent = true
+                            anonymizeSensors = true
+                            blockCellTowerTracking = true
+                            autoSyncTimezone = true
+                            hideVpn = true
+                            hideMockLocation = true
+                            isIdentitySpoofed = true
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        contentPadding = PaddingValues(vertical = 10.dp, horizontal = 14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("btn_1tap_footprint_cloak")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Shield,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "1-Tap Digital Footprint Cloak",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            fontFamily = JakartaFontFamily
+                        )
+                    }
+
+                    HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+
+                    PrivacyShieldToggleRow(
+                        title = "WebGL & GPU Renderer Cloaking",
+                        subtitle = "Spoofs glGetString(GL_RENDERER) to \"${preset.glRenderer}\" & vendor to \"${preset.glVendor}\"",
+                        checked = spoofGpuFingerprint,
+                        onCheckedChange = { spoofGpuFingerprint = it }
+                    )
+
+                    HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+
+                    PrivacyShieldToggleRow(
+                        title = "Browser & WebView User-Agent Cloak",
+                        subtitle = "Spoofs WebSettings User-Agent & navigator string to standard Chrome on Android",
+                        checked = spoofBrowserUserAgent,
+                        onCheckedChange = { spoofBrowserUserAgent = it }
+                    )
+
+                    HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+
+                    PrivacyShieldToggleRow(
+                        title = "Hardware Sensor Footprint Anonymizer",
+                        subtitle = "Neutralizes accelerometer/gyro bias & scrubs vendor tags against acoustic tracking",
+                        checked = anonymizeSensors,
+                        onCheckedChange = { anonymizeSensors = it }
+                    )
+
+                    HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+
+                    PrivacyShieldToggleRow(
+                        title = "Cell Tower Triangulation Shield",
+                        subtitle = "Blocks TelephonyManager.getAllCellInfo() so apps cannot triangulate via base stations",
+                        checked = blockCellTowerTracking,
+                        onCheckedChange = { blockCellTowerTracking = it }
+                    )
+
+                    HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+
+                    PrivacyShieldToggleRow(
+                        title = "Auto-Sync Timezone to Location",
+                        subtitle = "Synchronizes Java TimeZone and persist.sys.timezone with active spoofed GPS coordinates",
+                        checked = autoSyncTimezone,
+                        onCheckedChange = { autoSyncTimezone = it }
+                    )
                 }
             }
 

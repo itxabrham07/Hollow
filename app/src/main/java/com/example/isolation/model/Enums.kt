@@ -97,7 +97,9 @@ enum class DeviceProfilePreset(
     val device: String,
     val product: String,
     val board: String,
-    val fingerprint: String
+    val fingerprint: String,
+    val glRenderer: String = "Adreno (TM) 750",
+    val glVendor: String = "Qualcomm"
 ) {
     PIXEL_9_PRO(
         label = "Pixel 9 Pro",
@@ -107,7 +109,9 @@ enum class DeviceProfilePreset(
         device = "caiman",
         product = "caiman",
         board = "caiman",
-        fingerprint = "google/caiman/caiman:15/AP3A.241005.015/12366759:user/release-keys"
+        fingerprint = "google/caiman/caiman:15/AP3A.241005.015/12366759:user/release-keys",
+        glRenderer = "Mali-G715-Immortalis MC11",
+        glVendor = "ARM"
     ),
     SAMSUNG_S24_ULTRA(
         label = "Galaxy S24 Ultra",
@@ -117,7 +121,9 @@ enum class DeviceProfilePreset(
         device = "e3q",
         product = "e3qxeea",
         board = "pineapple",
-        fingerprint = "samsung/e3qxeea/e3q:14/UP1A.231005.007/S928BXXS3AXFE:user/release-keys"
+        fingerprint = "samsung/e3qxeea/e3q:14/UP1A.231005.007/S928BXXS3AXFE:user/release-keys",
+        glRenderer = "Adreno (TM) 750",
+        glVendor = "Qualcomm"
     ),
     ONEPLUS_12(
         label = "OnePlus 12",
@@ -127,7 +133,9 @@ enum class DeviceProfilePreset(
         device = "OP5929L1",
         product = "CPH2581",
         board = "pineapple",
-        fingerprint = "OnePlus/CPH2581/OP5929L1:14/UKQ1.230924.001/U.16992ef-1-2:user/release-keys"
+        fingerprint = "OnePlus/CPH2581/OP5929L1:14/UKQ1.230924.001/U.16992ef-1-2:user/release-keys",
+        glRenderer = "Adreno (TM) 750",
+        glVendor = "Qualcomm"
     ),
     XIAOMI_14_ULTRA(
         label = "Xiaomi 14 Ultra",
@@ -137,7 +145,9 @@ enum class DeviceProfilePreset(
         device = "aurora",
         product = "aurora_global",
         board = "aurora",
-        fingerprint = "Xiaomi/aurora_global/aurora:14/UKQ1.231003.002/V816.0.8.0.UNAMIXM:user/release-keys"
+        fingerprint = "Xiaomi/aurora_global/aurora:14/UKQ1.231003.002/V816.0.8.0.UNAMIXM:user/release-keys",
+        glRenderer = "Adreno (TM) 750",
+        glVendor = "Qualcomm"
     ),
     NOTHING_PHONE_2(
         label = "Nothing Phone (2)",
@@ -147,7 +157,9 @@ enum class DeviceProfilePreset(
         device = "Pong",
         product = "Pong",
         board = "taro",
-        fingerprint = "Nothing/Pong/Pong:14/UQ1A.240205.004/2404121810:user/release-keys"
+        fingerprint = "Nothing/Pong/Pong:14/UQ1A.240205.004/2404121810:user/release-keys",
+        glRenderer = "Adreno (TM) 730",
+        glVendor = "Qualcomm"
     ),
     CUSTOM(
         label = "Custom Model",
@@ -157,7 +169,9 @@ enum class DeviceProfilePreset(
         device = "caiman",
         product = "caiman",
         board = "caiman",
-        fingerprint = "google/caiman/caiman:15/AP3A.241005.015/12366759:user/release-keys"
+        fingerprint = "google/caiman/caiman:15/AP3A.241005.015/12366759:user/release-keys",
+        glRenderer = "Adreno (TM) 750",
+        glVendor = "Qualcomm"
     )
 }
 

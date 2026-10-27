@@ -10,18 +10,25 @@ import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
 import android.database.MatrixCursor
+import android.hardware.Sensor
+import android.hardware.SensorManager
 import android.location.Location
 import android.location.LocationManager
 import android.media.MediaDrm
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.net.wifi.WifiInfo
+import android.opengl.GLES20
+import android.opengl.GLES30
 import android.os.BatteryManager
 import android.os.Build
 import android.provider.Settings
 import android.telephony.TelephonyManager
 import android.util.Log
 import android.view.WindowManager
+import android.webkit.WebSettings
+import java.util.TimeZone
+import javax.microedition.khronos.opengles.GL10
 import com.example.isolation.model.IsolationRuleManager
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XSharedPreferences
@@ -127,6 +134,7 @@ object DeviceIdentitySpoofHook {
         attachPrivacyShieldHooks(lpparam, currentPkg, xSharedPrefs)
         attachLocationMockHooks(lpparam, currentPkg, xSharedPrefs)
         attachAppClonerPrivacyHooks(lpparam, currentPkg, xSharedPrefs)
+        attachDigitalFootprintHooks(lpparam, currentPkg, xSharedPrefs)
     }
 
     private fun obtainXPrefs(passed: XSharedPreferences?): XSharedPreferences? {
@@ -301,6 +309,7 @@ object DeviceIdentitySpoofHook {
                                 "ro.boot.vbmeta.device_state" -> if (rule.hideRootAndXposed) "locked" else null
                                 "ro.boot.verifiedbootstate" -> if (rule.hideRootAndXposed) "green" else null
                                 "ro.boot.flash.locked" -> if (rule.hideRootAndXposed) "1" else null
+                                "persist.sys.timezone" -> if (rule.autoSyncTimezone) resolveTimezoneForCoordinates(rule.spoofLatitude, rule.spoofLongitude) else null
                                 else -> null
                             }
                             if (spoofed != null) {
@@ -1000,5 +1009,182 @@ object DeviceIdentitySpoofHook {
                 }
             )
         } catch (_: Throwable) {}
+    }
+
+    @Suppress("UNUSED_PARAMETER", "DEPRECATION")
+    private fun attachDigitalFootprintHooks(
+        lpparam: XC_LoadPackage.LoadPackageParam,
+        currentPkg: String,
+        xSharedPrefs: XSharedPreferences?
+    ) {
+        // 1. OpenGL ES & WebGL Canvas Fingerprint Cloaking (glGetString)
+        try {
+            val glHook = object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                    if (!rule.spoofGpuFingerprint) return
+                    val name = param.args.firstOrNull() as? Int ?: return
+                    when (name) {
+                        GLES20.GL_RENDERER -> { // 0x1F01
+                            param.result = rule.preset.glRenderer
+                        }
+                        GLES20.GL_VENDOR -> { // 0x1F00
+                            param.result = rule.preset.glVendor
+                        }
+                    }
+                }
+            }
+
+            for (cls in listOf(GLES20::class.java, GLES30::class.java)) {
+                try {
+                    XposedBridge.hookAllMethods(cls, "glGetString", glHook)
+                } catch (_: Throwable) {}
+            }
+            try {
+                XposedBridge.hookAllMethods(GL10::class.java, "glGetString", glHook)
+            } catch (_: Throwable) {}
+        } catch (_: Throwable) {}
+
+        // 2. Browser & In-App WebView User-Agent Cloaking
+        try {
+            val uaHook = object : XC_MethodHook() {
+                override fun afterHookedMethod(param: MethodHookParam) {
+                    val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                    if (!rule.spoofBrowserUserAgent) return
+                    val chromeVersion = "128.0.0.0"
+                    val releaseVer = rule.fingerprint.split(":").getOrNull(1)?.split("/")?.firstOrNull() ?: "14"
+                    val modelStr = rule.model.ifBlank { rule.preset.model }
+                    val buildIdStr = rule.fingerprint.split("/").getOrNull(3) ?: "AP1A.240505.004"
+                    param.result = "Mozilla/5.0 (Linux; Android $releaseVer; $modelStr Build/$buildIdStr) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$chromeVersion Mobile Safari/537.36"
+                }
+            }
+
+            try {
+                XposedBridge.hookAllMethods(WebSettings::class.java, "getDefaultUserAgent", uaHook)
+            } catch (_: Throwable) {}
+            try {
+                XposedBridge.hookAllMethods(WebSettings::class.java, "getUserAgentString", uaHook)
+            } catch (_: Throwable) {}
+        } catch (_: Throwable) {}
+
+        // 3. Hardware Sensor Footprint Anonymizer (Block acoustic & sensor bias hardware fingerprinting)
+        try {
+            // Anonymize Sensor.getVendor() & Sensor.getName()
+            try {
+                XposedBridge.hookAllMethods(
+                    Sensor::class.java,
+                    "getVendor",
+                    object : XC_MethodHook() {
+                        override fun beforeHookedMethod(param: MethodHookParam) {
+                            val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                            if (rule.anonymizeSensors) {
+                                param.result = rule.manufacturer.ifBlank { "Android Open Source Project" }
+                            }
+                        }
+                    }
+                )
+            } catch (_: Throwable) {}
+
+            try {
+                XposedBridge.hookAllMethods(
+                    Sensor::class.java,
+                    "getName",
+                    object : XC_MethodHook() {
+                        override fun afterHookedMethod(param: MethodHookParam) {
+                            val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                            if (!rule.anonymizeSensors) return
+                            val orig = param.result as? String ?: return
+                            val scrubbed = orig
+                                .replace(Regex("(?i)bosch|invensense|stmicroelectronics|sensirion|murata|tdk|nxp|rohm"), "Standard")
+                            param.result = scrubbed
+                        }
+                    }
+                )
+            } catch (_: Throwable) {}
+        } catch (_: Throwable) {}
+
+        // 4. Cell Tower & Radio Triangulation Shield (Blocks cellular positioning bypass)
+        try {
+            val tmCls = TelephonyManager::class.java
+            val emptyCellInfoHook = object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                    if (rule.blockCellTowerTracking) {
+                        param.result = emptyList<Any>()
+                    }
+                }
+            }
+            try {
+                XposedBridge.hookAllMethods(tmCls, "getAllCellInfo", emptyCellInfoHook)
+            } catch (_: Throwable) {}
+            try {
+                XposedBridge.hookAllMethods(tmCls, "getNeighboringCellInfo", emptyCellInfoHook)
+            } catch (_: Throwable) {}
+            try {
+                XposedBridge.hookAllMethods(
+                    tmCls,
+                    "getCellLocation",
+                    object : XC_MethodHook() {
+                        override fun beforeHookedMethod(param: MethodHookParam) {
+                            val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                            if (rule.blockCellTowerTracking) {
+                                param.result = null
+                            }
+                        }
+                    }
+                )
+            } catch (_: Throwable) {}
+            try {
+                XposedBridge.hookAllMethods(
+                    tmCls,
+                    "requestCellInfoUpdate",
+                    object : XC_MethodHook() {
+                        override fun beforeHookedMethod(param: MethodHookParam) {
+                            val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                            if (rule.blockCellTowerTracking) {
+                                param.result = null
+                            }
+                        }
+                    }
+                )
+            } catch (_: Throwable) {}
+        } catch (_: Throwable) {}
+
+        // 5. TimeZone Auto-Synchronization with Coordinates
+        try {
+            XposedBridge.hookAllMethods(
+                TimeZone::class.java,
+                "getDefault",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                        if (rule.autoSyncTimezone) {
+                            val tzId = resolveTimezoneForCoordinates(rule.spoofLatitude, rule.spoofLongitude)
+                            param.result = TimeZone.getTimeZone(tzId)
+                        }
+                    }
+                }
+            )
+        } catch (_: Throwable) {}
+    }
+
+    private fun resolveTimezoneForCoordinates(lat: Double, lng: Double): String {
+        return when {
+            lat in 40.0..41.5 && lng in -74.5..-73.5 -> "America/New_York"
+            lat in 37.0..38.0 && lng in -123.0..-121.5 -> "America/Los_Angeles"
+            lat in 51.0..52.0 && lng in -0.5..0.5 -> "Europe/London"
+            lat in 48.0..49.5 && lng in 2.0..3.0 -> "Europe/Paris"
+            lat in 35.0..36.0 && lng in 139.0..140.0 -> "Asia/Tokyo"
+            lat in 52.0..53.0 && lng in 13.0..14.0 -> "Europe/Berlin"
+            lat in 22.0..23.0 && lng in 113.5..115.0 -> "Asia/Hong_Kong"
+            lat in 1.0..2.0 && lng in 103.5..104.5 -> "Asia/Singapore"
+            lat in -34.5..-33.5 && lng in 150.5..152.0 -> "Australia/Sydney"
+            else -> {
+                val offsetHours = Math.round(lng / 15.0).toInt().coerceIn(-12, 14)
+                if (offsetHours == 0) "UTC"
+                else if (offsetHours > 0) "GMT+$offsetHours"
+                else "GMT$offsetHours"
+            }
+        }
     }
 }

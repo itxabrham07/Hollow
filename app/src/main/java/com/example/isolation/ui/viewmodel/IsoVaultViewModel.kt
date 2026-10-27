@@ -174,7 +174,12 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 fakeBatteryEnabled = cfg?.fakeBatteryEnabled ?: false,
                 fakeBatteryLevel = cfg?.fakeBatteryLevel ?: 85,
                 knoxWarrantyBitSpoof = cfg?.knoxWarrantyBitSpoof ?: true,
-                disableAllNetworking = cfg?.disableAllNetworking ?: false
+                disableAllNetworking = cfg?.disableAllNetworking ?: false,
+                spoofGpuFingerprint = cfg?.spoofGpuFingerprint ?: true,
+                spoofBrowserUserAgent = cfg?.spoofBrowserUserAgent ?: true,
+                anonymizeSensors = cfg?.anonymizeSensors ?: true,
+                blockCellTowerTracking = cfg?.blockCellTowerTracking ?: true,
+                autoSyncTimezone = cfg?.autoSyncTimezone ?: true
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -520,7 +525,12 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
         fakeBatteryEnabled: Boolean = appInfo.fakeBatteryEnabled,
         fakeBatteryLevel: Int = appInfo.fakeBatteryLevel,
         knoxWarrantyBitSpoof: Boolean = appInfo.knoxWarrantyBitSpoof,
-        disableAllNetworking: Boolean = appInfo.disableAllNetworking
+        disableAllNetworking: Boolean = appInfo.disableAllNetworking,
+        spoofGpuFingerprint: Boolean = appInfo.spoofGpuFingerprint,
+        spoofBrowserUserAgent: Boolean = appInfo.spoofBrowserUserAgent,
+        anonymizeSensors: Boolean = appInfo.anonymizeSensors,
+        blockCellTowerTracking: Boolean = appInfo.blockCellTowerTracking,
+        autoSyncTimezone: Boolean = appInfo.autoSyncTimezone
     ) {
         viewModelScope.launch {
             val existing = dao.getConfigForPackage(appInfo.packageName)
@@ -562,7 +572,12 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 fakeBatteryEnabled = fakeBatteryEnabled,
                 fakeBatteryLevel = fakeBatteryLevel,
                 knoxWarrantyBitSpoof = knoxWarrantyBitSpoof,
-                disableAllNetworking = disableAllNetworking
+                disableAllNetworking = disableAllNetworking,
+                spoofGpuFingerprint = spoofGpuFingerprint,
+                spoofBrowserUserAgent = spoofBrowserUserAgent,
+                anonymizeSensors = anonymizeSensors,
+                blockCellTowerTracking = blockCellTowerTracking,
+                autoSyncTimezone = autoSyncTimezone
             ) ?: AppIsolationConfig(
                 packageName = appInfo.packageName,
                 appName = appInfo.appName,
@@ -593,7 +608,12 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 fakeBatteryEnabled = fakeBatteryEnabled,
                 fakeBatteryLevel = fakeBatteryLevel,
                 knoxWarrantyBitSpoof = knoxWarrantyBitSpoof,
-                disableAllNetworking = disableAllNetworking
+                disableAllNetworking = disableAllNetworking,
+                spoofGpuFingerprint = spoofGpuFingerprint,
+                spoofBrowserUserAgent = spoofBrowserUserAgent,
+                anonymizeSensors = anonymizeSensors,
+                blockCellTowerTracking = blockCellTowerTracking,
+                autoSyncTimezone = autoSyncTimezone
             )
 
             dao.insertOrUpdateConfig(updated)
@@ -651,7 +671,12 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             fakeBatteryEnabled = false,
             fakeBatteryLevel = appInfo.fakeBatteryLevel,
             knoxWarrantyBitSpoof = false,
-            disableAllNetworking = false
+            disableAllNetworking = false,
+            spoofGpuFingerprint = false,
+            spoofBrowserUserAgent = false,
+            anonymizeSensors = false,
+            blockCellTowerTracking = false,
+            autoSyncTimezone = false
         )
     }
 

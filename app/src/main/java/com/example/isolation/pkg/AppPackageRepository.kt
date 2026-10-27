@@ -63,6 +63,12 @@ data class InstalledAppInfo(
     val hideAdbAndDevOptions: Boolean = true,
     val hideVpnAndProxy: Boolean = true,
     val blockClipboardRead: Boolean = false,
+    // Digital Footprint & Anti-Tracking Shield (Snap, Meta, Browsers)
+    val spoofGpuFingerprint: Boolean = true,
+    val spoofBrowserUserAgent: Boolean = true,
+    val anonymizeSensors: Boolean = true,
+    val blockCellTowerTracking: Boolean = true,
+    val autoSyncTimezone: Boolean = true,
     // Networking
     val disableAllNetworking: Boolean = false
 )
@@ -123,6 +129,11 @@ class AppPackageRepository(private val context: Context) {
             hideAdbAndDevOptions = config?.hideAdbAndDevOptions ?: true,
             hideVpnAndProxy = config?.hideVpnAndProxy ?: true,
             blockClipboardRead = config?.blockClipboardRead ?: false,
+            spoofGpuFingerprint = config?.spoofGpuFingerprint ?: true,
+            spoofBrowserUserAgent = config?.spoofBrowserUserAgent ?: true,
+            anonymizeSensors = config?.anonymizeSensors ?: true,
+            blockCellTowerTracking = config?.blockCellTowerTracking ?: true,
+            autoSyncTimezone = config?.autoSyncTimezone ?: true,
             disableAllNetworking = config?.disableAllNetworking ?: false
         )
     }
