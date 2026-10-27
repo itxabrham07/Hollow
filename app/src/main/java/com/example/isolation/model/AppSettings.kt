@@ -49,7 +49,7 @@ data class AppSettings(
     /** Developer Full Build = all modules unlocked locally (true on Dev APK, false on Release Normal APK). */
     val devFullBuildMode: Boolean = com.example.BuildConfig.DEBUG,
     /** Node.js + MongoDB Atlas Cloud Admin Server URL */
-    val cloudServerUrl: String = "http://10.0.2.2:3000"
+    val cloudServerUrl: String = "https://hollow.arshman.me"
 ) {
     val allProxyServers: List<VpnProxyServer>
         get() = customProxyServers + VpnProxyPresets.defaultServers
@@ -148,7 +148,7 @@ object SettingsStore {
             showIpInfoInToolbar = p.getBoolean(K_SHOW_IP_INFO, true),
             customProxyServers = customServers,
             devFullBuildMode = if (com.example.BuildConfig.DEBUG) p.getBoolean(K_DEV_FULL_BUILD, true) else false,
-            cloudServerUrl = p.getString(K_CLOUD_SERVER_URL, "http://10.0.2.2:3000") ?: "http://10.0.2.2:3000"
+            cloudServerUrl = p.getString(K_CLOUD_SERVER_URL, "https://hollow.arshman.me") ?: "https://hollow.arshman.me"
         )
     }
 
