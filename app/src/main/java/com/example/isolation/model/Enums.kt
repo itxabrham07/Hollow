@@ -6,7 +6,6 @@ import android.os.Build
 import android.provider.Settings
 import android.telephony.TelephonyManager
 import android.util.Base64
-import android.webkit.WebSettings
 import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.roundToInt
@@ -289,11 +288,9 @@ object RealDeviceHardware {
         } catch (_: Throwable) {
             "en-US"
         }
-        val defaultUa = try {
-            WebSettings.getDefaultUserAgent(context)
-        } catch (_: Throwable) {
-            "Mozilla/5.0 (Linux; Android ${Build.VERSION.RELEASE}; ${Build.MODEL}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.200 Mobile Safari/537.36"
-        }
+        val releaseVer = Build.VERSION.RELEASE ?: "15"
+        val modelName = Build.MODEL ?: "Pixel"
+        val defaultUa = "Mozilla/5.0 (Linux; Android $releaseVer; $modelName) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.200 Mobile Safari/537.36"
         val brand = Build.BRAND ?: "google"
         val isGoogle = brand.equals("google", ignoreCase = true)
         val glVendor = if (isGoogle) "ARM" else "Qualcomm"

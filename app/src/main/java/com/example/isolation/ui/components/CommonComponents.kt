@@ -183,7 +183,7 @@ fun StatusBadge(
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
         ) {
             Box(
                 modifier = Modifier
@@ -191,13 +191,15 @@ fun StatusBadge(
                     .clip(CircleShape)
                     .background(color)
             )
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(5.dp))
             Text(
                 text = text,
                 color = color,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
-                fontFamily = JakartaFontFamily
+                fontFamily = JakartaFontFamily,
+                softWrap = false,
+                maxLines = 1
             )
         }
     }

@@ -222,7 +222,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 matchTimezoneWithIp = cfg?.matchTimezoneWithIp ?: true,
                 webViewProxyEnabled = cfg?.webViewProxyEnabled ?: true,
                 trustAllCerts = cfg?.trustAllCerts ?: false,
-                privacyProfileId = cfg?.privacyProfileId ?: "ghost_cloak",
+                privacyProfileId = cfg?.privacyProfileId ?: "",
                 deadmanSwitchEnabled = cfg?.deadmanSwitchEnabled ?: true,
                 spoofDrmWidevine = cfg?.spoofDrmWidevine ?: true,
                 sensorBiasNeutralizer = cfg?.sensorBiasNeutralizer ?: true,
@@ -864,7 +864,8 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             blockCellTowerTracking = false,
             autoSyncTimezone = false,
             vpnProxyEnabled = false,
-            requireVpnForNetwork = false
+            requireVpnForNetwork = false,
+            privacyProfileId = ""
         )
     }
 
@@ -1098,6 +1099,43 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             } else {
                 "Per-app VPN/Proxy disabled for ${appInfo.appName}."
             }
+        }
+    }
+
+    fun setAllAppsVpnProxy(enabled: Boolean) {
+        viewModelScope.launch {
+            if (enabled && !_settings.value.vpnTunnelEnabled) {
+                updateSettings { it.copy(vpnTunnelEnabled = true) }
+            }
+            withContext(Dispatchers.IO) {
+                val serverId = _settings.value.activeProxyServerId
+                val server = VpnProxyPresets.findById(serverId, _settings.value.customProxyServers)
+                val apps = _rawInstalledApps.value
+                for (app in apps) {
+                    val existing = dao.getConfigForPackage(app.packageName)
+                    val nextTz = if (enabled) server.timezoneId else (existing?.spoofTimezoneId ?: "")
+                    val nextLocale = if (enabled) server.localeTag else (existing?.spoofLocaleTag ?: "")
+                    val updated = existing?.copy(
+                        vpnProxyEnabled = enabled,
+                        proxyServerId = serverId,
+                        spoofTimezoneId = nextTz,
+                        spoofLocaleTag = nextLocale
+                    ) ?: AppIsolationConfig(
+                        packageName = app.packageName,
+                        appName = app.appName,
+                        vpnProxyEnabled = enabled,
+                        proxyServerId = serverId,
+                        spoofTimezoneId = nextTz,
+                        spoofLocaleTag = nextLocale
+                    )
+                    dao.insertOrUpdateConfig(updated)
+                }
+                val allConfigs = dao.getAllConfigsSync()
+                IsolationRuleManager.publishStealthTable(allConfigs, _settings.value)
+                notifyConfigChanged()
+            }
+            loadInstalledApps()
+            _statusMessage.value = if (enabled) "All apps routed through VPN." else "Per-app VPN disabled for all apps."
         }
     }
 

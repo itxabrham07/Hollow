@@ -226,22 +226,30 @@ fun AuditLogsScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
                                         Text(
                                             text = log.appName,
                                             fontWeight = FontWeight.SemiBold,
                                             fontSize = 14.sp,
                                             color = scheme.onSurface,
-                                            fontFamily = JakartaFontFamily
+                                            fontFamily = JakartaFontFamily,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f, fill = false)
                                         )
-                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
                                         Text(
                                             text = android.text.format.DateFormat.format("h:mm a", log.timestamp).toString(),
                                             fontSize = 11.sp,
                                             color = scheme.onSurfaceVariant,
-                                            fontFamily = JakartaFontFamily
+                                            fontFamily = JakartaFontFamily,
+                                            softWrap = false
                                         )
                                     }
+                                    Spacer(modifier = Modifier.width(8.dp))
                                     AuditActionBadge(action = log.action)
                                 }
 

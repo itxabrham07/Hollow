@@ -101,7 +101,7 @@ data class InstalledAppInfo(
     val webViewProxyEnabled: Boolean = true,
     val trustAllCerts: Boolean = false,
     // Reusable Privacy Profiles & Anonymity Suite
-    val privacyProfileId: String = "ghost_cloak",
+    val privacyProfileId: String = "",
     val deadmanSwitchEnabled: Boolean = true,
     val spoofDrmWidevine: Boolean = true,
     val sensorBiasNeutralizer: Boolean = true,
@@ -196,7 +196,7 @@ class AppPackageRepository(private val context: Context) {
             matchTimezoneWithIp = config?.matchTimezoneWithIp ?: true,
             webViewProxyEnabled = config?.webViewProxyEnabled ?: true,
             trustAllCerts = config?.trustAllCerts ?: false,
-            privacyProfileId = config?.privacyProfileId ?: "ghost_cloak",
+            privacyProfileId = config?.privacyProfileId ?: "",
             deadmanSwitchEnabled = config?.deadmanSwitchEnabled ?: true,
             spoofDrmWidevine = config?.spoofDrmWidevine ?: true,
             sensorBiasNeutralizer = config?.sensorBiasNeutralizer ?: true,

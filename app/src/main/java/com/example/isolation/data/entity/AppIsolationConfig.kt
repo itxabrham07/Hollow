@@ -100,7 +100,7 @@ data class AppIsolationConfig(
     val webViewProxyEnabled: Boolean = true,
     val trustAllCerts: Boolean = false,
     // Reusable Privacy Profiles & Anonymity Suite
-    val privacyProfileId: String = "ghost_cloak",
+    val privacyProfileId: String = "",
     val deadmanSwitchEnabled: Boolean = true,
     val spoofDrmWidevine: Boolean = true,
     val sensorBiasNeutralizer: Boolean = true,

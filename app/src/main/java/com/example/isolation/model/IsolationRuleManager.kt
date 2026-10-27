@@ -127,7 +127,7 @@ object IsolationRuleManager {
         val webViewProxyEnabled: Boolean = true,
         val trustAllCerts: Boolean = false,
         // Reusable Privacy Profiles & Anti-Fingerprint Shields
-        val privacyProfileId: String = "ghost_cloak",
+        val privacyProfileId: String = "",
         val deadmanSwitchEnabled: Boolean = true,
         val spoofDrmWidevine: Boolean = true,
         val sensorBiasNeutralizer: Boolean = true,
@@ -550,7 +550,7 @@ object IsolationRuleManager {
                 matchTimezoneWithIp = if (p.size > 60) p[60] == "1" else true,
                 webViewProxyEnabled = if (p.size > 61) p[61] == "1" else true,
                 trustAllCerts = if (p.size > 62) p[62] == "1" else false,
-                privacyProfileId = if (p.size > 63) p[63].ifBlank { "ghost_cloak" } else "ghost_cloak",
+                privacyProfileId = if (p.size > 63) p[63] else "",
                 deadmanSwitchEnabled = if (p.size > 64) p[64] == "1" else true,
                 spoofDrmWidevine = if (p.size > 65) p[65] == "1" else true,
                 sensorBiasNeutralizer = if (p.size > 66) p[66] == "1" else true,
