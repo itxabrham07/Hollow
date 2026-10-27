@@ -140,5 +140,28 @@ class ExampleRobolectricTest {
         val devStates = HollowModuleRegistry.resolveModuleStates(context, devFullBuild = true)
         assertTrue(HollowModuleRegistry.isModuleActive("module_isolation", devStates, devFullBuild = true))
         assertTrue(HollowModuleRegistry.isModuleActive("module_network", devStates, devFullBuild = true))
+
+        // Zero-Touch 5th Server Module: Ship module_sensor_firewall via /modules/ manifest without adding to ModuleCatalog
+        val updatedWithFifth = record.copy(
+            allowedModules = setOf("module_hider", "module_privacy", "module_sensor_firewall")
+        )
+        RootLicenseVaultManager.writeVaultRecord(context, updatedWithFifth)
+        val fifthBundle = com.example.isolation.core.security.HollowSecureClient.buildSignedSimulatedModuleBundle(
+            context,
+            "module_sensor_firewall"
+        )
+        assertTrue(
+            RootLicenseVaultManager.saveDownloadedModuleToVault(
+                context,
+                "module_sensor_firewall",
+                fifthBundle
+            )
+        )
+
+        val statesWithFifth = HollowModuleRegistry.resolveModuleStates(context, devFullBuild = false)
+        assertTrue(HollowModuleRegistry.isModuleActive("module_sensor_firewall", statesWithFifth, devFullBuild = false))
+        val fifthMod = HollowModuleRegistry.findModuleById("module_sensor_firewall", statesWithFifth)!!
+        assertEquals("Sensor Firewall", fifthMod.cardTitle)
     }
 }
+

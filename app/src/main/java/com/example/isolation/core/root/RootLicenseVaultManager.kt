@@ -175,11 +175,64 @@ object RootLicenseVaultManager {
 
     fun deleteDownloadedModuleFromVault(context: Context, moduleId: String) {
         val rootPath = "$ROOT_MODULES_DIR/$moduleId.dex.enc"
-        execRootCommand("rm -f $rootPath")
+        val stateRootPath = "$ROOT_MODULES_DIR/${moduleId}_state.enc"
+        execRootCommand("rm -f $rootPath $stateRootPath")
         try {
             File(getFallbackVaultDir(context), "modules/$moduleId.dex.enc").delete()
+            File(getFallbackVaultDir(context), "modules/${moduleId}_state.enc").delete()
         } catch (_: Throwable) {
         }
+    }
+
+    /**
+     * Reads and decrypts the JSON manifest/payload of a downloaded module from
+     * `/data/adb/.hollow_vault/modules/<moduleId>.dex.enc`.
+     */
+    fun readDownloadedModulePayload(context: Context, moduleId: String): String? {
+        val rootPath = "$ROOT_MODULES_DIR/$moduleId.dex.enc"
+        val relativeName = "modules/$moduleId.dex.enc"
+        val raw = readRawFileFromRootOrFallback(context, rootPath, relativeName)
+        if (raw.isBlank()) return null
+        return decryptWithHardwareKey(context, raw)
+    }
+
+    fun readModuleToggleState(
+        context: Context,
+        moduleId: String,
+        featureKey: String,
+        defaultValue: Boolean = true
+    ): Boolean {
+        val rootPath = "$ROOT_MODULES_DIR/${moduleId}_state.enc"
+        val relativeName = "modules/${moduleId}_state.enc"
+        val raw = readRawFileFromRootOrFallback(context, rootPath, relativeName)
+        if (raw.isBlank()) return defaultValue
+        val decrypted = decryptWithHardwareKey(context, raw) ?: return defaultValue
+        return try {
+            JSONObject(decrypted).optBoolean(featureKey, defaultValue)
+        } catch (_: Throwable) {
+            defaultValue
+        }
+    }
+
+    fun saveModuleToggleState(
+        context: Context,
+        moduleId: String,
+        featureKey: String,
+        enabled: Boolean
+    ) {
+        ensureSecretVolumeProvisioned(context)
+        val rootPath = "$ROOT_MODULES_DIR/${moduleId}_state.enc"
+        val relativeName = "modules/${moduleId}_state.enc"
+        val raw = readRawFileFromRootOrFallback(context, rootPath, relativeName)
+        val currentJson = try {
+            val dec = if (raw.isNotBlank()) decryptWithHardwareKey(context, raw) else null
+            if (!dec.isNullOrBlank()) JSONObject(dec) else JSONObject()
+        } catch (_: Throwable) {
+            JSONObject()
+        }
+        currentJson.put(featureKey, enabled)
+        val encrypted = encryptWithHardwareKey(context, currentJson.toString())
+        writeRawFileToRootAndFallback(context, rootPath, relativeName, encrypted)
     }
 
     fun listDownloadedModulesInVault(context: Context): Set<String> {

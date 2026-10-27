@@ -1,11 +1,16 @@
 FROM node:20-alpine
 
-WORKDIR /usr/src/hollow-web
+WORKDIR /usr/src/hollow
 
-COPY web/package*.json ./
-RUN npm install --omit=dev
+# Install web server dependencies
+COPY web/package*.json ./web/
+RUN cd web && npm install --omit=dev
 
-COPY web/ ./
+# Copy web server and server-side dynamic modules repository
+COPY web/ ./web/
+COPY modules/ ./modules/
+
+WORKDIR /usr/src/hollow/web
 
 ENV NODE_ENV=production
 ENV PORT=3000

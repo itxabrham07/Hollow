@@ -73,34 +73,33 @@ fun DashboardScreen(
     onNavigateToTerminal: () -> Unit,
     onNavigateToAudit: () -> Unit,
     onNavigateToVpnProxy: () -> Unit = {},
-    onNavigateToLicenseHub: () -> Unit = {}
+    onNavigateToLicenseHub: () -> Unit = {},
+    onOpenModule: (String) -> Unit = { modId ->
+        when (modId) {
+            "module_isolation" -> onNavigateToApps()
+            "module_privacy" -> onNavigateToDeviceSpoofer()
+            "module_hider" -> onNavigateToAppHider()
+            "module_network" -> onNavigateToVpnProxy()
+            else -> onNavigateToLicenseHub()
+        }
+    }
 ) {
     val scheme = MaterialTheme.colorScheme
     val isLsposedActive by viewModel.isLsposedActive.collectAsState()
-    val isolatedCount by viewModel.isolatedCount.collectAsState()
-    val hiddenOrDisguisedCount by viewModel.hiddenOrDisguisedCount.collectAsState()
-    val identitySpoofedCount by viewModel.identitySpoofedCount.collectAsState()
     val recentLogs by viewModel.recentAuditLogs.collectAsState()
     val totalBytesEncrypted by viewModel.totalEncryptedBytes.collectAsState()
     val settings by viewModel.settings.collectAsState()
-    val allApps by viewModel.allInstalledApps.collectAsState()
     val moduleStates by viewModel.moduleStates.collectAsState()
     val clockCheck by viewModel.clockVerification.collectAsState()
 
-    val routedAppsCount = allApps.count { it.vpnProxyEnabled }
-    val activeServer = settings.activeServer
-    val isVpnOn = settings.vpnTunnelEnabled
     val formattedEncrypted = formatBytes(totalBytesEncrypted)
 
-    val mountedIds = moduleStates.filter { it.isReadyToUse }.map { it.module.id }.toSet()
+    val mountedModules = moduleStates.filter { it.isReadyToUse }.map { it.module }
+    val mountedIds = mountedModules.map { it.id }.toSet()
+    val totalCatalogSize = moduleStates.size.coerceAtLeast(4)
     val pendingDownloadTitles = moduleStates
         .filter { it.isAuthorizedByAdmin && !it.isDownloadedInRootVault && !settings.devFullBuildMode }
         .map { it.module.displayName }
-
-    val isIsolationMounted = "module_isolation" in mountedIds
-    val isPrivacyMounted = "module_privacy" in mountedIds
-    val isHiderMounted = "module_hider" in mountedIds
-    val isNetworkMounted = "module_network" in mountedIds
 
     LazyColumn(
         modifier = Modifier
@@ -123,7 +122,7 @@ fun DashboardScreen(
                 devFullBuild = settings.devFullBuildMode,
                 hardwareFingerprint = viewModel.hardwareBinding.fingerprintHex,
                 activeModulesCount = mountedIds.size,
-                totalModulesCount = moduleStates.size.coerceAtLeast(4),
+                totalModulesCount = totalCatalogSize,
                 remainingDays = clockCheck.remainingDays,
                 onOpenLicenseHub = onNavigateToLicenseHub
             )
@@ -141,7 +140,7 @@ fun DashboardScreen(
             }
         }
 
-        // Section Label: Core Protection Modules (Dynamic Bento Grid)
+        // Section Label: Core Protection Modules (100% Dynamic Zero-Touch Bento Grid)
         item {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -151,7 +150,7 @@ fun DashboardScreen(
                     .padding(top = 2.dp, start = 2.dp)
             ) {
                 Text(
-                    text = "PROTECTION MODULES (${mountedIds.size}/4 MOUNTED)",
+                    text = "PROTECTION MODULES (${mountedIds.size}/$totalCatalogSize MOUNTED)",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.8.sp,
@@ -171,7 +170,7 @@ fun DashboardScreen(
             }
         }
 
-        if (mountedIds.isEmpty()) {
+        if (mountedModules.isEmpty()) {
             // Zero-Module Release Shell Empty State
             item {
                 Card(
@@ -214,75 +213,24 @@ fun DashboardScreen(
                 }
             }
         } else {
-            // Bento Row 1: Storage Isolate + Privacy & ID (rendered dynamically if mounted)
-            if (isIsolationMounted || isPrivacyMounted) {
-                item {
+            // Zero-Touch Dynamic Bento Grid: Any module mounted from ModuleCatalog or
+            // /data/adb/.hollow_vault/modules/<id>.dex.enc automatically renders as a card!
+            val moduleRows = mountedModules.chunked(2)
+            moduleRows.forEach { rowModules ->
+                item(key = rowModules.joinToString("_") { it.id }) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        if (isIsolationMounted) {
+                        rowModules.forEach { mod ->
                             BentoModuleTile(
-                                title = "Storage Isolate",
-                                subtitle = if (isolatedCount == 0) "Sandbox app files & media" else "$isolatedCount app${if (isolatedCount == 1) "" else "s"} isolated",
-                                badgeText = "$isolatedCount",
-                                icon = Icons.Default.Apps,
-                                accentColor = scheme.primary,
-                                onClick = onNavigateToApps,
-                                testTag = "stat_isolated_apps",
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-
-                        if (isPrivacyMounted) {
-                            BentoModuleTile(
-                                title = "Privacy & ID",
-                                subtitle = if (identitySpoofedCount == 0) "IMEI, Build, GPS & Shields" else "$identitySpoofedCount app${if (identitySpoofedCount == 1) "" else "s"} cloaked",
-                                badgeText = "$identitySpoofedCount",
-                                icon = Icons.Default.Fingerprint,
-                                accentColor = scheme.tertiary,
-                                onClick = onNavigateToDeviceSpoofer,
-                                testTag = "card_device_identity_spoofer",
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Bento Row 2: Hide App + Proxy & V2Ray (rendered dynamically if mounted)
-            if (isHiderMounted || isNetworkMounted) {
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        if (isHiderMounted) {
-                            BentoModuleTile(
-                                title = "Hide App",
-                                subtitle = if (hiddenOrDisguisedCount == 0) "Launcher & SystemUI stealth" else "$hiddenOrDisguisedCount app${if (hiddenOrDisguisedCount == 1) "" else "s"} disguised",
-                                badgeText = "$hiddenOrDisguisedCount",
-                                icon = Icons.Default.VisibilityOff,
-                                accentColor = scheme.secondary,
-                                onClick = onNavigateToAppHider,
-                                testTag = "card_hide_disguise_apps",
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-
-                        if (isNetworkMounted) {
-                            BentoModuleTile(
-                                title = "Proxy & V2Ray",
-                                subtitle = when {
-                                    isVpnOn && routedAppsCount > 0 -> "[${activeServer.countryCode}] ${activeServer.exitIp} • $routedAppsCount apps"
-                                    isVpnOn -> "[${activeServer.countryCode}] ${activeServer.exitIp} • Ready"
-                                    else -> "Per-app & global routing"
-                                },
-                                badgeText = activeServer.protocol.badge,
-                                icon = Icons.Default.Public,
-                                accentColor = Color(0xFF0EA5E9),
-                                onClick = onNavigateToVpnProxy,
-                                testTag = "dashboard_vpn_card",
+                                title = mod.cardTitle,
+                                subtitle = mod.resolveCardSubtitle(viewModel),
+                                badgeText = mod.resolveCardBadge(viewModel),
+                                icon = mod.icon,
+                                accentColor = Color(mod.accentColorHex),
+                                onClick = { onOpenModule(mod.id) },
+                                testTag = mod.cardTestTag,
                                 modifier = Modifier.weight(1f)
                             )
                         }

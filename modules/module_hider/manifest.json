@@ -1,0 +1,22 @@
+{
+  "moduleId": "module_hider",
+  "name": "App Hider & SystemUI Stealth",
+  "version": 3,
+  "minCoreVersion": 1,
+  "sizeKb": 412,
+  "entryClass": "com.example.isolation.module.hider.AppHiderModule",
+  "primaryRoute": "APP_HIDER",
+  "contributesBottomNavTab": false,
+  "features": [
+    "PackageManagerService Query Filtering",
+    "LauncherApps & Intent Query Cloaking",
+    "Calculator / Notes / Calendar Icon & Label Disguise",
+    "SystemUI Recents Task Card Suppression",
+    "SystemUI Quick Settings Long-Press Stealth Trigger"
+  ],
+  "hookTargets": [
+    "android.app.ApplicationPackageManager",
+    "android.content.pm.LauncherApps",
+    "com.android.systemui"
+  ]
+}

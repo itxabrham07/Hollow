@@ -131,6 +131,51 @@ object HollowSecureClient {
             .put("issuedAtMs", System.currentTimeMillis())
             .put("dexHeaderMagic", "dex\n039\u0000")
             .put("signatureB64", computeHmacSha256("$moduleId:${hw.fingerprintHex}"))
+
+        if (moduleId == "module_sensor_firewall") {
+            obj.put("name", "Sensor & Mic Hardware Firewall")
+                .put("cardTitle", "Sensor Firewall")
+                .put(
+                    "description",
+                    "Zero-touch server-shipped module that blanks camera/microphone buffers, zeroes gyroscope/accelerometer telemetry, and blocks background ultrasonic beacons."
+                )
+                .put("version", 1)
+                .put("sizeKb", 395)
+                .put("accentColorHex", "0xFFF59E0B")
+                .put("entryClass", "com.example.isolation.module.sensorfirewall.SensorFirewallPayload")
+                .put(
+                    "features",
+                    JSONArray()
+                        .put(
+                            JSONObject()
+                                .put("key", "mic_null_pcm_stream")
+                                .put("title", "Silent PCM Microphone Guard")
+                                .put("description", "Injects zeroed PCM audio frames into AudioRecord when background apps attempt covert recording.")
+                                .put("defaultEnabled", true)
+                        )
+                        .put(
+                            JSONObject()
+                                .put("key", "camera_black_frame_shield")
+                                .put("title", "Camera2 Black Frame Shield")
+                                .put("description", "Replaces CameraDevice capture surfaces with synthetic blank frames unless explicitly whitelisted.")
+                                .put("defaultEnabled", true)
+                        )
+                        .put(
+                            JSONObject()
+                                .put("key", "gyro_motion_fingerprint_scrub")
+                                .put("title", "Gyroscope & Step Counter Scrubber")
+                                .put("description", "Prevents gait and micro-vibration fingerprinting across SensorManager listeners.")
+                                .put("defaultEnabled", true)
+                        )
+                )
+                .put(
+                    "hookTargets",
+                    JSONArray()
+                        .put("android.media.AudioRecord")
+                        .put("android.hardware.camera2.CameraManager")
+                        .put("android.hardware.SystemSensorManager")
+                )
+        }
         return obj.toString()
     }
 

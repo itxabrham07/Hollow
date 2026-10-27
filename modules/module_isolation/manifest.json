@@ -1,0 +1,23 @@
+{
+  "moduleId": "module_isolation",
+  "name": "Storage Shield & Virtual Vault",
+  "version": 4,
+  "minCoreVersion": 1,
+  "sizeKb": 684,
+  "entryClass": "com.example.isolation.module.isolation.StorageIsolationModule",
+  "primaryRoute": "APPS",
+  "contributesBottomNavTab": true,
+  "features": [
+    "Per-App Virtual Storage Sandbox Redirect",
+    "Root FUSE / Loop Volume Attach & Seal",
+    "AES-256-GCM Encrypted Media Locker",
+    "System Photo Picker Interception Policy",
+    "Built-in Sandboxed File Explorer & Gallery"
+  ],
+  "hookTargets": [
+    "java.io.File",
+    "android.content.ContextWrapper",
+    "android.os.Environment",
+    "android.content.ContentResolver"
+  ]
+}

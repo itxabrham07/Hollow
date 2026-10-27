@@ -98,6 +98,7 @@ fun OnboardingAuthScreen(
     var adminGrantIsolation by remember { mutableStateOf(true) }
     var adminGrantPrivacy by remember { mutableStateOf(true) }
     var adminGrantNetwork by remember { mutableStateOf(true) }
+    var adminGrantSensorFirewall by remember { mutableStateOf(false) }
 
     if (!isStandaloneGate) {
         BackHandler { onBack() }
@@ -180,64 +181,66 @@ fun OnboardingAuthScreen(
             }
         }
 
-        // Build Flavor Switch: Developer Full Build vs Release Shell
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = scheme.surface),
-                shape = RoundedCornerShape(18.dp),
-                border = BorderStroke(1.dp, scheme.outlineVariant),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
+        // Build Flavor Switch: Developer Full Build vs Release Shell (Interactive only in Dev APK)
+        if (com.example.BuildConfig.DEBUG) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = scheme.surface),
+                    shape = RoundedCornerShape(18.dp),
+                    border = BorderStroke(1.dp, scheme.outlineVariant),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(scheme.primary.copy(alpha = 0.14f))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.DeveloperMode,
-                                    contentDescription = null,
-                                    tint = scheme.primary,
-                                    modifier = Modifier.size(19.dp)
-                                )
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(scheme.primary.copy(alpha = 0.14f))
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DeveloperMode,
+                                        contentDescription = null,
+                                        tint = scheme.primary,
+                                        modifier = Modifier.size(19.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = if (settings.devFullBuildMode) "Developer Full Build (All Modules)" else "Release Shell Mode (Zero-Module APK)",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = scheme.onSurface,
+                                        fontFamily = JakartaFontFamily
+                                    )
+                                    Text(
+                                        text = if (settings.devFullBuildMode) {
+                                            "Switch OFF to test the Release Shell registration, waiting screen & dynamic server download."
+                                        } else {
+                                            "Zero modules bundled in APK. Features appear only after Admin approval & Root Vault download."
+                                        },
+                                        fontSize = 11.sp,
+                                        color = scheme.onSurfaceVariant,
+                                        fontFamily = JakartaFontFamily
+                                    )
+                                }
                             }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = if (settings.devFullBuildMode) "Developer Full Build (All Modules)" else "Release Shell Mode (Zero-Module APK)",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = scheme.onSurface,
-                                    fontFamily = JakartaFontFamily
-                                )
-                                Text(
-                                    text = if (settings.devFullBuildMode) {
-                                        "Switch OFF to test the Release Shell registration, waiting screen & dynamic server download."
-                                    } else {
-                                        "Zero modules bundled in APK. Features appear only after Admin approval & Root Vault download."
-                                    },
-                                    fontSize = 11.sp,
-                                    color = scheme.onSurfaceVariant,
-                                    fontFamily = JakartaFontFamily
-                                )
-                            }
+                            Switch(
+                                checked = settings.devFullBuildMode,
+                                onCheckedChange = { viewModel.setDevFullBuildMode(it) },
+                                modifier = Modifier.testTag("switch_dev_full_build")
+                            )
                         }
-                        Switch(
-                            checked = settings.devFullBuildMode,
-                            onCheckedChange = { viewModel.setDevFullBuildMode(it) },
-                            modifier = Modifier.testTag("switch_dev_full_build")
-                        )
                     }
                 }
             }
@@ -717,97 +720,118 @@ fun OnboardingAuthScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
-                    HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
-                    Spacer(modifier = Modifier.height(10.dp))
+                    if (com.example.BuildConfig.DEBUG) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                        Spacer(modifier = Modifier.height(10.dp))
 
-                    Text(
-                        text = "Admin Module Entitlements to Grant:",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = scheme.onSurface,
-                        fontFamily = JakartaFontFamily
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Admin Module Entitlements to Grant (Dev Simulator):",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = scheme.onSurface,
+                            fontFamily = JakartaFontFamily
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
 
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        FilterChip(
-                            selected = adminGrantHider,
-                            onClick = { adminGrantHider = !adminGrantHider },
-                            label = { Text("App Hider", fontSize = 11.sp) },
-                            modifier = Modifier.weight(1f)
-                        )
-                        FilterChip(
-                            selected = adminGrantIsolation,
-                            onClick = { adminGrantIsolation = !adminGrantIsolation },
-                            label = { Text("Storage", fontSize = 11.sp) },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        FilterChip(
-                            selected = adminGrantPrivacy,
-                            onClick = { adminGrantPrivacy = !adminGrantPrivacy },
-                            label = { Text("Privacy ID", fontSize = 11.sp) },
-                            modifier = Modifier.weight(1f)
-                        )
-                        FilterChip(
-                            selected = adminGrantNetwork,
-                            onClick = { adminGrantNetwork = !adminGrantNetwork },
-                            label = { Text("Proxy/V2Ray", fontSize = 11.sp) },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Button(
-                            onClick = {
-                                val granted = mutableSetOf<String>()
-                                if (adminGrantHider) granted.add("module_hider")
-                                if (adminGrantIsolation) granted.add("module_isolation")
-                                if (adminGrantPrivacy) granted.add("module_privacy")
-                                if (adminGrantNetwork) granted.add("module_network")
-                                viewModel.simulateAdminApproveAccount(allowedModules = granted)
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("btn_admin_approve_device")
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
+                            FilterChip(
+                                selected = adminGrantHider,
+                                onClick = { adminGrantHider = !adminGrantHider },
+                                label = { Text("App Hider", fontSize = 11.sp) },
+                                modifier = Modifier.weight(1f)
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Admin: Approve Device", fontSize = 11.sp)
+                            FilterChip(
+                                selected = adminGrantIsolation,
+                                onClick = { adminGrantIsolation = !adminGrantIsolation },
+                                label = { Text("Storage", fontSize = 11.sp) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            FilterChip(
+                                selected = adminGrantPrivacy,
+                                onClick = { adminGrantPrivacy = !adminGrantPrivacy },
+                                label = { Text("Privacy ID", fontSize = 11.sp) },
+                                modifier = Modifier.weight(1f)
+                            )
+                            FilterChip(
+                                selected = adminGrantNetwork,
+                                onClick = { adminGrantNetwork = !adminGrantNetwork },
+                                label = { Text("Proxy/V2Ray", fontSize = 11.sp) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            FilterChip(
+                                selected = adminGrantSensorFirewall,
+                                onClick = { adminGrantSensorFirewall = !adminGrantSensorFirewall },
+                                label = {
+                                    Text(
+                                        "Sensor Firewall (Zero-Touch /modules/ Plugin)",
+                                        fontSize = 11.sp
+                                    )
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("chip_grant_sensor_firewall")
+                            )
                         }
 
-                        Button(
-                            onClick = { viewModel.simulateAdminBanDevice() },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFFEF4444),
-                                contentColor = Color.White
-                            ),
-                            modifier = Modifier.testTag("btn_admin_ban_device")
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Block,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(5.dp))
-                            Text("Ban Device", fontSize = 11.sp)
+                            Button(
+                                onClick = {
+                                    val granted = mutableSetOf<String>()
+                                    if (adminGrantHider) granted.add("module_hider")
+                                    if (adminGrantIsolation) granted.add("module_isolation")
+                                    if (adminGrantPrivacy) granted.add("module_privacy")
+                                    if (adminGrantNetwork) granted.add("module_network")
+                                    if (adminGrantSensorFirewall) granted.add("module_sensor_firewall")
+                                    viewModel.simulateAdminApproveAccount(allowedModules = granted)
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("btn_admin_approve_device")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Admin: Approve Device", fontSize = 11.sp)
+                            }
+
+                            Button(
+                                onClick = { viewModel.simulateAdminBanDevice() },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFFEF4444),
+                                    contentColor = Color.White
+                                ),
+                                modifier = Modifier.testTag("btn_admin_ban_device")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Block,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text("Ban Device", fontSize = 11.sp)
+                            }
                         }
                     }
                 }

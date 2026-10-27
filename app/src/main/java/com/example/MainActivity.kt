@@ -114,6 +114,7 @@ class MainActivity : ComponentActivity() {
 fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
     val scheme = MaterialTheme.colorScheme
     var currentScreen by remember { mutableStateOf(NavDestination.DASHBOARD) }
+    var activeModuleId by remember { mutableStateOf<String?>(null) }
     var filesInitialTab by remember { mutableIntStateOf(0) }
     var isDetailScreenOpen by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -134,7 +135,7 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
         }
     }
 
-    LaunchedEffect(currentScreen) {
+    LaunchedEffect(currentScreen, activeModuleId) {
         isDetailScreenOpen = false
     }
 
@@ -163,15 +164,18 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
         return
     }
 
-    BackHandler(enabled = currentScreen != NavDestination.DASHBOARD || isDetailScreenOpen) {
+    BackHandler(enabled = currentScreen != NavDestination.DASHBOARD || activeModuleId != null || isDetailScreenOpen) {
         if (isDetailScreenOpen) {
             isDetailScreenOpen = false
+        } else if (activeModuleId != null) {
+            activeModuleId = null
+            currentScreen = NavDestination.DASHBOARD
         } else {
             currentScreen = NavDestination.DASHBOARD
         }
     }
 
-    val showMainTopBar = !isDetailScreenOpen && (
+    val showMainTopBar = !isDetailScreenOpen && activeModuleId == null && (
             currentScreen == NavDestination.DASHBOARD ||
             currentScreen == NavDestination.VAULT ||
             currentScreen == NavDestination.SETTINGS ||
@@ -203,7 +207,10 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                     },
                     actions = {
                         IconButton(
-                            onClick = { currentScreen = NavDestination.LICENSE_HUB },
+                            onClick = {
+                                activeModuleId = null
+                                currentScreen = NavDestination.LICENSE_HUB
+                            },
                             modifier = Modifier.testTag("top_bar_license_hub")
                         ) {
                             Icon(
@@ -252,16 +259,25 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                             indicatorColor = scheme.primaryContainer
                         )
 
-                        val isHomeSection = currentScreen == NavDestination.DASHBOARD ||
+                        val isPrivacyActive = (activeModuleId == "module_privacy") ||
+                                (activeModuleId == null && currentScreen == NavDestination.DEVICE_SPOOFER)
+
+                        val isHomeSection = !isPrivacyActive && (
+                                activeModuleId != null ||
+                                currentScreen == NavDestination.DASHBOARD ||
                                 currentScreen == NavDestination.APPS ||
                                 currentScreen == NavDestination.APP_HIDER ||
                                 currentScreen == NavDestination.AUDIT ||
                                 currentScreen == NavDestination.VPN_PROXY ||
                                 currentScreen == NavDestination.LICENSE_HUB
+                        )
 
                         NavigationBarItem(
                             selected = isHomeSection,
-                            onClick = { currentScreen = NavDestination.DASHBOARD },
+                            onClick = {
+                                activeModuleId = null
+                                currentScreen = NavDestination.DASHBOARD
+                            },
                             icon = {
                                 Icon(
                                     imageVector = if (isHomeSection) Icons.Filled.Home else Icons.Outlined.Home,
@@ -282,11 +298,14 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
 
                         if (isPrivacyMounted) {
                             NavigationBarItem(
-                                selected = currentScreen == NavDestination.DEVICE_SPOOFER,
-                                onClick = { currentScreen = NavDestination.DEVICE_SPOOFER },
+                                selected = isPrivacyActive,
+                                onClick = {
+                                    activeModuleId = "module_privacy"
+                                    currentScreen = NavDestination.DEVICE_SPOOFER
+                                },
                                 icon = {
                                     Icon(
-                                        imageVector = if (currentScreen == NavDestination.DEVICE_SPOOFER) Icons.Filled.Shield else Icons.Outlined.Shield,
+                                        imageVector = if (isPrivacyActive) Icons.Filled.Shield else Icons.Outlined.Shield,
                                         contentDescription = "Privacy"
                                     )
                                 },
@@ -295,7 +314,7 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                                         text = NavDestination.DEVICE_SPOOFER.label,
                                         fontSize = 11.sp,
                                         fontFamily = JakartaFontFamily,
-                                        fontWeight = if (currentScreen == NavDestination.DEVICE_SPOOFER) FontWeight.Bold else FontWeight.Medium
+                                        fontWeight = if (isPrivacyActive) FontWeight.Bold else FontWeight.Medium
                                     )
                                 },
                                 colors = navItemColors,
@@ -305,14 +324,15 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
 
                         if (isIsolationMounted) {
                             NavigationBarItem(
-                                selected = currentScreen == NavDestination.VAULT,
+                                selected = activeModuleId == null && currentScreen == NavDestination.VAULT,
                                 onClick = {
+                                    activeModuleId = null
                                     filesInitialTab = 0
                                     currentScreen = NavDestination.VAULT
                                 },
                                 icon = {
                                     Icon(
-                                        imageVector = if (currentScreen == NavDestination.VAULT) Icons.Filled.Folder else Icons.Outlined.Folder,
+                                        imageVector = if (activeModuleId == null && currentScreen == NavDestination.VAULT) Icons.Filled.Folder else Icons.Outlined.Folder,
                                         contentDescription = "Files"
                                     )
                                 },
@@ -321,7 +341,7 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                                         text = NavDestination.VAULT.label,
                                         fontSize = 11.sp,
                                         fontFamily = JakartaFontFamily,
-                                        fontWeight = if (currentScreen == NavDestination.VAULT) FontWeight.Bold else FontWeight.Medium
+                                        fontWeight = if (activeModuleId == null && currentScreen == NavDestination.VAULT) FontWeight.Bold else FontWeight.Medium
                                     )
                                 },
                                 colors = navItemColors,
@@ -330,11 +350,14 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                         }
 
                         NavigationBarItem(
-                            selected = currentScreen == NavDestination.SETTINGS || currentScreen == NavDestination.MOUNTS,
-                            onClick = { currentScreen = NavDestination.SETTINGS },
+                            selected = activeModuleId == null && (currentScreen == NavDestination.SETTINGS || currentScreen == NavDestination.MOUNTS),
+                            onClick = {
+                                activeModuleId = null
+                                currentScreen = NavDestination.SETTINGS
+                            },
                             icon = {
                                 Icon(
-                                    imageVector = if (currentScreen == NavDestination.SETTINGS || currentScreen == NavDestination.MOUNTS) Icons.Filled.Settings else Icons.Outlined.Settings,
+                                    imageVector = if (activeModuleId == null && (currentScreen == NavDestination.SETTINGS || currentScreen == NavDestination.MOUNTS)) Icons.Filled.Settings else Icons.Outlined.Settings,
                                     contentDescription = "Settings"
                                 )
                             },
@@ -343,7 +366,7 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                                     text = NavDestination.SETTINGS.label,
                                     fontSize = 11.sp,
                                     fontFamily = JakartaFontFamily,
-                                    fontWeight = if (currentScreen == NavDestination.SETTINGS) FontWeight.Bold else FontWeight.Medium
+                                    fontWeight = if (activeModuleId == null && currentScreen == NavDestination.SETTINGS) FontWeight.Bold else FontWeight.Medium
                                 )
                             },
                             colors = navItemColors,
@@ -359,70 +382,97 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            Crossfade(
-                targetState = currentScreen,
-                animationSpec = tween(durationMillis = 150),
-                label = "nav_crossfade"
-            ) { screen ->
-                when (screen) {
-                    NavDestination.DASHBOARD -> DashboardScreen(
+            val openModuleId = activeModuleId
+            if (openModuleId != null) {
+                val mod = com.example.isolation.core.module.HollowModuleRegistry.findModuleById(openModuleId, moduleStates)
+                if (mod != null && (settings.devFullBuildMode || mod.id in mountedIds)) {
+                    mod.RenderPrimaryScreen(
                         viewModel = viewModel,
-                        onNavigateToApps = { currentScreen = NavDestination.APPS },
-                        onNavigateToAppHider = { currentScreen = NavDestination.APP_HIDER },
-                        onNavigateToDeviceSpoofer = { currentScreen = NavDestination.DEVICE_SPOOFER },
-                        onNavigateToVault = {
-                            filesInitialTab = 2
-                            currentScreen = NavDestination.VAULT
+                        onBack = {
+                            activeModuleId = null
+                            currentScreen = NavDestination.DASHBOARD
                         },
-                        onNavigateToFileManager = {
-                            filesInitialTab = 0
-                            currentScreen = NavDestination.VAULT
-                        },
-                        onNavigateToGallery = {
-                            filesInitialTab = 1
-                            currentScreen = NavDestination.VAULT
-                        },
-                        onNavigateToTerminal = { currentScreen = NavDestination.MOUNTS },
-                        onNavigateToAudit = { currentScreen = NavDestination.AUDIT },
-                        onNavigateToVpnProxy = { currentScreen = NavDestination.VPN_PROXY },
-                        onNavigateToLicenseHub = { currentScreen = NavDestination.LICENSE_HUB }
-                    )
-                    NavDestination.APPS -> AppsScreen(
-                        viewModel = viewModel,
-                        onBack = { currentScreen = NavDestination.DASHBOARD }
-                    )
-                    NavDestination.APP_HIDER -> AppHiderScreen(
-                        viewModel = viewModel,
-                        onBack = { currentScreen = NavDestination.DASHBOARD }
-                    )
-                    NavDestination.DEVICE_SPOOFER -> DeviceSpooferScreen(
-                        viewModel = viewModel,
-                        onBack = { currentScreen = NavDestination.DASHBOARD },
                         onDetailOpenChanged = { isDetailScreenOpen = it }
                     )
-                    NavDestination.VPN_PROXY -> VpnProxyScreen(
-                        viewModel = viewModel,
-                        onBack = { currentScreen = NavDestination.DASHBOARD }
-                    )
-                    NavDestination.VAULT -> FilesScreen(
-                        viewModel = viewModel,
-                        initialTab = filesInitialTab,
-                        onNavigateToApps = { currentScreen = NavDestination.APPS }
-                    )
-                    NavDestination.MOUNTS -> MountTerminalScreen(viewModel = viewModel)
-                    NavDestination.AUDIT -> AuditLogsScreen(
-                        viewModel = viewModel,
-                        onBack = { currentScreen = NavDestination.DASHBOARD }
-                    )
-                    NavDestination.SETTINGS -> SettingsScreen(
-                        viewModel = viewModel,
-                        onOpenDiagnostics = { currentScreen = NavDestination.MOUNTS }
-                    )
-                    NavDestination.LICENSE_HUB -> OnboardingAuthScreen(
+                } else {
+                    OnboardingAuthScreen(
                         viewModel = viewModel,
                         isStandaloneGate = false,
-                        onBack = { currentScreen = NavDestination.DASHBOARD }
+                        onBack = {
+                            activeModuleId = null
+                            currentScreen = NavDestination.DASHBOARD
+                        }
                     )
+                }
+            } else {
+                Crossfade(
+                    targetState = currentScreen,
+                    animationSpec = tween(durationMillis = 150),
+                    label = "nav_crossfade"
+                ) { screen ->
+                    when (screen) {
+                        NavDestination.DASHBOARD -> DashboardScreen(
+                            viewModel = viewModel,
+                            onNavigateToApps = { activeModuleId = "module_isolation" },
+                            onNavigateToAppHider = { activeModuleId = "module_hider" },
+                            onNavigateToDeviceSpoofer = { activeModuleId = "module_privacy" },
+                            onNavigateToVault = {
+                                filesInitialTab = 2
+                                currentScreen = NavDestination.VAULT
+                            },
+                            onNavigateToFileManager = {
+                                filesInitialTab = 0
+                                currentScreen = NavDestination.VAULT
+                            },
+                            onNavigateToGallery = {
+                                filesInitialTab = 1
+                                currentScreen = NavDestination.VAULT
+                            },
+                            onNavigateToTerminal = { currentScreen = NavDestination.MOUNTS },
+                            onNavigateToAudit = { currentScreen = NavDestination.AUDIT },
+                            onNavigateToVpnProxy = { activeModuleId = "module_network" },
+                            onNavigateToLicenseHub = { currentScreen = NavDestination.LICENSE_HUB },
+                            onOpenModule = { modId -> activeModuleId = modId }
+                        )
+                        NavDestination.APPS,
+                        NavDestination.APP_HIDER,
+                        NavDestination.DEVICE_SPOOFER,
+                        NavDestination.VPN_PROXY -> {
+                            val mod = com.example.isolation.core.module.HollowModuleRegistry.findModuleByRoute(screen.name, moduleStates)
+                            if (mod != null && (settings.devFullBuildMode || mod.id in mountedIds)) {
+                                mod.RenderPrimaryScreen(
+                                    viewModel = viewModel,
+                                    onBack = { currentScreen = NavDestination.DASHBOARD },
+                                    onDetailOpenChanged = { isDetailScreenOpen = it }
+                                )
+                            } else {
+                                OnboardingAuthScreen(
+                                    viewModel = viewModel,
+                                    isStandaloneGate = false,
+                                    onBack = { currentScreen = NavDestination.DASHBOARD }
+                                )
+                            }
+                        }
+                        NavDestination.VAULT -> FilesScreen(
+                            viewModel = viewModel,
+                            initialTab = filesInitialTab,
+                            onNavigateToApps = { activeModuleId = "module_isolation" }
+                        )
+                        NavDestination.MOUNTS -> MountTerminalScreen(viewModel = viewModel)
+                        NavDestination.AUDIT -> AuditLogsScreen(
+                            viewModel = viewModel,
+                            onBack = { currentScreen = NavDestination.DASHBOARD }
+                        )
+                        NavDestination.SETTINGS -> SettingsScreen(
+                            viewModel = viewModel,
+                            onOpenDiagnostics = { currentScreen = NavDestination.MOUNTS }
+                        )
+                        NavDestination.LICENSE_HUB -> OnboardingAuthScreen(
+                            viewModel = viewModel,
+                            isStandaloneGate = false,
+                            onBack = { currentScreen = NavDestination.DASHBOARD }
+                        )
+                    }
                 }
             }
         }

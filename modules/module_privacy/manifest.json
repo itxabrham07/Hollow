@@ -1,0 +1,26 @@
+{
+  "moduleId": "module_privacy",
+  "name": "Hardware Spoofer & Privacy Profiles",
+  "version": 5,
+  "minCoreVersion": 1,
+  "sizeKb": 790,
+  "entryClass": "com.example.isolation.module.privacy.DevicePrivacyModule",
+  "primaryRoute": "DEVICE_SPOOFER",
+  "contributesBottomNavTab": true,
+  "features": [
+    "Per-App Hardware Model, Build & SoC Spoofing",
+    "IMEI, Android ID, Serial, IMSI, ICCID & MAC Cloaking",
+    "MediaDrm Widevine Device Unique ID Spoofing",
+    "Virtual GPS Coordinates & Wi-Fi BSSID / Cell Tower Scrubbing",
+    "Sensor Bias Neutralizer & WebView Canvas/Audio/WebRTC Noise",
+    "Root Deadman Watchdog Process & UID Network Kill Switch"
+  ],
+  "hookTargets": [
+    "android.os.Build",
+    "android.os.SystemProperties",
+    "android.telephony.TelephonyManager",
+    "android.media.MediaDrm",
+    "android.location.LocationManager",
+    "android.hardware.SystemSensorManager"
+  ]
+}

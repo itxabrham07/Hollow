@@ -46,8 +46,8 @@ data class AppSettings(
     val showIpInfoInToolbar: Boolean = true,
     val customProxyServers: List<VpnProxyServer> = emptyList(),
     // Modular Engine & Cloud License Server Settings
-    /** Developer Full Build = all modules unlocked locally. Release Shell = 0 modules bundled until approved & downloaded from Cloud into /data/adb/.hollow_vault */
-    val devFullBuildMode: Boolean = true,
+    /** Developer Full Build = all modules unlocked locally (true on Dev APK, false on Release Normal APK). */
+    val devFullBuildMode: Boolean = com.example.BuildConfig.DEBUG,
     /** Node.js + MongoDB Atlas Cloud Admin Server URL */
     val cloudServerUrl: String = "http://10.0.2.2:3000"
 ) {
@@ -147,7 +147,7 @@ object SettingsStore {
             matchTimezoneWithIpGlobal = p.getBoolean(K_MATCH_TZ_WITH_IP, true),
             showIpInfoInToolbar = p.getBoolean(K_SHOW_IP_INFO, true),
             customProxyServers = customServers,
-            devFullBuildMode = p.getBoolean(K_DEV_FULL_BUILD, true),
+            devFullBuildMode = if (com.example.BuildConfig.DEBUG) p.getBoolean(K_DEV_FULL_BUILD, true) else false,
             cloudServerUrl = p.getString(K_CLOUD_SERVER_URL, "http://10.0.2.2:3000") ?: "http://10.0.2.2:3000"
         )
     }

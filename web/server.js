@@ -72,6 +72,46 @@ const DEFAULT_MODULES = [
   }
 ];
 
+// Auto-discover any module folders inside root `/modules/<moduleId>/manifest.json`
+// so adding a new module folder in `/modules/` requires zero edits to server.js!
+const fs = require('fs');
+function discoverModulesCatalog() {
+  const byId = new Map();
+  for (const mod of DEFAULT_MODULES) {
+    byId.set(mod.moduleId, mod);
+  }
+  const modulesRootDir = path.join(__dirname, '..', 'modules');
+  if (fs.existsSync(modulesRootDir)) {
+    try {
+      const entries = fs.readdirSync(modulesRootDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const manifestFile = path.join(modulesRootDir, entry.name, 'manifest.json');
+        if (!fs.existsSync(manifestFile)) continue;
+        const parsed = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+        const moduleId = parsed.moduleId || entry.name;
+        const ver = parsed.version || 1;
+        byId.set(moduleId, {
+          moduleId,
+          name: parsed.name || moduleId,
+          description: parsed.description || '',
+          version: ver,
+          minCoreVersion: parsed.minCoreVersion || 1,
+          payloadUrl: `/api/v1/modules/download/${moduleId}`,
+          sha256Checksum: crypto.createHash('sha256').update(`${moduleId}_v${ver}`).digest('hex'),
+          signatureB64: crypto.createHmac('sha256', JWT_SECRET).update(`${moduleId}:v${ver}`).digest('base64'),
+          isEnabled: true
+        });
+      }
+    } catch (err) {
+      console.warn('[Hollow Server] Module directory scan warning:', err.message);
+    }
+  }
+  return Array.from(byId.values());
+}
+
+const DISCOVERED_MODULES = discoverModulesCatalog();
+
 let isMongoConnected = false;
 
 async function connectMongo() {
@@ -83,7 +123,7 @@ async function connectMongo() {
     await mongoose.connect(MONGODB_URI);
     isMongoConnected = true;
     console.log('[Hollow Server] Connected to MongoDB Atlas successfully.');
-    for (const mod of DEFAULT_MODULES) {
+    for (const mod of DISCOVERED_MODULES) {
       await ModuleModel.findOneAndUpdate(
         { moduleId: mod.moduleId },
         mod,
@@ -344,13 +384,29 @@ app.get('/api/v1/modules/download/:moduleId', async (req, res) => {
     if (!device || device.status !== 'approved' || !device.allowedModules.includes(moduleId)) {
       return res.status(403).json({ error: 'Device not authorized for this module' });
     }
-    const mod = DEFAULT_MODULES.find((m) => m.moduleId === moduleId);
+    const catalog = discoverModulesCatalog();
+    const mod = catalog.find((m) => m.moduleId === moduleId);
     if (!mod) return res.status(404).json({ error: 'Module not found' });
+
+    const manifestPath = path.join(__dirname, '..', 'modules', moduleId, 'manifest.json');
+    let manifestData = {};
+    if (fs.existsSync(manifestPath)) {
+      try {
+        manifestData = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      } catch (_) {}
+    }
 
     const bundlePayload = {
       moduleId: mod.moduleId,
-      name: mod.name,
-      version: mod.version,
+      name: manifestData.name || mod.name,
+      cardTitle: manifestData.cardTitle || mod.name,
+      description: manifestData.description || mod.description,
+      version: manifestData.version || mod.version,
+      sizeKb: manifestData.sizeKb || 420,
+      accentColorHex: manifestData.accentColorHex || '0xFFF59E0B',
+      entryClass: manifestData.entryClass || '',
+      features: manifestData.features || [],
+      hookTargets: manifestData.hookTargets || [],
       boundHardwareFingerprint: hw,
       issuedAtMs: Date.now(),
       dexHeaderMagic: 'dex\n039\0',
@@ -381,10 +437,11 @@ app.get('/api/v1/admin/overview', requireAdminAuth, async (req, res) => {
     const devices = await Device.find().sort({ createdAt: -1 }).lean();
     const incidents = await SecurityIncident.find().sort({ timestamp: -1 }).limit(50).lean();
     const modules = await ModuleModel.find().lean();
+    const discovered = discoverModulesCatalog();
     return res.json({
       mongoConnected: isMongoConnected,
       devices,
-      modules: modules.length ? modules : DEFAULT_MODULES,
+      modules: modules.length >= discovered.length ? modules : discovered,
       incidents
     });
   } catch (err) {
