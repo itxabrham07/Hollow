@@ -55,38 +55,38 @@ private val IsoVaultProLightScheme = lightColorScheme(
 
 private val IsoVaultProDarkScheme = darkColorScheme(
     primary = ProEmeraldLight,
-    onPrimary = Color(0xFF00382B),
+    onPrimary = Color(0xFF042F2E),
     primaryContainer = ProEmeraldContainerDark,
-    onPrimaryContainer = Color(0xFFBFF5E3),
+    onPrimaryContainer = Color(0xFF99F6E4),
 
     secondary = ProIndigoDark,
-    onSecondary = Color(0xFF0E233E),
+    onSecondary = Color(0xFF1E1B4B),
     secondaryContainer = ProIndigoContainerDark,
-    onSecondaryContainer = Color(0xFFDCE5F7),
+    onSecondaryContainer = Color(0xFFE0E7FF),
 
     tertiary = ProAmberDark,
-    onTertiary = Color(0xFF452600),
+    onTertiary = Color(0xFF451A03),
     tertiaryContainer = ProAmberContainerDark,
-    onTertiaryContainer = Color(0xFFFFDFBA),
+    onTertiaryContainer = Color(0xFFFEF3C7),
 
     background = ProBackgroundDark,
-    onBackground = Color(0xFFEAF2EE),
+    onBackground = Color(0xFFF8FAFC),
     surface = ProSurfaceDark,
-    onSurface = Color(0xFFEAF2EE),
+    onSurface = Color(0xFFF8FAFC),
     surfaceVariant = ProSurfaceLowDark,
-    onSurfaceVariant = Color(0xFFA5B8B1),
-    surfaceContainerLowest = Color(0xFF090E0C),
+    onSurfaceVariant = Color(0xFF94A3B8),
+    surfaceContainerLowest = Color(0xFF06080C),
     surfaceContainerLow = ProSurfaceLowDark,
     surfaceContainer = ProSurfaceContainerDark,
     surfaceContainerHigh = ProSurfaceHighDark,
-    surfaceContainerHighest = Color(0xFF31423C),
+    surfaceContainerHighest = Color(0xFF2E364A),
     outline = ProOutlineDark,
     outlineVariant = ProOutlineSubtleDark,
 
     error = ProCoralDark,
-    onError = Color(0xFF560A0A),
+    onError = Color(0xFF4C0519),
     errorContainer = ProCoralContainerDark,
-    onErrorContainer = Color(0xFFFFDAD6)
+    onErrorContainer = Color(0xFFFFE4E6)
 )
 
 val IsoVaultProShapes = Shapes(

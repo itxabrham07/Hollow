@@ -44,7 +44,12 @@ data class AppSettings(
     val vpnKillSwitchEnabled: Boolean = true,
     val matchTimezoneWithIpGlobal: Boolean = true,
     val showIpInfoInToolbar: Boolean = true,
-    val customProxyServers: List<VpnProxyServer> = emptyList()
+    val customProxyServers: List<VpnProxyServer> = emptyList(),
+    // Modular Engine & Cloud License Server Settings
+    /** Developer Full Build = all modules unlocked locally. Release Shell = 0 modules bundled until approved & downloaded from Cloud into /data/adb/.hollow_vault */
+    val devFullBuildMode: Boolean = true,
+    /** Node.js + MongoDB Atlas Cloud Admin Server URL */
+    val cloudServerUrl: String = "http://10.0.2.2:3000"
 ) {
     val allProxyServers: List<VpnProxyServer>
         get() = customProxyServers + VpnProxyPresets.defaultServers
@@ -81,6 +86,8 @@ object SettingsStore {
     private const val K_MATCH_TZ_WITH_IP = "match_tz_with_ip_global"
     private const val K_SHOW_IP_INFO = "show_ip_info_toolbar"
     private const val K_CUSTOM_SERVERS_JSON = "custom_proxy_servers_json"
+    private const val K_DEV_FULL_BUILD = "dev_full_build_mode"
+    private const val K_CLOUD_SERVER_URL = "cloud_server_url"
 
     fun load(context: Context): AppSettings {
         val p = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -139,7 +146,9 @@ object SettingsStore {
             vpnKillSwitchEnabled = p.getBoolean(K_VPN_KILL_SWITCH, true),
             matchTimezoneWithIpGlobal = p.getBoolean(K_MATCH_TZ_WITH_IP, true),
             showIpInfoInToolbar = p.getBoolean(K_SHOW_IP_INFO, true),
-            customProxyServers = customServers
+            customProxyServers = customServers,
+            devFullBuildMode = p.getBoolean(K_DEV_FULL_BUILD, true),
+            cloudServerUrl = p.getString(K_CLOUD_SERVER_URL, "http://10.0.2.2:3000") ?: "http://10.0.2.2:3000"
         )
     }
 
@@ -170,6 +179,8 @@ object SettingsStore {
             .putBoolean(K_MATCH_TZ_WITH_IP, settings.matchTimezoneWithIpGlobal)
             .putBoolean(K_SHOW_IP_INFO, settings.showIpInfoInToolbar)
             .putString(K_CUSTOM_SERVERS_JSON, encodeCustomServers(settings.customProxyServers))
+            .putBoolean(K_DEV_FULL_BUILD, settings.devFullBuildMode)
+            .putString(K_CLOUD_SERVER_URL, settings.cloudServerUrl)
             .commit()
         // Hooked apps read the picker policy and SystemUI trigger through the rule channels.
         IsolationRuleManager.publishPickerPolicy(settings.pickerPolicy)

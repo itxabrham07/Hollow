@@ -2,63 +2,63 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Material 3 Pro Palette — Emerald Slate, Cobalt Indigo & Warm Amber Accents
-val ProEmeraldPrimary = Color(0xFF0F6B56)
-val ProEmeraldDark = Color(0xFF084739)
-val ProEmeraldLight = Color(0xFF53D6B4)
-val ProEmeraldContainer = Color(0xFFD2F5EA)
-val ProEmeraldContainerDark = Color(0xFF0A4335)
+// Human-Crafted Flagship Palette — Obsidian Slate Surfaces, Electric Emerald, Indigo & Amber Accents
+val ProEmeraldPrimary = Color(0xFF0D9488)
+val ProEmeraldDark = Color(0xFF0F766E)
+val ProEmeraldLight = Color(0xFF2DD4BF)
+val ProEmeraldContainer = Color(0xFFCCFBF1)
+val ProEmeraldContainerDark = Color(0xFF113532)
 
-val ProIndigoSecondary = Color(0xFF3E5476)
-val ProIndigoContainer = Color(0xFFDCE5F7)
-val ProIndigoDark = Color(0xFFA9C3EA)
-val ProIndigoContainerDark = Color(0xFF243754)
+val ProIndigoSecondary = Color(0xFF4F46E5)
+val ProIndigoContainer = Color(0xFFE0E7FF)
+val ProIndigoDark = Color(0xFF818CF8)
+val ProIndigoContainerDark = Color(0xFF1E2246)
 
-val ProAmberTertiary = Color(0xFF9C5D0B)
-val ProAmberContainer = Color(0xFFFFDFBA)
-val ProAmberDark = Color(0xFFF6B966)
-val ProAmberContainerDark = Color(0xFF5A3300)
+val ProAmberTertiary = Color(0xFFD97706)
+val ProAmberContainer = Color(0xFFFEF3C7)
+val ProAmberDark = Color(0xFFFBBF24)
+val ProAmberContainerDark = Color(0xFF3D2808)
 
-val ProCoralError = Color(0xFFC93B3B)
-val ProCoralContainer = Color(0xFFFCE4E4)
-val ProCoralDark = Color(0xFFFF8982)
-val ProCoralContainerDark = Color(0xFF691414)
+val ProCoralError = Color(0xFFE11D48)
+val ProCoralContainer = Color(0xFFFFE4E6)
+val ProCoralDark = Color(0xFFFB7185)
+val ProCoralContainerDark = Color(0xFF4C111E)
 
-val ProVioletAccent = Color(0xFF634FA2)
-val ProVioletContainer = Color(0xFFEDE8FA)
-val ProCyanAccent = Color(0xFF007791)
+val ProVioletAccent = Color(0xFF7C3AED)
+val ProVioletContainer = Color(0xFFEDE9FE)
+val ProCyanAccent = Color(0xFF0284C7)
 
-// Material 3 Pro Light Surfaces
-val ProBackgroundLight = Color(0xFFF5F8F7)
+// Clean Alabaster & Cool Slate Light Surfaces
+val ProBackgroundLight = Color(0xFFF8FAFC)
 val ProSurfaceLight = Color(0xFFFFFFFF)
-val ProSurfaceLowLight = Color(0xFFEEF3F1)
-val ProSurfaceContainerLight = Color(0xFFE5ECE9)
-val ProSurfaceHighLight = Color(0xFFDBE4E0)
-val ProOutlineLight = Color(0xFFCED8D4)
-val ProOutlineSubtleLight = Color(0xFFE0E8E5)
+val ProSurfaceLowLight = Color(0xFFF1F5F9)
+val ProSurfaceContainerLight = Color(0xFFE2E8F0)
+val ProSurfaceHighLight = Color(0xFFCBD5E1)
+val ProOutlineLight = Color(0xFFCBD5E1)
+val ProOutlineSubtleLight = Color(0xFFE2E8F0)
 
-// Material 3 Pro Dark Surfaces
-val ProBackgroundDark = Color(0xFF0C1210)
-val ProSurfaceDark = Color(0xFF131B18)
-val ProSurfaceLowDark = Color(0xFF18221F)
-val ProSurfaceContainerDark = Color(0xFF1E2A26)
-val ProSurfaceHighDark = Color(0xFF273631)
-val ProOutlineDark = Color(0xFF344640)
-val ProOutlineSubtleDark = Color(0xFF25332E)
+// True Deep Obsidian & Neutral Carbon Dark Surfaces (Zero Muddy Green Cast)
+val ProBackgroundDark = Color(0xFF090B10)
+val ProSurfaceDark = Color(0xFF12151E)
+val ProSurfaceLowDark = Color(0xFF171B26)
+val ProSurfaceContainerDark = Color(0xFF1D2230)
+val ProSurfaceHighDark = Color(0xFF252B3B)
+val ProOutlineDark = Color(0xFF2E364A)
+val ProOutlineSubtleDark = Color(0xFF1F2433)
 
 // Typography Tones
-val ProInkPrimary = Color(0xFF111A17)
-val ProInkSecondary = Color(0xFF4F605A)
-val ProInkTertiary = Color(0xFF7A8C85)
+val ProInkPrimary = Color(0xFF0F172A)
+val ProInkSecondary = Color(0xFF475569)
+val ProInkTertiary = Color(0xFF64748B)
 
-// Legacy aliases mapped to the Material 3 Pro tokens for compatibility
+// Legacy aliases mapped to the clean tokens for compatibility
 val ForestPrimary = ProEmeraldPrimary
 val ForestDark = ProEmeraldDark
 val SageSoft = ProEmeraldContainer
-val SageTint = Color(0xFFE9F8F3)
+val SageTint = Color(0xFFF0FDFA)
 
-val ClaySecondary = Color(0xFFC45B3E)
-val ClaySoft = Color(0xFFFAE6E0)
+val ClaySecondary = Color(0xFFE11D48)
+val ClaySoft = Color(0xFFFFE4E6)
 
 val HoneyTertiary = ProAmberTertiary
 val HoneySoft = ProAmberContainer
@@ -80,7 +80,7 @@ val InkTertiary = ProInkTertiary
 
 val CyberCyan = ProEmeraldPrimary
 val CyberCyanDark = ProEmeraldDark
-val CyberEmerald = Color(0xFF198268)
+val CyberEmerald = Color(0xFF10B981)
 val CyberEmeraldDark = ProEmeraldDark
 val CyberAmber = ProAmberTertiary
 val CyberRed = ProCoralError
@@ -96,5 +96,5 @@ val TextPrimary = ProInkPrimary
 val TextSecondary = ProInkSecondary
 val TextTertiary = ProInkTertiary
 
-val TerminalBlack = Color(0xFF0E1714)
-val TerminalGreen = Color(0xFF53D6B4)
+val TerminalBlack = Color(0xFF090B10)
+val TerminalGreen = Color(0xFF2DD4BF)

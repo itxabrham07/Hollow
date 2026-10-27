@@ -1,5 +1,7 @@
 package com.example.isolation.ui.components
 
+import android.graphics.drawable.Drawable
+import android.util.LruCache
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -37,15 +39,18 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -56,12 +61,39 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.graphics.drawable.toBitmap
 import com.example.isolation.model.AuditAction
 import com.example.isolation.model.HollowIconTheme
 import com.example.isolation.model.IsolationMode
 import com.example.ui.theme.ClaySecondary
 import com.example.ui.theme.JakartaFontFamily
 import com.example.ui.theme.LavenderAccent
+
+/**
+ * Global in-memory LRU cache for decoded app launcher icons so LazyColumn scrolling stays 120fps.
+ */
+object AppIconBitmapCache {
+    private val cache = object : LruCache<String, ImageBitmap>(180) {}
+
+    fun getOrDecode(packageName: String, drawable: Drawable?, sizePx: Int = 96): ImageBitmap? {
+        if (drawable == null) return null
+        cache.get(packageName)?.let { return it }
+        return try {
+            val bmp = drawable.toBitmap(sizePx, sizePx).asImageBitmap()
+            cache.put(packageName, bmp)
+            bmp
+        } catch (_: Throwable) {
+            null
+        }
+    }
+}
+
+@Composable
+fun rememberAppIconBitmap(packageName: String, drawable: Drawable?, sizePx: Int = 96): ImageBitmap? {
+    return remember(packageName) {
+        AppIconBitmapCache.getOrDecode(packageName, drawable, sizePx)
+    }
+}
 
 private data class EmblemPalette(
     val bgColors: List<Color>,
@@ -72,7 +104,6 @@ private data class EmblemPalette(
 
 /**
  * Renders the upgraded Hollow Eclipse & Hexagonal Vault emblem dynamically.
- * Adapts to Material You dynamic theme or the selected HollowIconTheme preset.
  */
 @Composable
 fun HollowDynamicEmblem(
@@ -122,7 +153,6 @@ fun HollowDynamicEmblem(
             val cx = w / 2f
             val cy = h / 2f
 
-            // Hexagonal Vault Shield
             val hexRadius = w * 0.38f
             val hexPath = Path().apply {
                 moveTo(cx, cy - hexRadius)
@@ -148,7 +178,6 @@ fun HollowDynamicEmblem(
                 )
             )
 
-            // Hollow Eclipse Crescent Portal Ring
             drawCircle(
                 brush = Brush.linearGradient(ringColors),
                 radius = w * 0.24f,
@@ -160,7 +189,6 @@ fun HollowDynamicEmblem(
                 center = Offset(cx + w * 0.038f, cy - h * 0.01f)
             )
 
-            // Singularity Core Node
             drawCircle(
                 color = coreColor,
                 radius = w * 0.055f,
@@ -177,13 +205,13 @@ fun StatusBadge(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        color = color.copy(alpha = 0.12f),
+        color = color.copy(alpha = 0.14f),
         shape = RoundedCornerShape(50),
         modifier = modifier
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
         ) {
             Box(
                 modifier = Modifier
@@ -245,35 +273,35 @@ fun CyberStatCard(
     val scheme = MaterialTheme.colorScheme
     Card(
         colors = CardDefaults.cardColors(containerColor = scheme.surface),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(18.dp),
         border = BorderStroke(1.dp, scheme.outlineVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = modifier.testTag(testTag)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(14.dp)
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
         ) {
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .background(accentColor.copy(alpha = 0.12f))
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(accentColor.copy(alpha = 0.14f))
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
                     tint = accentColor,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(19.dp)
                 )
             }
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
                     color = scheme.onSurface,
                     fontFamily = JakartaFontFamily,
                     maxLines = 1,
@@ -281,7 +309,7 @@ fun CyberStatCard(
                 )
                 Text(
                     text = if (subtitle.isNotBlank()) "$value • $subtitle" else value,
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
                     color = scheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -299,65 +327,87 @@ fun LsposedStatusBanner(
     modifier: Modifier = Modifier
 ) {
     val scheme = MaterialTheme.colorScheme
-    val containerColor = if (isActive) scheme.primaryContainer else scheme.surfaceContainerLow
-    val contentColor = if (isActive) scheme.onPrimaryContainer else scheme.onSurface
+    val gradientColors = if (isActive) {
+        listOf(
+            scheme.primary.copy(alpha = 0.20f),
+            scheme.surface
+        )
+    } else {
+        listOf(
+            scheme.secondary.copy(alpha = 0.16f),
+            scheme.surface
+        )
+    }
 
     Card(
-        colors = CardDefaults.cardColors(containerColor = containerColor),
-        shape = RoundedCornerShape(24.dp),
-        border = if (isActive) null else BorderStroke(1.dp, scheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(
+            1.dp,
+            if (isActive) scheme.primary.copy(alpha = 0.40f) else scheme.outlineVariant
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(Brush.horizontalGradient(gradientColors))
             .clickable { onToggle() }
             .testTag("lsposed_status_banner")
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(18.dp)
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
         ) {
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(if (isActive) scheme.primary else scheme.primaryContainer)
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(13.dp))
+                    .background(
+                        if (isActive) scheme.primary.copy(alpha = 0.22f)
+                        else scheme.secondary.copy(alpha = 0.18f)
+                    )
             ) {
                 Icon(
                     imageVector = if (isActive) Icons.Default.CheckCircle else Icons.Default.Shield,
                     contentDescription = null,
-                    tint = if (isActive) scheme.onPrimary else scheme.onPrimaryContainer,
-                    modifier = Modifier.size(24.dp)
+                    tint = if (isActive) scheme.primary else scheme.secondary,
+                    modifier = Modifier.size(22.dp)
                 )
             }
-            Spacer(modifier = Modifier.width(14.dp))
+            Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = if (isActive) "App Protection is On" else "Hollow Files & Safe Folder",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = JakartaFontFamily,
-                    color = contentColor
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = if (isActive) "LSPosed & Root Core Active" else "Hollow Sandbox Core Ready",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = JakartaFontFamily,
+                        color = scheme.onSurface
+                    )
+                }
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = if (isActive) {
-                        "Protected apps only see their own private folder, keeping your personal photos hidden."
+                        "Kernel mounts, runtime hooks & identity shields are enforcing rules."
                     } else {
-                        "Manage files, browse photos, or lock private items in your Safe Folder."
+                        "Standalone mode active • Enable module in LSPosed for system-wide hooks."
                     },
-                    fontSize = 12.sp,
-                    lineHeight = 17.sp,
-                    color = contentColor.copy(alpha = 0.8f),
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    color = scheme.onSurfaceVariant,
                     fontFamily = JakartaFontFamily
                 )
             }
-            IconButton(onClick = onToggle) {
+            IconButton(
+                onClick = onToggle,
+                modifier = Modifier.size(34.dp)
+            ) {
                 Icon(
                     imageVector = Icons.Default.Refresh,
                     contentDescription = "Refresh status",
-                    tint = contentColor.copy(alpha = 0.7f),
-                    modifier = Modifier.size(20.dp)
+                    tint = scheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
                 )
             }
         }
@@ -373,8 +423,8 @@ fun ProSegmentedTabRow(
 ) {
     val scheme = MaterialTheme.colorScheme
     Surface(
-        color = scheme.surfaceContainerLow,
-        shape = RoundedCornerShape(50),
+        color = scheme.surface,
+        shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, scheme.outlineVariant),
         modifier = modifier.fillMaxWidth()
     ) {
@@ -386,16 +436,16 @@ fun ProSegmentedTabRow(
         ) {
             options.forEachIndexed { index, (label, icon) ->
                 val selected = selectedIndex == index
-                val bgColor = if (selected) scheme.primaryContainer else Color.Transparent
-                val contentColor = if (selected) scheme.onPrimaryContainer else scheme.onSurfaceVariant
+                val bgColor = if (selected) scheme.primary else Color.Transparent
+                val contentColor = if (selected) scheme.onPrimary else scheme.onSurfaceVariant
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(50))
+                        .clip(RoundedCornerShape(10.dp))
                         .background(bgColor)
                         .clickable { onSelect(index) }
-                        .padding(vertical = 10.dp, horizontal = 8.dp)
+                        .padding(vertical = 9.dp, horizontal = 8.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -406,15 +456,15 @@ fun ProSegmentedTabRow(
                                 imageVector = icon,
                                 contentDescription = null,
                                 tint = contentColor,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(15.dp)
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Spacer(modifier = Modifier.width(5.dp))
                         }
                         Text(
                             text = label,
                             color = contentColor,
-                            fontSize = 13.sp,
-                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                            fontSize = 12.sp,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             fontFamily = JakartaFontFamily
@@ -437,7 +487,7 @@ fun DecryptedPreviewDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(22.dp),
         containerColor = scheme.surface,
         title = {
             Row(
@@ -447,7 +497,7 @@ fun DecryptedPreviewDialog(
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(38.dp)
+                        .size(36.dp)
                         .clip(CircleShape)
                         .background(scheme.primaryContainer)
                 ) {
@@ -458,18 +508,18 @@ fun DecryptedPreviewDialog(
                         modifier = Modifier.size(18.dp)
                     )
                 }
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(10.dp))
                 Column {
                     Text(
                         text = title.substringAfterLast('/'),
-                        fontSize = 16.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = JakartaFontFamily,
                         color = scheme.onSurface
                     )
                     Text(
                         text = "Safe Folder note",
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         color = scheme.onSurfaceVariant,
                         fontFamily = JakartaFontFamily
                     )
@@ -485,14 +535,14 @@ fun DecryptedPreviewDialog(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(14.dp))
                         .background(scheme.surfaceContainerLow)
-                        .padding(16.dp)
+                        .padding(14.dp)
                 ) {
                     Text(
                         text = content,
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp,
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp,
                         color = scheme.onSurface,
                         fontFamily = JakartaFontFamily
                     )

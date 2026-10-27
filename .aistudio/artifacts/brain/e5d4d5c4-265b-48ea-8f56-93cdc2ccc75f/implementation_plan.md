@@ -1,135 +1,205 @@
-# Professional Proxy/V2Ray Suite & Full-Featured Privacy Architecture
+# Implementation Plan: Dynamic Module Engine, MongoDB Atlas Web Backend & Root Vault
 
-This update refines the **Dashboard VPN Card**, overhauls the **Proxy & V2Ray Screen** into a professional 3-tab configuration suite, introduces **Apps | Profiles segmented tabs** on the Privacy screen with clean app cards, and restores **every hardware, GPS, anti-detection, and fingerprint control in fully expanded pro cards** inside each app's configuration page without forcing a default profile.
-
----
-
-## User Review & Confirmed Decisions
-
-> [!IMPORTANT]
-> The following architectural and UX decisions have been locked in based on your feedback:
-
-- **Dashboard VPN/Proxy Card**: No On/Off toggle button on the Dashboard card. It cleanly displays live routing status (e.g., active protocol, server, and routed app count or global status) and opens the dedicated Proxy & V2Ray suite when tapped.
-- **Proxy & V2Ray Organization**: Structured into **3 dedicated tabs** (**Servers**, **Per-App Routing**, and **Advanced Proxy**) using Hollow's signature dark/emerald professional aesthetic rather than dummy static placeholders.
-- **Privacy Screen & Profiles Access**: Top **Segmented Tabs (`Apps` | `Profiles`)** on the Privacy screen. App cards in the list are clean and minimal (no cluttered `AID`/`GPU` chip rows or inline `Reset`/`Configure` text buttons).
-- **App Privacy Configuration Page**: **All sections expanded by default** in clean professional cards with 100% of hardware, build prop, GPS, sensor, and shield features visible. **No predefined profile is applied by default** (`None / Manual` until you explicitly pick one).
-
----
-
-## 1. Overview & Core Concept
-
-- **What It Does**: Provides a production-grade control center for configuring real SOCKS5, HTTP, and V2Ray (VLESS, VMess, Trojan, Shadowsocks) servers with global or per-app routing, alongside a comprehensive per-app hardware identity and privacy configuration suite with optional reusable profiles.
-- **Key Value**: Eliminates visual clutter on summary cards while giving power users complete, unobstructed access to every server parameter, build property, hardware identifier, and anti-tracking shield inside dedicated configuration views.
-
----
-
-## 2. User Experience & Visual Design
-
-### A. Dashboard Proxy / V2Ray Card (Clean Status Entry Point)
-- **No Inline Switch**: Displays the shield icon, **Proxy & V2Ray** title, live status dot, and a single-line summary (e.g., `VLESS • US East (4 apps routed)` or `Whole Device Tunnel Active` or `Configure SOCKS5, HTTP & V2Ray routing`) with a subtle right chevron.
-- **Action**: Tapping anywhere on the card navigates to the 3-tab Proxy & V2Ray screen.
-
-### B. Professional Proxy & V2Ray Suite (3 Tabs)
-- **Top Global Status Banner**:
-  - Displays current tunnel state (`Connected` vs `Standby`), active server summary, exit IP & timezone, and a clean mode selector (**Whole Device** vs **Per-App Routing**) with a primary **Connect / Disconnect** button.
-- **Tab 1: `Servers` (Real Proxy & V2Ray Configuration)**:
-  - **Quick Actions**: `+ Add Custom Server` (full manual form for SOCKS5, HTTP, VLESS, VMess, Trojan, Shadowsocks with Host, Port, UUID/Username, Password/Security, Exit IP, Country, and IANA Timezone) and `Paste URI` (`vless://`, `vmess://`, `ss://`, `trojan://`, `socks://`).
-  - **Server Cards**: Shows protocol badge (`VLESS`, `VMESS`, `SOCKS5`, `HTTP`), server name, host:port, exit IP, synced timezone, latency badge, active selection radio, and delete/edit controls for custom nodes.
-- **Tab 2: `Per-App Routing`**:
-  - Search input and filter chips (`Routed`, `Browsers & Social`, `Downloaded`, `All`).
-  - Batch action buttons (`Route All Apps`, `Clear All`).
-  - **Per-App Row**: App icon, title, package name, routing toggle switch, and an expandable per-app server selector (allowing different apps to route through different proxy/V2Ray nodes simultaneously) plus per-app `Kill Switch` and `Sync Timezone with Exit IP` toggles.
-- **Tab 3: `Advanced Proxy`**:
-  - Global protocol & stealth guards:
-    - `Strict VPN Kill Switch` (blocks app network if tunnel drops)
-    - `SOCKS5 Socket Hook` & `HTTP/HTTPS JVM Proxy Hook`
-    - `WebView Traffic Routing`
-    - `Trust Custom SSL/TLS Certificates`
-    - `Hide VPN & Proxy Interfaces from Apps` (`tun0`/`ppp0` cloak)
-    - `Auto-Sync Timezone & Locale with Exit IP`
-
-### C. Privacy Screen (`Apps` | `Profiles` Segmented Tabs)
-- **Tab 1: `Apps` (Clean Professional App List)**:
-  - Search bar, filter chips (`Spoofed`, `Downloaded`, `System`, `All`), and `+ Add Apps` button.
-  - **Clean App Card**: Displays only the App Icon, App Name, a clean 1-line subtitle (e.g., `Pixel 9 Pro • Custom Shields` or `Profile: Ghost Cloak` or `Not spoofed • Tap to configure`), and the master toggle switch. All messy bottom chips (`AID`, `IMEI`, `GPU`, `UA`) and inline `Reset All` / `Configure Privacy` buttons are removed.
-- **Tab 2: `Profiles` (Reusable Profile Manager)**:
-  - Lists built-in profiles (`Ghost Cloak`, `Social Media Shield`, `Anti-Fraud Armor`) and user-created custom profiles, plus a `+ Create Profile` button.
-  - Each profile card shows its summary and lets you **Edit** its shields/presets, **Duplicate**, **Reset to Default**, or **Delete** custom profiles.
-
-### D. Full-Featured App Privacy Configuration Page (All Sections Expanded)
-When you tap any app in the Privacy list, its full configuration page opens with **all cards expanded by default** and **no profile forced by default**:
-1. **Top Bar & Master Identity Card**:
-   - App title, `Save & Apply` button, Master Identity Spoofing switch, and `Randomize All IDs` button.
-   - **Optional Profile Picker Bar**: Defaults to **`None (Manual Configuration)`**. Allows 1-tap loading of any saved profile or `Save Current as Profile`.
-2. **Card 1 — Hardware Preset & Full Build Properties**:
-   - Preset chips (`Real Device`, `Pixel 9 Pro`, `Galaxy S24 Ultra`, `OnePlus 12`, `Xiaomi 14 Pro`, `Custom`).
-   - Editable text fields for `Brand`, `Manufacturer`, `Model`, `Device Codename`, `Product`, `Board`, `Hardware`, `Bootloader`, and `Build Fingerprint`.
-3. **Card 2 — Device & Telecom Identifiers**:
-   - Individual fields with 1-tap randomize buttons for `Android ID`, `IMEI (Luhn-valid)`, `Google Advertising ID (GAID)`, `Wi-Fi MAC Address`, `Hardware Serial Number`, `Carrier Name`, `SIM Operator (MCC/MNC)`, and `Spoof Widevine DRM ID` toggle.
-4. **Card 3 — Display, GPU & Browser Anti-Fingerprinting**:
-   - `Spoof GPU Fingerprint` toggle + editable `GPU Vendor` & `GPU Renderer` fields.
-   - Editable `Screen Resolution`, `Screen DPI`, `CPU Cores`, and `RAM (GB)`.
-   - Toggles for `WebGL & Canvas 2D Noise`, `AudioContext Fingerprint Noise`, `WebRTC Local IP Leak Blocker`, `Client Hints & Font Masking`, `Spoof Browser User-Agent`, and editable `Custom User-Agent`.
-5. **Card 4 — Virtual GPS Location & Timezone**:
-   - `Enable Virtual GPS Location` switch, Quick City Teleport chips (`San Francisco`, `New York`, `London`, `Tokyo`, `Paris`, `Sydney`, `Zurich`, `Singapore`), `Latitude` & `Longitude` fields, `Hide Mock Location Status` toggle, `Auto-Sync Timezone` toggle, and editable `Timezone ID` & `Locale Tag`.
-6. **Card 5 — Sensors & Virtual Battery**:
-   - `Anonymize Hardware Sensors` (scrub vendor strings), `MEMS Calibration Bias Neutralizer`, and `Virtual Battery State` switch with interactive `Battery Level %` slider.
-7. **Card 6 — Anti-Detection, System & App Shields**:
-   - Toggles for `Hide Root, Magisk, KernelSU & LSPosed`, `Hide ADB & Developer Options`, `Hide VPN & Proxy Interfaces`, `Knox Warranty Bit 0x0`, `Block Cell Tower Trilateration`, `Spoof Wi-Fi BSSID / SSID`, `Block Clipboard Snooping`, `Hide Other Installed Apps`, `Prevent Screenshots & Recents Preview`, `Disable Logcat Logging`, and `Network Kill Switch (Block All Outbound Traffic)`.
-8. **Card 7 — Root Deadman Switch (Identity Leak Fail-Safe) & Reset**:
-   - `Enable Total Identity Leak Deadman Switch` (terminates app + drops UID network via `iptables` + posts system alert on unhooked hardware probes), `Test Leak Watchdog`, `Restore App Network`, and `Reset App to Real Device` button.
-
----
-
-## 3. Key Product Decisions & Trade-Offs
-
-- **Decision 1: Un-collapsed Pro Cards vs. Hidden Accordions in App Privacy**
-  - *Chosen Approach*: Keep all 7 configuration cards expanded by default in a smooth scrollable layout.
-  - *Why*: Collapsing categories hid critical build properties, GPS controls, and anti-detection toggles, making the app feel like features were removed.
-- **Decision 2: Opt-In Privacy Profiles (`None` by Default)**
-  - *Chosen Approach*: New and existing apps default to `privacyProfileId = ""` (`None / Manual`). Profiles live in their own `Profiles` tab on the main Privacy screen and can be optionally applied inside an app's page.
-  - *Why*: Prevents unexpected overrides of manual per-app settings while keeping reusable templates one tap away.
-
----
-
-## 4. Technical Architecture & Component Hierarchy
+## 1. System Architecture Overview
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                              DASHBOARD SCREEN                            │
-│  ┌────────────────────────────────────────────────────────────────────┐  │
-│  │ Proxy & V2Ray Status Card (No inline switch -> Taps to VpnProxy)   │  │
-│  └─────────────────────────────────┬──────────────────────────────────┘  │
-└────────────────────────────────────┼─────────────────────────────────────┘
-                                     ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                     PROXY & V2RAY SUITE (3-Tab Screen)                   │
-│  ┌──────────────────────┬───────────────────────┬─────────────────────┐  │
-│  │   Tab 1: Servers     │ Tab 2: Per-App Route  │ Tab 3: Adv. Proxy   │  │
-│  │ • Global/App Mode    │ • App Search & Filter │ • Strict KillSwitch │  │
-│  │ • Add SOCKS/HTTP/V2  │ • Per-App Toggle      │ • SOCKS/HTTP/WebView│  │
-│  │ • Paste VLESS/VMess  │ • Per-App Node Picker │ • Certs & TZ Sync   │  │
-│  └──────────────────────┴───────────────────────┴─────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────────────────┐
-│                      PRIVACY SCREEN (Segmented Tabs)                     │
-│  ┌─────────────────────────────────┬──────────────────────────────────┐  │
-│  │          Tab 1: Apps            │         Tab 2: Profiles          │  │
-│  │ • Clean App Cards (No chip row) │ • Ghost Cloak / Social / Fraud   │  │
-│  │ • 1-Line Status + Master Switch │ • Create / Edit / Reset Profiles │  │
-│  └────────────────┬────────────────┴──────────────────────────────────┘  │
-└───────────────────┼──────────────────────────────────────────────────────┘
-                    ▼ (Tap App Card)
-┌──────────────────────────────────────────────────────────────────────────┐
-│             APP PRIVACY CONFIGURATION (All Cards Expanded)               │
-│  • Optional Profile Picker (Default: None / Manual) + Randomize All      │
-│  • Card 1: Hardware Preset & Full Build Props (Brand..Fingerprint)       │
-│  • Card 2: Identifiers (AID, IMEI, GAID, MAC, Serial, Carrier, DRM)      │
-│  • Card 3: Display, GPU, Resolution, CPU/RAM, Canvas, WebRTC, UA         │
-│  • Card 4: Virtual GPS Location (City Presets, Lat/Lng, Mock Cloak, TZ)  │
-│  • Card 5: Sensors (Vendor Scrub, MEMS Bias) & Fake Battery Slider       │
-│  • Card 6: Anti-Detection & App Shields (Root, ADB, VPN, Knox, Clip...)  │
-│  • Card 7: Root Deadman Switch (Kill + iptables + Alert) & Full Reset    │
-└──────────────────────────────────────────────────────────────────────────┘
++---------------------------------------------------------------------------------------------------+
+|                                      MONGODB ATLAS CLOUD                                          |
+|  - Users Collection: Username, email, bcrypt password hash, role                                  |
+|  - Devices Collection: Hardware fingerprint, allowed modules, validity, approval/ban status       |
+|  - Modules Collection: Metadata, signed payload URLs, checksums, enabled state                   |
+|  - Incidents Collection: Root Deadman Watchdog leak trigger logs                                  |
++---------------------------------------------------------------------------------------------------+
+                                                  ^
+                                                  | Mongoose / TLS Connection (MONGODB_URI)
+                                                  v
++---------------------------------------------------------------------------------------------------+
+|                                  DOCKERIZED WEB SERVER (/web)                                     |
+|  - Express.js REST & WebSocket API with JWT Authentication                                        |
+|  - Public Web Admin Portal: User approval queue, module toggles, 1-click ban device               |
+|  - Anti-MITM Cryptographic Layer: ChaCha20/AES payload encryption + Ed25519 token signatures      |
++---------------------------------------------------------------------------------------------------+
+                                                  ^
+                                                  | HTTPS + Anti-MITM Encrypted Requests
+                                                  v
++---------------------------------------------------------------------------------------------------+
+|                                 HOLLOW CORE SHELL (RELEASE APK)                                   |
+|  - Zero Feature Modules Bundled in Release APK (Clean, lightweight host shell)                    |
+|  - Registration & Login UI: Username, Email, Password -> "Waiting for Admin Approval"            |
+|  - Dynamic Module Downloader: In-app download notifications, verified via Ed25519                |
++---------------------------------------------------------------------------------------------------+
+                                                  |
+                                                  | Root Access (UID 0)
+                                                  v
++---------------------------------------------------------------------------------------------------+
+|                       ROOT SECRET VAULT (SURVIVES CLEARING APP DATA)                              |
+|  Location: /data/adb/.hollow_vault (chmod 700, chown 0:0)                                         |
+|  - /data/adb/.hollow_vault/license.enc : Hardware-bound token & monotonic clock log               |
+|  - /data/adb/.hollow_vault/modules/     : Encrypted downloaded module bytecode                    |
+|  * Survives "Clear App Data / Clear Storage" and app reinstallation!                             |
++---------------------------------------------------------------------------------------------------+
+                                                  |
+                                                  v (In-Memory Decryption & Dynamic Mounting)
++---------------------------------------------------------------------------------------------------+
+|                                   DOWNLOADED FEATURE MODULES                                      |
+|  [Module 1] App Hider & SystemUI Disguise                                                         |
+|  [Module 2] Storage Isolation, Virtual Volumes & AES-256 Vault                                     |
+|  [Module 3] Hardware Profile Spoofer, Virtual GPS & Deadman Watchdog                              |
+|  [Module 4] V2Ray, Proxy & Strict Network Kill Switch Suite                                       |
++---------------------------------------------------------------------------------------------------+
 ```
+
+---
+
+## 2. MongoDB Atlas Database Schema & Backend Stack
+
+### A. Environment Configuration (`/web/.env.example`)
+```env
+PORT=3000
+MONGODB_URI=mongodb+srv://<username>:<password>@cluster0.mongodb.net/hollow_db?retryWrites=true&w=majority
+JWT_SECRET=your_super_secret_jwt_key_here
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD_HASH=$2b$10$...
+SIGNING_PRIVATE_KEY_B64=...
+```
+
+### B. Mongoose Collections & Data Models
+1. **User (`User.js`)**:
+   - `username`: String (unique, required)
+   - `email`: String (unique, required, lowercase)
+   - `passwordHash`: String (bcrypt hashed)
+   - `role`: String (`admin` | `user`, default `user`)
+   - `createdAt`: Date
+2. **Device (`Device.js`)**:
+   - `userId`: ObjectId (reference to User)
+   - `hardwareFingerprint`: String (unique, indexed; `SHA-256(SoC + AID + CID)`)
+   - `socSerial`: String
+   - `androidId`: String
+   - `storageCid`: String
+   - `deviceModel`: String
+   - `status`: String (`pending` | `approved` | `revoked` | `banned`, default `pending`)
+   - `allowedModules`: [String] (e.g. `["module_hider", "module_isolation", "module_privacy", "module_network"]`)
+   - `licenseValidUntil`: Date
+   - `lastHeartbeatAt`: Date
+   - `lastIp`: String
+   - `clientVersion`: String
+   - `banReason`: String
+3. **Module (`Module.js`)**:
+   - `moduleId`: String (unique, e.g. `module_privacy`)
+   - `name`: String
+   - `description`: String
+   - `version`: Number
+   - `minCoreVersion`: Number
+   - `payloadUrl`: String
+   - `sha256Checksum`: String
+   - `signatureB64`: String
+   - `isEnabled`: Boolean
+4. **SecurityIncident (`SecurityIncident.js`)**:
+   - `deviceId`: ObjectId (ref to Device)
+   - `hardwareFingerprint`: String
+   - `triggerVector`: String (e.g., `DRM_TAMPER`, `HOOK_BYPASS`, `LEAK_DETECTED`)
+   - `details`: String
+   - `timestamp`: Date
+
+---
+
+## 3. Dynamic Module Delivery & Root Vault Persistence
+
+### A. Zero Modules Bundled in Release APK
+- The release APK contains only **Hollow Core**, root shell management, registration flow, and the dynamic in-memory loader.
+- No feature code is shipped in the public binary.
+
+### B. In-App Dynamic Module Downloads
+- Once approved in MongoDB Atlas by the admin, the app receives the authorized module manifest.
+- Dashboard shows an animated notification banner: *"Modules Available: Tap to Download & Activate"*.
+- Modules are downloaded over the encrypted anti-MITM channel, verified against Ed25519 signatures, encrypted with the device's hardware key, and saved in `/data/adb/.hollow_vault/modules/`.
+
+### C. Immunity to "Clear App Data"
+- `/data/adb/.hollow_vault` resides in root system storage outside `/data/data/com.example/`.
+- Standard Android "Clear Storage / Clear Data" does NOT delete the root vault.
+- When the app is re-opened, it re-authenticates with the root vault and instantly restores the modules with zero re-download needed.
+
+---
+
+## 4. User Registration, Approval Mode & Device Banning
+
+### A. Client Registration Screen
+- User registers with **Username**, **Email**, and **Password**.
+- App sends registration + hardware fingerprint to `POST /api/v1/auth/register`.
+- Screen immediately transitions to a pulsing **"Waiting for Admin Approval"** state.
+
+### B. Admin Web Portal Features
+- **Approve Device**: Sets expiration timestamp and checks off permitted modules in MongoDB.
+- **Toggle Modules**: Dynamically add or remove modules from an existing user's license.
+- **Ban Device**: Instantly updates status to `banned` in MongoDB. Next client heartbeat wipes the local root vault and permanently locks the device.
+
+---
+
+## 5. Codebase Restructuring Plan
+
+```
+hollow-project/
+├── Dockerfile                             # Production multi-stage Node.js container
+├── web/                                   # Admin Web Server & Licensing Backend
+│   ├── package.json                       # express, mongoose, bcryptjs, jsonwebtoken
+│   ├── server.js                          # Connects to MONGODB_URI & starts API
+│   ├── models/                            # User, Device, Module, SecurityIncident
+│   ├── routes/                            # /api/v1/auth, /api/v1/admin, /api/v1/modules
+│   ├── public/                            # Cyber-emerald Web Admin Dashboard
+│   └── certs/                             # Ed25519 signing keys
+│
+└── app/src/main/java/com/example/isolation/
+    ├── core/                              # ROOT & SECURITY ENGINE
+    │   ├── root/                          # Su process execution, root volume mount (/data/adb/.hollow_vault)
+    │   ├── security/                      # Anti-MITM client, TLS pinning, ChaCha20 payload encryption
+    │   ├── license/                       # Monotonic clock guard, hardware fingerprint, token store
+    │   └── module/                        # HollowModule contract, HollowModuleRegistry, dynamic loader
+    │
+    ├── uikit/                             # REUSABLE UI SYSTEM
+    │   ├── theme/                         # Centralized colors, shapes, typography (Jakarta)
+    │   ├── components/                    # StatusBadge, CyberStatCard, CompactProInput, CompactSwitchRow
+    │   └── dialogs/                       # Modals, confirmation prompts
+    │
+    └── module/                            # MODULAR FEATURE IMPLEMENTATIONS
+        ├── hider/                         # App Hider & SystemUI disguise
+        ├── isolation/                     # Storage isolation, FUSE virtual volumes, AES-256 vault
+        ├── privacy/                       # Flagship hardware spoofer, GPS teleport, sensors, Deadman switch
+        └── network/                       # V2Ray (VLESS/VMess), SOCKS5/HTTP proxies, per-app routing
+```
+
+---
+
+## 6. Developer Mode (`BuildConfig.DEV_FULL_BUILD`)
+
+- In `DEV_FULL_BUILD = true` mode, the app pre-loads all 4 modules locally and bypasses server approval so you can test all features offline without waiting for server responses.
+- In `DEV_FULL_BUILD = false` mode, the app enforces the true zero-module release shell, registration flow, approval waiting mode, and dynamic root-vault module loading.
+
+---
+
+## 7. Phased Implementation Roadmap
+
+### Phase 1: Dockerfile & Node.js/Express Web Server with MongoDB Atlas
+- Create `Dockerfile` and `web/package.json` (`express`, `mongoose`, `bcryptjs`, `jsonwebtoken`).
+- Create `web/server.js` with MongoDB Atlas connection using `process.env.MONGODB_URI`.
+- Implement Mongoose models (`User`, `Device`, `Module`, `SecurityIncident`).
+- Build REST APIs: `/api/v1/auth/register`, `/api/v1/auth/status`, `/api/v1/auth/heartbeat`, `/api/v1/admin/*`.
+
+### Phase 2: Web Admin Dashboard UI
+- Build dark-themed Cyber-Emerald Admin Portal (`web/public/index.html`, `admin.css`, `admin.js`).
+- Admin login, pending device approvals queue, module checkboxes, and 1-click device banning.
+
+### Phase 3: Android Codebase Restructuring
+- Restructure packages into `core/`, `uikit/`, and `module/` (`hider/`, `isolation/`, `privacy/`, `network/`).
+- Standardize all module implementations on the `HollowModule` contract.
+- Implement `HollowModuleRegistry` for dynamic UI and hook dispatching.
+
+### Phase 4: Root Vault Persistence & Anti-MITM Client
+- Implement `RootLicenseVaultManager` managing `/data/adb/.hollow_vault` (survives app data clearing).
+- Implement hardware key derivation (`SoC Serial + Android ID + Flash CID`).
+- Implement `HollowSecureClient` with payload encryption and anti-interception defense.
+
+### Phase 5: Registration Screen & Dynamic Module Downloader
+- Build `OnboardingScreen` with Username, Email, Password inputs.
+- Build "Waiting for Admin Approval" state with live status polling.
+- Build "Modules Available" in-app download banner and dynamic loader.
+- Verify compilation with `compile_applet` and verify unit tests.

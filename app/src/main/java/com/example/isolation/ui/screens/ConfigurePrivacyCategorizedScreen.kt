@@ -1,7 +1,6 @@
 package com.example.isolation.ui.screens
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -22,13 +21,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Fingerprint
@@ -37,10 +37,11 @@ import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Restore
-import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -51,6 +52,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -67,7 +69,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
@@ -76,16 +77,25 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.graphics.drawable.toBitmap
 import com.example.isolation.model.DeviceProfilePreset
 import com.example.isolation.model.IsolationRuleManager
 import com.example.isolation.pkg.InstalledAppInfo
+import com.example.isolation.ui.components.rememberAppIconBitmap
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
 import com.example.ui.theme.JakartaFontFamily
 import java.util.UUID
 
+private enum class AppPrivacySectionTab(val label: String, val icon: ImageVector) {
+    HARDWARE_IDS("Hardware & IDs", Icons.Default.PhoneAndroid),
+    DISPLAY_WEB("GPU & Web", Icons.Default.Memory),
+    GPS_TIME("GPS & Time", Icons.Default.GpsFixed),
+    SHIELDS_SENSORS("Shields & Sensors", Icons.Default.Shield),
+    DEADMAN("Deadman", Icons.Default.Warning)
+}
+
 private data class CityTeleportPreset(
     val label: String,
+    val code: String,
     val lat: String,
     val lng: String,
     val tz: String,
@@ -93,12 +103,12 @@ private data class CityTeleportPreset(
 )
 
 private val CITY_TELEPORT_PRESETS = listOf(
-    CityTeleportPreset("New York", "40.7128", "-74.0060", "America/New_York", "en-US"),
-    CityTeleportPreset("London", "51.5074", "-0.1278", "Europe/London", "en-GB"),
-    CityTeleportPreset("Tokyo", "35.6762", "139.6503", "Asia/Tokyo", "ja-JP"),
-    CityTeleportPreset("Zurich", "47.3769", "8.5417", "Europe/Zurich", "de-CH"),
-    CityTeleportPreset("Frankfurt", "50.1109", "8.6821", "Europe/Berlin", "de-DE"),
-    CityTeleportPreset("Singapore", "1.3521", "103.8198", "Asia/Singapore", "en-SG")
+    CityTeleportPreset("New York", "US", "40.7128", "-74.0060", "America/New_York", "en-US"),
+    CityTeleportPreset("London", "GB", "51.5074", "-0.1278", "Europe/London", "en-GB"),
+    CityTeleportPreset("Tokyo", "JP", "35.6762", "139.6503", "Asia/Tokyo", "ja-JP"),
+    CityTeleportPreset("Zurich", "CH", "47.3769", "8.5417", "Europe/Zurich", "de-CH"),
+    CityTeleportPreset("Frankfurt", "DE", "50.1109", "8.6821", "Europe/Berlin", "de-DE"),
+    CityTeleportPreset("Singapore", "SG", "1.3521", "103.8198", "Asia/Singapore", "en-SG")
 )
 
 @Composable
@@ -114,20 +124,17 @@ fun ConfigurePrivacyCategorizedScreen(
 
     BackHandler { onBack() }
 
-    // Optional profile (defaults to "" = None / Manual Configuration)
+    var activeSectionTab by remember { mutableStateOf(AppPrivacySectionTab.HARDWARE_IDS) }
+
+    // Master Identity Spoofing & Optional Profile (Defaults to "" = Manual / No Profile)
+    var isSpoofEnabled by remember(appInfo.packageName) {
+        mutableStateOf(appInfo.isIdentitySpoofed)
+    }
     var selectedProfileId by remember(appInfo.packageName) {
         mutableStateOf(appInfo.privacyProfileId)
     }
 
-    // Section 1: Hardware Model & Build Props ON/OFF + fields
-    var hardwareModelSpoofOn by remember(appInfo.packageName) {
-        mutableStateOf(
-            appInfo.isIdentitySpoofed && appInfo.deviceProfilePreset != DeviceProfilePreset.REAL_HARDWARE
-        )
-    }
-    var hardwareExpanded by remember(appInfo.packageName) {
-        mutableStateOf(hardwareModelSpoofOn || appInfo.isIdentitySpoofed)
-    }
+    // Hardware Model Preset & Build Properties
     var selectedPreset by remember(appInfo.packageName) {
         mutableStateOf(
             if (appInfo.deviceProfilePreset == DeviceProfilePreset.REAL_HARDWARE)
@@ -163,13 +170,7 @@ fun ConfigurePrivacyCategorizedScreen(
         mutableStateOf(appInfo.spoofFingerprint.ifBlank { selectedPreset.fingerprint })
     }
 
-    // Section 2: Device & Telecom Identifiers ON/OFF + fields
-    var identifiersSpoofOn by remember(appInfo.packageName) {
-        mutableStateOf(appInfo.isIdentitySpoofed)
-    }
-    var identifiersExpanded by remember(appInfo.packageName) {
-        mutableStateOf(appInfo.isIdentitySpoofed)
-    }
+    // Device & Telecom Identifiers
     var androidId by remember(appInfo.packageName) {
         mutableStateOf(appInfo.spoofAndroidId.ifBlank { IsolationRuleManager.generateAndroidId() })
     }
@@ -195,12 +196,9 @@ fun ConfigurePrivacyCategorizedScreen(
         mutableStateOf(appInfo.spoofDrmWidevine)
     }
 
-    // Section 3: GPU, Display & WebView Anti-Fingerprinting ON/OFF + fields
+    // GPU, Display & Browser Cloak
     var spoofGpuFingerprint by remember(appInfo.packageName) {
         mutableStateOf(appInfo.spoofGpuFingerprint)
-    }
-    var gpuExpanded by remember(appInfo.packageName) {
-        mutableStateOf(false)
     }
     var gpuVendor by remember(appInfo.packageName) {
         mutableStateOf(appInfo.spoofGpuVendor.ifBlank { selectedPreset.glVendor })
@@ -242,11 +240,8 @@ fun ConfigurePrivacyCategorizedScreen(
         mutableStateOf(appInfo.customUserAgent.ifBlank { realHw.userAgent })
     }
 
-    // Section 4: Virtual GPS Location & Timezone ON/OFF + fields
+    // Virtual GPS Location & Timezone
     var spoofLocationEnabled by remember(appInfo.packageName) {
-        mutableStateOf(appInfo.spoofLocationEnabled)
-    }
-    var gpsExpanded by remember(appInfo.packageName) {
         mutableStateOf(appInfo.spoofLocationEnabled)
     }
     var latitudeText by remember(appInfo.packageName) {
@@ -268,12 +263,9 @@ fun ConfigurePrivacyCategorizedScreen(
         mutableStateOf(appInfo.spoofLocaleTag.ifBlank { realHw.localeTag })
     }
 
-    // Section 5: Sensors & Virtual Battery ON/OFF + fields
+    // Sensors & Virtual Battery
     var anonymizeSensors by remember(appInfo.packageName) {
         mutableStateOf(appInfo.anonymizeSensors)
-    }
-    var sensorsExpanded by remember(appInfo.packageName) {
-        mutableStateOf(false)
     }
     var sensorBiasNeutralizer by remember(appInfo.packageName) {
         mutableStateOf(appInfo.sensorBiasNeutralizer)
@@ -285,12 +277,9 @@ fun ConfigurePrivacyCategorizedScreen(
         mutableFloatStateOf(appInfo.fakeBatteryLevel.coerceIn(5, 100).toFloat())
     }
 
-    // Section 6: Anti-Detection, System & App Shields ON/OFF + toggles
+    // Root, LSPosed & App Shields
     var hideRootAndXposed by remember(appInfo.packageName) {
         mutableStateOf(appInfo.hideRootAndXposed)
-    }
-    var shieldsExpanded by remember(appInfo.packageName) {
-        mutableStateOf(false)
     }
     var hideAdbAndDevOptions by remember(appInfo.packageName) {
         mutableStateOf(appInfo.hideAdbAndDevOptions)
@@ -323,31 +312,26 @@ fun ConfigurePrivacyCategorizedScreen(
         mutableStateOf(appInfo.disableAllNetworking)
     }
 
-    // Section 7: Total Identity Leak Deadman Switch
+    // Deadman Switch
     var deadmanSwitchEnabled by remember(appInfo.packageName) {
         mutableStateOf(appInfo.deadmanSwitchEnabled)
     }
-    var deadmanExpanded by remember(appInfo.packageName) {
-        mutableStateOf(false)
-    }
 
     val saveCurrentConfiguration = {
-        val masterIdentityOn = hardwareModelSpoofOn || identifiersSpoofOn
-        val effectivePreset = if (hardwareModelSpoofOn) selectedPreset else DeviceProfilePreset.REAL_HARDWARE
         viewModel.saveAppIdentitySpoofConfig(
             appInfo = appInfo,
-            enabled = masterIdentityOn,
-            preset = effectivePreset,
-            brand = if (hardwareModelSpoofOn) brand else realHw.brand,
-            model = if (hardwareModelSpoofOn) model else realHw.model,
-            device = if (hardwareModelSpoofOn) device else realHw.device,
-            androidId = if (identifiersSpoofOn) androidId else realHw.androidId,
-            imei = if (identifiersSpoofOn) imei else "",
-            advertisingId = if (identifiersSpoofOn) advertisingId else "",
-            macAddress = if (identifiersSpoofOn) macAddress else "",
-            carrierName = if (identifiersSpoofOn) carrierName else realHw.carrierName,
-            simOperator = if (identifiersSpoofOn) simOperator else realHw.simOperator,
-            serial = if (identifiersSpoofOn) serial else realHw.serial,
+            enabled = isSpoofEnabled,
+            preset = if (isSpoofEnabled) selectedPreset else DeviceProfilePreset.REAL_HARDWARE,
+            brand = if (isSpoofEnabled) brand else realHw.brand,
+            model = if (isSpoofEnabled) model else realHw.model,
+            device = if (isSpoofEnabled) device else realHw.device,
+            androidId = if (isSpoofEnabled) androidId else realHw.androidId,
+            imei = if (isSpoofEnabled) imei else "",
+            advertisingId = if (isSpoofEnabled) advertisingId else "",
+            macAddress = if (isSpoofEnabled) macAddress else "",
+            carrierName = if (isSpoofEnabled) carrierName else realHw.carrierName,
+            simOperator = if (isSpoofEnabled) simOperator else realHw.simOperator,
+            serial = if (isSpoofEnabled) serial else realHw.serial,
             hideRootAndXposed = hideRootAndXposed,
             hideAdbAndDevOptions = hideAdbAndDevOptions,
             hideVpnAndProxy = hideVpnAndProxy,
@@ -368,12 +352,12 @@ fun ConfigurePrivacyCategorizedScreen(
             anonymizeSensors = anonymizeSensors,
             blockCellTowerTracking = blockCellTowerTracking,
             autoSyncTimezone = autoSyncTimezone,
-            spoofManufacturer = if (hardwareModelSpoofOn) manufacturer else realHw.manufacturer,
-            spoofProduct = if (hardwareModelSpoofOn) product else realHw.product,
-            spoofBoard = if (hardwareModelSpoofOn) board else realHw.board,
-            spoofHardware = if (hardwareModelSpoofOn) hardware else realHw.hardware,
-            spoofBootloader = if (hardwareModelSpoofOn) bootloader else realHw.bootloader,
-            spoofFingerprint = if (hardwareModelSpoofOn) fingerprint else realHw.fingerprint,
+            spoofManufacturer = if (isSpoofEnabled) manufacturer else realHw.manufacturer,
+            spoofProduct = if (isSpoofEnabled) product else realHw.product,
+            spoofBoard = if (isSpoofEnabled) board else realHw.board,
+            spoofHardware = if (isSpoofEnabled) hardware else realHw.hardware,
+            spoofBootloader = if (isSpoofEnabled) bootloader else realHw.bootloader,
+            spoofFingerprint = if (isSpoofEnabled) fingerprint else realHw.fingerprint,
             spoofGpuVendor = gpuVendor,
             spoofGpuRenderer = gpuRenderer,
             spoofCpuCores = cpuCoresText.toIntOrNull() ?: realHw.cpuCores,
@@ -401,12 +385,12 @@ fun ConfigurePrivacyCategorizedScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(scheme.background)
-            .padding(horizontal = 14.dp)
+            .padding(horizontal = 16.dp)
             .testTag("configure_privacy_categorized_screen")
     ) {
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
-        // Compact Top Bar: Back + App Icon + App Name + Reset Button + Save Button
+        // 1. Unified App Header Bar
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -419,7 +403,7 @@ fun ConfigurePrivacyCategorizedScreen(
                 IconButton(
                     onClick = onBack,
                     modifier = Modifier
-                        .size(34.dp)
+                        .size(36.dp)
                         .testTag("privacy_back_button")
                 ) {
                     Icon(
@@ -429,27 +413,21 @@ fun ConfigurePrivacyCategorizedScreen(
                         modifier = Modifier.size(20.dp)
                     )
                 }
-                val iconBitmap = remember(appInfo.packageName, appInfo.icon) {
-                    try {
-                        appInfo.icon?.toBitmap(72, 72)?.asImageBitmap()
-                    } catch (_: Throwable) {
-                        null
-                    }
-                }
+                val iconBitmap = rememberAppIconBitmap(appInfo.packageName, appInfo.icon, 84)
                 if (iconBitmap != null) {
                     Image(
                         bitmap = iconBitmap,
                         contentDescription = appInfo.appName,
                         modifier = Modifier
-                            .size(32.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(9.dp))
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = appInfo.appName,
-                        fontSize = 15.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = scheme.onBackground,
                         maxLines = 1,
@@ -458,7 +436,7 @@ fun ConfigurePrivacyCategorizedScreen(
                     )
                     Text(
                         text = appInfo.packageName,
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
                         color = scheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -480,28 +458,28 @@ fun ConfigurePrivacyCategorizedScreen(
                     Icon(
                         imageVector = Icons.Default.Restore,
                         contentDescription = "Reset to Real Hardware",
-                        tint = scheme.error,
-                        modifier = Modifier.size(18.dp)
+                        tint = scheme.onSurfaceVariant,
+                        modifier = Modifier.size(19.dp)
                     )
                 }
-                Spacer(modifier = Modifier.width(4.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Button(
                     onClick = saveCurrentConfiguration,
                     shape = RoundedCornerShape(50),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                     modifier = Modifier
-                        .height(34.dp)
+                        .height(36.dp)
                         .testTag("save_privacy_config_btn")
                 ) {
                     Icon(
                         imageVector = Icons.Default.Check,
                         contentDescription = null,
-                        modifier = Modifier.size(14.dp)
+                        modifier = Modifier.size(15.dp)
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(5.dp))
                     Text(
                         text = "Save",
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = JakartaFontFamily
                     )
@@ -509,960 +487,957 @@ fun ConfigurePrivacyCategorizedScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
-        // Slim Horizontal Bar: Optional Profile Selector + 1-Tap Randomize All IDs
+        // 2. Category Section Tabs (Sleek segmented pill strip)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(scheme.surface)
+                .border(1.dp, scheme.outlineVariant, RoundedCornerShape(14.dp))
+                .padding(4.dp)
                 .horizontalScroll(rememberScrollState()),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(scheme.primaryContainer)
-                    .clickable {
-                        identifiersSpoofOn = true
-                        identifiersExpanded = true
-                        androidId = IsolationRuleManager.generateAndroidId()
-                        imei = IsolationRuleManager.generateLuhnImei()
-                        advertisingId = UUID.randomUUID().toString()
-                        macAddress = IsolationRuleManager.generateMacAddress()
-                        serial = IsolationRuleManager.generateSerial()
-                    }
-                    .padding(horizontal = 10.dp, vertical = 6.dp)
-                    .testTag("btn_randomize_all_ids")
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            AppPrivacySectionTab.entries.forEach { tab ->
+                val selected = activeSectionTab == tab
+                val bgColor = if (selected) scheme.primaryContainer.copy(alpha = 0.55f) else Color.Transparent
+                val textColor = if (selected) scheme.primary else scheme.onSurfaceVariant
+                val borderColor = if (selected) scheme.primary.copy(alpha = 0.6f) else Color.Transparent
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(bgColor)
+                        .border(1.dp, borderColor, RoundedCornerShape(10.dp))
+                        .clickable { activeSectionTab = tab }
+                        .padding(horizontal = 12.dp, vertical = 7.dp)
+                        .testTag("privacy_section_tab_${tab.name.lowercase()}")
+                ) {
                     Icon(
-                        imageVector = Icons.Default.Casino,
+                        imageVector = tab.icon,
                         contentDescription = null,
-                        tint = scheme.onPrimaryContainer,
+                        tint = textColor,
                         modifier = Modifier.size(14.dp)
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(5.dp))
                     Text(
-                        text = "Randomize IDs",
+                        text = tab.label,
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = scheme.onPrimaryContainer,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                        color = textColor,
                         fontFamily = JakartaFontFamily
                     )
                 }
             }
+        }
 
-            FilterChip(
-                selected = selectedProfileId.isBlank(),
-                onClick = { selectedProfileId = "" },
-                label = {
-                    Text(
-                        text = "Manual (No Profile)",
-                        fontSize = 11.sp,
-                        fontFamily = JakartaFontFamily
-                    )
-                },
-                shape = RoundedCornerShape(50),
-                modifier = Modifier
-                    .height(30.dp)
-                    .testTag("profile_chip_none")
-            )
+        Spacer(modifier = Modifier.height(10.dp))
 
-            profiles.forEach { profile ->
-                val isSelected = selectedProfileId == profile.id
-                FilterChip(
-                    selected = isSelected,
-                    onClick = {
-                        selectedProfileId = profile.id
-                        hardwareModelSpoofOn = true
-                        identifiersSpoofOn = true
-                        if (profile.spoofAndroidId) androidId = IsolationRuleManager.generateAndroidId()
-                        if (profile.spoofImei) imei = IsolationRuleManager.generateLuhnImei()
-                        if (profile.spoofAdvertisingId) advertisingId = UUID.randomUUID().toString()
-                        if (profile.spoofMacAddress) macAddress = IsolationRuleManager.generateMacAddress()
-                        if (profile.spoofSerial) serial = IsolationRuleManager.generateSerial()
-                        spoofDrmWidevine = profile.spoofDrmWidevine
-                        spoofGpuFingerprint = profile.spoofGpuFingerprint
-                        gpuVendor = profile.gpuVendor
-                        gpuRenderer = profile.gpuRenderer
-                        screenResolution = profile.spoofScreenResolution
-                        screenDpiText = profile.spoofScreenDpi.toString()
-                        spoofCanvasNoise = profile.spoofCanvasNoise
-                        spoofAudioContext = profile.spoofAudioContext
-                        anonymizeSensors = profile.anonymizeSensors
-                        sensorBiasNeutralizer = profile.sensorBiasNeutralizer
-                        fakeBatteryEnabled = profile.fakeBatteryEnabled
-                        fakeBatteryLevel = profile.fakeBatteryLevel.toFloat()
-                        spoofWebRtc = profile.spoofWebRtc
-                        blockCellTowerTracking = profile.blockCellTowerTracking
-                        spoofWifiBssid = profile.spoofWifiBssid
-                        hideVpnAndProxy = profile.hideVpnAndProxy
-                        hideRootAndXposed = profile.hideRootAndXposed
-                        hideAdbAndDevOptions = profile.hideAdbAndDevOptions
-                        blockClipboardRead = profile.blockClipboardRead
-                        preventScreenshots = profile.preventScreenshots
-                        disableLogcatLogging = profile.disableLogcatLogging
-                        autoSyncTimezone = profile.autoSyncTimezone
-                        spoofBrowserUserAgent = profile.spoofBrowserUserAgent
-                        deadmanSwitchEnabled = profile.deadmanSwitchEnabled
-                    },
-                    label = {
-                        Text(
-                            text = profile.name,
-                            fontSize = 11.sp,
-                            fontFamily = JakartaFontFamily
+        // 3. Focused Section Content
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(bottom = 20.dp)
+        ) {
+            when (activeSectionTab) {
+                AppPrivacySectionTab.HARDWARE_IDS -> {
+                    // Top Master Switch Hero Banner
+                    item {
+                        SectionMasterBanner(
+                            title = "Virtual Hardware & Device IDs",
+                            subtitle = if (isSpoofEnabled) "Active • Cloaked as $brand $model" else "Off • App sees real ${realHw.model}",
+                            checked = isSpoofEnabled,
+                            onCheckedChange = { isSpoofEnabled = it },
+                            switchTag = "master_identity_switch"
                         )
-                    },
-                    shape = RoundedCornerShape(50),
-                    modifier = Modifier
-                        .height(30.dp)
-                        .testTag("profile_chip_${profile.id}")
+                    }
+
+                    // Dedicated Randomize All Quick Action
+                    item {
+                        OutlinedButton(
+                            onClick = {
+                                isSpoofEnabled = true
+                                androidId = IsolationRuleManager.generateAndroidId()
+                                imei = IsolationRuleManager.generateLuhnImei()
+                                advertisingId = UUID.randomUUID().toString()
+                                macAddress = IsolationRuleManager.generateMacAddress()
+                                serial = IsolationRuleManager.generateSerial()
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, scheme.primary.copy(alpha = 0.5f)),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = scheme.primary.copy(alpha = 0.08f)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(42.dp)
+                                .testTag("btn_randomize_all_ids")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Casino,
+                                contentDescription = null,
+                                tint = scheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Randomize All Identifiers (Android ID, IMEI, MAC, Serial)",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = scheme.primary,
+                                fontFamily = JakartaFontFamily
+                            )
+                        }
+                    }
+
+                    // Optional Profile Preset Selector
+                    item {
+                        GroupedSettingsCard(header = "OPTIONAL PRIVACY PROFILE") {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                FilterChip(
+                                    selected = selectedProfileId.isBlank(),
+                                    onClick = { selectedProfileId = "" },
+                                    label = { Text("Manual (None)", fontSize = 11.sp, fontFamily = JakartaFontFamily) },
+                                    shape = RoundedCornerShape(50),
+                                    modifier = Modifier
+                                        .height(30.dp)
+                                        .testTag("profile_chip_none")
+                                )
+                                profiles.forEach { profile ->
+                                    FilterChip(
+                                        selected = selectedProfileId == profile.id,
+                                        onClick = {
+                                            selectedProfileId = profile.id
+                                            isSpoofEnabled = true
+                                            if (profile.spoofAndroidId) androidId = IsolationRuleManager.generateAndroidId()
+                                            if (profile.spoofImei) imei = IsolationRuleManager.generateLuhnImei()
+                                            if (profile.spoofAdvertisingId) advertisingId = UUID.randomUUID().toString()
+                                            if (profile.spoofMacAddress) macAddress = IsolationRuleManager.generateMacAddress()
+                                            if (profile.spoofSerial) serial = IsolationRuleManager.generateSerial()
+                                            spoofDrmWidevine = profile.spoofDrmWidevine
+                                            spoofGpuFingerprint = profile.spoofGpuFingerprint
+                                            gpuVendor = profile.gpuVendor
+                                            gpuRenderer = profile.gpuRenderer
+                                            screenResolution = profile.spoofScreenResolution
+                                            screenDpiText = profile.spoofScreenDpi.toString()
+                                            spoofCanvasNoise = profile.spoofCanvasNoise
+                                            spoofAudioContext = profile.spoofAudioContext
+                                            anonymizeSensors = profile.anonymizeSensors
+                                            sensorBiasNeutralizer = profile.sensorBiasNeutralizer
+                                            fakeBatteryEnabled = profile.fakeBatteryEnabled
+                                            fakeBatteryLevel = profile.fakeBatteryLevel.toFloat()
+                                            spoofWebRtc = profile.spoofWebRtc
+                                            blockCellTowerTracking = profile.blockCellTowerTracking
+                                            spoofWifiBssid = profile.spoofWifiBssid
+                                            hideVpnAndProxy = profile.hideVpnAndProxy
+                                            hideRootAndXposed = profile.hideRootAndXposed
+                                            hideAdbAndDevOptions = profile.hideAdbAndDevOptions
+                                            blockClipboardRead = profile.blockClipboardRead
+                                            preventScreenshots = profile.preventScreenshots
+                                            disableLogcatLogging = profile.disableLogcatLogging
+                                            autoSyncTimezone = profile.autoSyncTimezone
+                                            spoofBrowserUserAgent = profile.spoofBrowserUserAgent
+                                            deadmanSwitchEnabled = profile.deadmanSwitchEnabled
+                                        },
+                                        label = { Text(profile.name, fontSize = 11.sp, fontFamily = JakartaFontFamily) },
+                                        shape = RoundedCornerShape(50),
+                                        modifier = Modifier
+                                            .height(30.dp)
+                                            .testTag("profile_chip_${profile.id}")
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Device Model Presets & Build Properties
+                    item {
+                        var showAdvancedBuildProps by remember { mutableStateOf(false) }
+
+                        GroupedSettingsCard(header = "HARDWARE MODEL & BUILD PRESET") {
+                            // Active Device Highlight Row
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(scheme.primary.copy(alpha = 0.15f))
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PhoneAndroid,
+                                        contentDescription = null,
+                                        tint = scheme.primary,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "$brand $model",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = scheme.onSurface,
+                                        fontFamily = JakartaFontFamily
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Codename: $device • Android 15 • Fingerprint set",
+                                        fontSize = 11.sp,
+                                        color = scheme.primary,
+                                        fontFamily = JakartaFontFamily
+                                    )
+                                }
+                            }
+
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.45f))
+
+                            // Presets Row
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                DeviceProfilePreset.entries.filter { it != DeviceProfilePreset.REAL_HARDWARE }.forEach { preset ->
+                                    FilterChip(
+                                        selected = selectedPreset == preset,
+                                        onClick = {
+                                            selectedPreset = preset
+                                            isSpoofEnabled = true
+                                            brand = preset.brand
+                                            manufacturer = preset.manufacturer
+                                            model = preset.model
+                                            device = preset.device
+                                            product = preset.product
+                                            board = preset.board
+                                            hardware = preset.board
+                                            fingerprint = preset.fingerprint
+                                            gpuVendor = preset.glVendor
+                                            gpuRenderer = preset.glRenderer
+                                        },
+                                        label = { Text(preset.label, fontSize = 11.sp, fontFamily = JakartaFontFamily) },
+                                        shape = RoundedCornerShape(50),
+                                        modifier = Modifier.height(30.dp)
+                                    )
+                                }
+                            }
+
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.45f))
+
+                            // Expandable Row for Advanced Build Properties
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { showAdvancedBuildProps = !showAdvancedBuildProps }
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = if (showAdvancedBuildProps) Icons.Default.Tune else Icons.Default.Code,
+                                        contentDescription = null,
+                                        tint = scheme.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = if (showAdvancedBuildProps) "Hide 9 Raw Build.prop Keys" else "Advanced Build Properties (Brand, Codename, Fingerprint)",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = scheme.primary,
+                                        fontFamily = JakartaFontFamily
+                                    )
+                                }
+                                Icon(
+                                    imageVector = if (showAdvancedBuildProps) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = null,
+                                    tint = scheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            AnimatedVisibility(visible = showAdvancedBuildProps) {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.35f))
+                                    InlineEditableRow("Brand", brand) { brand = it; isSpoofEnabled = true }
+                                    HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.35f))
+                                    InlineEditableRow("Manufacturer", manufacturer) { manufacturer = it; isSpoofEnabled = true }
+                                    HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.35f))
+                                    InlineEditableRow("Model (Build.MODEL)", model) { model = it; isSpoofEnabled = true }
+                                    HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.35f))
+                                    InlineEditableRow("Device Codename", device) { device = it; isSpoofEnabled = true }
+                                    HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.35f))
+                                    InlineEditableRow("Product", product) { product = it; isSpoofEnabled = true }
+                                    HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.35f))
+                                    InlineEditableRow("Board / SoC", board) { board = it; isSpoofEnabled = true }
+                                    HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.35f))
+                                    InlineEditableRow("Hardware", hardware) { hardware = it; isSpoofEnabled = true }
+                                    HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.35f))
+                                    InlineEditableRow("Bootloader", bootloader) { bootloader = it; isSpoofEnabled = true }
+                                    HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.35f))
+                                    InlineEditableRow("Fingerprint", fingerprint) { fingerprint = it; isSpoofEnabled = true }
+                                }
+                            }
+                        }
+                    }
+
+                    // Device & Telecom Identifiers
+                    item {
+                        GroupedSettingsCard(header = "UNIQUE IDENTIFIERS & TELECOM") {
+                            GroupedToggleRow(
+                                title = "Spoof Widevine DRM ID",
+                                subtitle = "Replace MediaDrm deviceUniqueId with per-app hash",
+                                checked = spoofDrmWidevine,
+                                onCheckedChange = { spoofDrmWidevine = it }
+                            )
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            InlineEditableRow(
+                                label = "Android ID",
+                                value = androidId,
+                                onRandomize = {
+                                    androidId = IsolationRuleManager.generateAndroidId()
+                                    isSpoofEnabled = true
+                                }
+                            ) { androidId = it; isSpoofEnabled = true }
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            InlineEditableRow(
+                                label = "IMEI (Luhn)",
+                                value = imei,
+                                onRandomize = {
+                                    imei = IsolationRuleManager.generateLuhnImei()
+                                    isSpoofEnabled = true
+                                }
+                            ) { imei = it; isSpoofEnabled = true }
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            InlineEditableRow(
+                                label = "Wi-Fi MAC",
+                                value = macAddress,
+                                onRandomize = {
+                                    macAddress = IsolationRuleManager.generateMacAddress()
+                                    isSpoofEnabled = true
+                                }
+                            ) { macAddress = it; isSpoofEnabled = true }
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            InlineEditableRow(
+                                label = "Hardware Serial",
+                                value = serial,
+                                onRandomize = {
+                                    serial = IsolationRuleManager.generateSerial()
+                                    isSpoofEnabled = true
+                                }
+                            ) { serial = it; isSpoofEnabled = true }
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            InlineEditableRow(
+                                label = "Advertising ID",
+                                value = advertisingId,
+                                onRandomize = {
+                                    advertisingId = UUID.randomUUID().toString()
+                                    isSpoofEnabled = true
+                                }
+                            ) { advertisingId = it; isSpoofEnabled = true }
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            InlineEditableRow("Carrier Name", carrierName) { carrierName = it; isSpoofEnabled = true }
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            InlineEditableRow("SIM Operator", simOperator) { simOperator = it; isSpoofEnabled = true }
+                        }
+                    }
+                }
+
+                AppPrivacySectionTab.DISPLAY_WEB -> {
+                    item {
+                        SectionMasterBanner(
+                            title = "GPU, Screen & Browser Cloak",
+                            subtitle = if (spoofGpuFingerprint) "Active • $gpuRenderer ($screenResolution)" else "Off • Real GPU & WebView metrics",
+                            checked = spoofGpuFingerprint,
+                            onCheckedChange = { spoofGpuFingerprint = it },
+                            switchTag = "switch_gpu_section"
+                        )
+                    }
+
+                    item {
+                        GroupedSettingsCard(header = "BROWSER & WEBVIEW ANTI-FINGERPRINTING") {
+                            GroupedToggleRow(
+                                title = "Canvas 2D Pixel Noise",
+                                subtitle = "Perturb HTMLCanvasElement readbacks against browser trackers",
+                                checked = spoofCanvasNoise,
+                                onCheckedChange = { spoofCanvasNoise = it }
+                            )
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            GroupedToggleRow(
+                                title = "WebAudio Context Entropy",
+                                subtitle = "Add sub-audible jitter to AudioBuffer & OscillatorNode",
+                                checked = spoofAudioContext,
+                                onCheckedChange = { spoofAudioContext = it }
+                            )
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            GroupedToggleRow(
+                                title = "WebRTC Local IP Leak Blocker",
+                                subtitle = "Strip local LAN & VPN interfaces from RTCPeerConnection",
+                                checked = spoofWebRtc,
+                                onCheckedChange = { spoofWebRtc = it }
+                            )
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            GroupedToggleRow(
+                                title = "Client Hints & Font Masking",
+                                subtitle = "Align Sec-CH-UA headers and cap system font enumeration",
+                                checked = spoofClientHints,
+                                onCheckedChange = {
+                                    spoofClientHints = it
+                                    spoofFontEnumeration = it
+                                }
+                            )
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            GroupedToggleRow(
+                                title = "Spoof Browser & WebView User-Agent",
+                                subtitle = "Synchronize HTTP & WebView User-Agent with spoofed model",
+                                checked = spoofBrowserUserAgent,
+                                onCheckedChange = { spoofBrowserUserAgent = it }
+                            )
+                        }
+                    }
+
+                    item {
+                        GroupedSettingsCard(header = "GPU, DISPLAY & HARDWARE SPECS") {
+                            InlineEditableRow("GPU Vendor", gpuVendor) { gpuVendor = it; spoofGpuFingerprint = true }
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            InlineEditableRow("GPU Renderer", gpuRenderer) { gpuRenderer = it; spoofGpuFingerprint = true }
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            InlineEditableRow("Screen Resolution", screenResolution) { screenResolution = it }
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            InlineEditableRow("Screen DPI", screenDpiText) { screenDpiText = it.filter { ch -> ch.isDigit() } }
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            InlineEditableRow("CPU Cores", cpuCoresText) { cpuCoresText = it.filter { ch -> ch.isDigit() } }
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            InlineEditableRow("Total RAM (GB)", ramGbText) { ramGbText = it.filter { ch -> ch.isDigit() } }
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            InlineEditableRow("User-Agent", customUserAgent) {
+                                customUserAgent = it
+                                spoofBrowserUserAgent = true
+                            }
+                        }
+                    }
+                }
+
+                AppPrivacySectionTab.GPS_TIME -> {
+                    item {
+                        SectionMasterBanner(
+                            title = "Virtual GPS & Timezone Sync",
+                            subtitle = if (spoofLocationEnabled) "Teleported to $latitudeText, $longitudeText ($timezoneId)" else "Off • Using real GPS location",
+                            checked = spoofLocationEnabled,
+                            onCheckedChange = { spoofLocationEnabled = it },
+                            switchTag = "switch_gps_section"
+                        )
+                    }
+
+                    item {
+                        GroupedSettingsCard(header = "QUICK CITY TELEPORT") {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                CITY_TELEPORT_PRESETS.forEach { city ->
+                                    val isSelected = latitudeText == city.lat && longitudeText == city.lng
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = {
+                                            spoofLocationEnabled = true
+                                            latitudeText = city.lat
+                                            longitudeText = city.lng
+                                            timezoneId = city.tz
+                                            localeTag = city.locale
+                                        },
+                                        label = {
+                                            Text(
+                                                text = "[${city.code}] ${city.label}",
+                                                fontSize = 11.sp,
+                                                fontFamily = JakartaFontFamily
+                                            )
+                                        },
+                                        shape = RoundedCornerShape(50),
+                                        modifier = Modifier.height(30.dp)
+                                    )
+                                }
+                            }
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            InlineEditableRow("Latitude", latitudeText) { latitudeText = it; spoofLocationEnabled = true }
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            InlineEditableRow("Longitude", longitudeText) { longitudeText = it; spoofLocationEnabled = true }
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            InlineEditableRow("IANA Timezone", timezoneId) { timezoneId = it; autoSyncTimezone = true }
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            InlineEditableRow("Locale Tag", localeTag) { localeTag = it; autoSyncTimezone = true }
+                        }
+                    }
+
+                    item {
+                        GroupedSettingsCard(header = "LOCATION & TIMEZONE GUARDS") {
+                            GroupedToggleRow(
+                                title = "Hide Mock Location Flag",
+                                subtitle = "Force Location.isFromMockProvider() and isMock() to return false",
+                                checked = hideMockLocation,
+                                onCheckedChange = { hideMockLocation = it }
+                            )
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            GroupedToggleRow(
+                                title = "Auto-Sync Timezone & Locale",
+                                subtitle = "Override TimeZone.getDefault() and Locale to match GPS / Exit IP",
+                                checked = autoSyncTimezone,
+                                onCheckedChange = { autoSyncTimezone = it }
+                            )
+                        }
+                    }
+                }
+
+                AppPrivacySectionTab.SHIELDS_SENSORS -> {
+                    item {
+                        val activeCount = listOf(
+                            hideRootAndXposed, hideAdbAndDevOptions, hideVpnAndProxy,
+                            knoxWarrantyBitSpoof, blockCellTowerTracking, spoofWifiBssid,
+                            blockClipboardRead, hideOtherApps, preventScreenshots,
+                            disableLogcatLogging, disableAllNetworking
+                        ).count { it }
+
+                        SectionMasterBanner(
+                            title = "Root, LSPosed & System Shields",
+                            subtitle = "$activeCount of 11 stealth shields active",
+                            checked = activeCount > 0,
+                            onCheckedChange = { on ->
+                                hideRootAndXposed = on
+                                hideAdbAndDevOptions = on
+                                hideVpnAndProxy = on
+                                blockCellTowerTracking = on
+                                spoofWifiBssid = on
+                            },
+                            switchTag = "switch_shields_section"
+                        )
+                    }
+
+                    item {
+                        GroupedSettingsCard(header = "ANTI-DETECTION & SYSTEM STEALTH") {
+                            GroupedToggleRow(
+                                title = "Hide Root, Magisk, KernelSU & LSPosed",
+                                subtitle = "Cloak su binaries, mounts, Xposed stack traces & ro.build.tags",
+                                checked = hideRootAndXposed,
+                                onCheckedChange = { hideRootAndXposed = it }
+                            )
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            GroupedToggleRow(
+                                title = "Hide ADB & Developer Options",
+                                subtitle = "Force ADB_ENABLED and DEVELOPMENT_SETTINGS_ENABLED to 0",
+                                checked = hideAdbAndDevOptions,
+                                onCheckedChange = { hideAdbAndDevOptions = it }
+                            )
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            GroupedToggleRow(
+                                title = "Hide VPN & Proxy Status",
+                                subtitle = "Scrub tun0/ppp0 interfaces, TRANSPORT_VPN & proxy properties",
+                                checked = hideVpnAndProxy,
+                                onCheckedChange = { hideVpnAndProxy = it }
+                            )
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            GroupedToggleRow(
+                                title = "Samsung Knox 0x0 Warranty Bit",
+                                subtitle = "Report intact warranty bit (0x0) to Samsung & banking apps",
+                                checked = knoxWarrantyBitSpoof,
+                                onCheckedChange = { knoxWarrantyBitSpoof = it }
+                            )
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            GroupedToggleRow(
+                                title = "Block Cell Tower CID/LAC Tracking",
+                                subtitle = "Return empty CellInfo lists from TelephonyManager",
+                                checked = blockCellTowerTracking,
+                                onCheckedChange = { blockCellTowerTracking = it }
+                            )
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            GroupedToggleRow(
+                                title = "Spoof Wi-Fi Router BSSID & SSID",
+                                subtitle = "Prevent physical location triangulation via router MACs",
+                                checked = spoofWifiBssid,
+                                onCheckedChange = { spoofWifiBssid = it }
+                            )
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            GroupedToggleRow(
+                                title = "Block Background Clipboard Read",
+                                subtitle = "Prevent app from silently reading copied text or keys",
+                                checked = blockClipboardRead,
+                                onCheckedChange = { blockClipboardRead = it }
+                            )
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            GroupedToggleRow(
+                                title = "Hide Other Installed Apps",
+                                subtitle = "Filter package queries so this app only sees itself",
+                                checked = hideOtherApps,
+                                onCheckedChange = { hideOtherApps = it }
+                            )
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            GroupedToggleRow(
+                                title = "Prevent Screenshots (FLAG_SECURE)",
+                                subtitle = "Block screen capture and hide recents thumbnail",
+                                checked = preventScreenshots,
+                                onCheckedChange = { preventScreenshots = it }
+                            )
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            GroupedToggleRow(
+                                title = "Disable Logcat Output",
+                                subtitle = "Silence android.util.Log calls from this app",
+                                checked = disableLogcatLogging,
+                                onCheckedChange = { disableLogcatLogging = it }
+                            )
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            GroupedToggleRow(
+                                title = "Offline Network Kill Switch",
+                                subtitle = "Block all outgoing sockets and network access for this app",
+                                checked = disableAllNetworking,
+                                onCheckedChange = { disableAllNetworking = it }
+                            )
+                        }
+                    }
+
+                    item {
+                        GroupedSettingsCard(header = "SENSORS & VIRTUAL BATTERY") {
+                            GroupedToggleRow(
+                                title = "Anonymize Sensor Vendors",
+                                subtitle = "Scrub Sensor.getVendor() & block step/heart counters",
+                                checked = anonymizeSensors,
+                                onCheckedChange = { anonymizeSensors = it }
+                            )
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            GroupedToggleRow(
+                                title = "MEMS Calibration Bias Neutralizer",
+                                subtitle = "Inject micro-jitter into gyroscope & accelerometer readings",
+                                checked = sensorBiasNeutralizer,
+                                onCheckedChange = { sensorBiasNeutralizer = it }
+                            )
+                            HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                            GroupedToggleRow(
+                                title = "Virtual Battery Level (${fakeBatteryLevel.toInt()}%)",
+                                subtitle = "Override BatteryManager level to prevent cross-app correlation",
+                                checked = fakeBatteryEnabled,
+                                onCheckedChange = { fakeBatteryEnabled = it }
+                            )
+                            if (fakeBatteryEnabled) {
+                                Slider(
+                                    value = fakeBatteryLevel,
+                                    onValueChange = { fakeBatteryLevel = it },
+                                    valueRange = 5f..100f,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                AppPrivacySectionTab.DEADMAN -> {
+                    item {
+                        val appUid = remember(appInfo.packageName) {
+                            (appInfo.packageName.hashCode() and 0x7FFF) + 10000
+                        }
+
+                        SectionMasterBanner(
+                            title = "Total Identity Leak Deadman Switch",
+                            subtitle = if (deadmanSwitchEnabled) "Armed • Kills app & blocks UID via iptables on leak" else "Disarmed",
+                            checked = deadmanSwitchEnabled,
+                            onCheckedChange = { deadmanSwitchEnabled = it },
+                            switchTag = "switch_deadman_section",
+                            accentColor = Color(0xFFEF4444)
+                        )
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        GroupedSettingsCard(header = "KERNEL WATCHDOG & LEAK RECOVERY") {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Text(
+                                    text = "If any hook breaks or native code attempts to read real hardware IDs (Android ID, IMEI, MAC, Serial, DRM) or bypass the proxy tunnel, Hollow immediately terminates the process and drops all network packets for UID $appUid.",
+                                    fontSize = 12.sp,
+                                    lineHeight = 17.sp,
+                                    color = scheme.onSurfaceVariant,
+                                    fontFamily = JakartaFontFamily
+                                )
+
+                                if (deadmanIncidents.isNotEmpty()) {
+                                    val latest = deadmanIncidents.first()
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(Color(0xFFEF4444).copy(alpha = 0.12f))
+                                            .padding(10.dp)
+                                    ) {
+                                        Text(
+                                            text = "Blocked: ${latest.appName} (UID ${latest.appUid}) • ${latest.triggerVector}: ${latest.details}",
+                                            fontSize = 11.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = Color(0xFFEF4444)
+                                        )
+                                    }
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            viewModel.simulateIdentityLeak(
+                                                packageName = appInfo.packageName,
+                                                appName = appInfo.appName,
+                                                uid = appUid
+                                            )
+                                        },
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("btn_simulate_leak")
+                                    ) {
+                                        Text("Test Leak Kill", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily)
+                                    }
+
+                                    OutlinedButton(
+                                        onClick = { viewModel.restoreAppNetwork(appUid) },
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("btn_restore_uid_network")
+                                    ) {
+                                        Text("Restore Network", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+        Surface(
+            color = scheme.background,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Button(
+                onClick = saveCurrentConfiguration,
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = scheme.primary,
+                    contentColor = scheme.onPrimary
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("save_privacy_config_btn_bottom")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Save Protection Settings",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = JakartaFontFamily
                 )
             }
         }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(bottom = 28.dp)
-        ) {
-            // 1. HARDWARE MODEL & BUILD PROPERTIES (With Header ON/OFF Switch!)
-            item {
-                CompactModuleCard(
-                    icon = Icons.Default.PhoneAndroid,
-                    title = "Hardware Model & Build Props",
-                    statusSummary = if (hardwareModelSpoofOn) "$brand $model ($device)" else "Off • Using real ${realHw.model}",
-                    enabled = hardwareModelSpoofOn,
-                    expanded = hardwareExpanded,
-                    onToggleEnabled = { on ->
-                        hardwareModelSpoofOn = on
-                        if (on) hardwareExpanded = true
-                    },
-                    onToggleExpand = { hardwareExpanded = !hardwareExpanded },
-                    switchTag = "switch_hardware_model"
-                ) {
-                    // Preset Selector Chips
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        DeviceProfilePreset.entries.filter { it != DeviceProfilePreset.REAL_HARDWARE }.forEach { preset ->
-                            FilterChip(
-                                selected = selectedPreset == preset,
-                                onClick = {
-                                    selectedPreset = preset
-                                    hardwareModelSpoofOn = true
-                                    brand = preset.brand
-                                    manufacturer = preset.manufacturer
-                                    model = preset.model
-                                    device = preset.device
-                                    product = preset.product
-                                    board = preset.board
-                                    hardware = preset.board
-                                    fingerprint = preset.fingerprint
-                                    gpuVendor = preset.glVendor
-                                    gpuRenderer = preset.glRenderer
-                                },
-                                label = {
-                                    Text(
-                                        text = preset.label,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontFamily = JakartaFontFamily
-                                    )
-                                },
-                                shape = RoundedCornerShape(50),
-                                modifier = Modifier.height(28.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        CompactProInput(
-                            label = "Brand",
-                            value = brand,
-                            onValueChange = { brand = it; hardwareModelSpoofOn = true },
-                            modifier = Modifier.weight(1f)
-                        )
-                        CompactProInput(
-                            label = "Manufacturer",
-                            value = manufacturer,
-                            onValueChange = { manufacturer = it; hardwareModelSpoofOn = true },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        CompactProInput(
-                            label = "Model (Build.MODEL)",
-                            value = model,
-                            onValueChange = { model = it; hardwareModelSpoofOn = true },
-                            modifier = Modifier.weight(1.2f)
-                        )
-                        CompactProInput(
-                            label = "Device Codename",
-                            value = device,
-                            onValueChange = { device = it; hardwareModelSpoofOn = true },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        CompactProInput(
-                            label = "Product",
-                            value = product,
-                            onValueChange = { product = it; hardwareModelSpoofOn = true },
-                            modifier = Modifier.weight(1f)
-                        )
-                        CompactProInput(
-                            label = "Board / SoC",
-                            value = board,
-                            onValueChange = { board = it; hardwareModelSpoofOn = true },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        CompactProInput(
-                            label = "Hardware",
-                            value = hardware,
-                            onValueChange = { hardware = it; hardwareModelSpoofOn = true },
-                            modifier = Modifier.weight(1f)
-                        )
-                        CompactProInput(
-                            label = "Bootloader",
-                            value = bootloader,
-                            onValueChange = { bootloader = it; hardwareModelSpoofOn = true },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    CompactProInput(
-                        label = "Build Fingerprint",
-                        value = fingerprint,
-                        onValueChange = { fingerprint = it; hardwareModelSpoofOn = true },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            }
-
-            // 2. DEVICE & TELECOM IDENTIFIERS (With Header ON/OFF Switch!)
-            item {
-                CompactModuleCard(
-                    icon = Icons.Default.Fingerprint,
-                    title = "Device & Telecom Identifiers",
-                    statusSummary = if (identifiersSpoofOn) "AID ${androidId.take(6)}… • IMEI ${imei.take(6)}… • DRM ${if (spoofDrmWidevine) "On" else "Off"}" else "Off • Real Android ID & IMEI",
-                    enabled = identifiersSpoofOn,
-                    expanded = identifiersExpanded,
-                    onToggleEnabled = { on ->
-                        identifiersSpoofOn = on
-                        if (on) identifiersExpanded = true
-                    },
-                    onToggleExpand = { identifiersExpanded = !identifiersExpanded },
-                    switchTag = "master_identity_switch"
-                ) {
-                    // Top toggle for Widevine DRM (never buried at bottom)
-                    CompactSwitchRow(
-                        title = "Spoof Widevine DRM Device Unique ID",
-                        subtitle = "Deterministic per-app hash for MediaDrm.getPropertyByteArray",
-                        checked = spoofDrmWidevine,
-                        onCheckedChange = { spoofDrmWidevine = it }
-                    )
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        CompactProInput(
-                            label = "Android ID (16-hex)",
-                            value = androidId,
-                            onValueChange = { androidId = it; identifiersSpoofOn = true },
-                            onRandomize = {
-                                androidId = IsolationRuleManager.generateAndroidId()
-                                identifiersSpoofOn = true
-                            },
-                            modifier = Modifier.weight(1f)
-                        )
-                        CompactProInput(
-                            label = "IMEI (15-digit Luhn)",
-                            value = imei,
-                            onValueChange = { imei = it; identifiersSpoofOn = true },
-                            onRandomize = {
-                                imei = IsolationRuleManager.generateLuhnImei()
-                                identifiersSpoofOn = true
-                            },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        CompactProInput(
-                            label = "Wi-Fi MAC Address",
-                            value = macAddress,
-                            onValueChange = { macAddress = it; identifiersSpoofOn = true },
-                            onRandomize = {
-                                macAddress = IsolationRuleManager.generateMacAddress()
-                                identifiersSpoofOn = true
-                            },
-                            modifier = Modifier.weight(1f)
-                        )
-                        CompactProInput(
-                            label = "Hardware Serial",
-                            value = serial,
-                            onValueChange = { serial = it; identifiersSpoofOn = true },
-                            onRandomize = {
-                                serial = IsolationRuleManager.generateSerial()
-                                identifiersSpoofOn = true
-                            },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    CompactProInput(
-                        label = "Google Advertising ID (GAID)",
-                        value = advertisingId,
-                        onValueChange = { advertisingId = it; identifiersSpoofOn = true },
-                        onRandomize = {
-                            advertisingId = UUID.randomUUID().toString()
-                            identifiersSpoofOn = true
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        CompactProInput(
-                            label = "Carrier Name",
-                            value = carrierName,
-                            onValueChange = { carrierName = it; identifiersSpoofOn = true },
-                            modifier = Modifier.weight(1f)
-                        )
-                        CompactProInput(
-                            label = "SIM Operator (MCC/MNC)",
-                            value = simOperator,
-                            onValueChange = { simOperator = it; identifiersSpoofOn = true },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-            }
-
-            // 3. GPU, DISPLAY & WEBVIEW FINGERPRINT (With Header ON/OFF Switch!)
-            item {
-                CompactModuleCard(
-                    icon = Icons.Default.Memory,
-                    title = "GPU, Screen & Browser Cloak",
-                    statusSummary = if (spoofGpuFingerprint) "$gpuRenderer • $screenResolution • WebRTC/Canvas On" else "Off • Real GPU & WebView",
-                    enabled = spoofGpuFingerprint,
-                    expanded = gpuExpanded,
-                    onToggleEnabled = { on ->
-                        spoofGpuFingerprint = on
-                        if (on) gpuExpanded = true
-                    },
-                    onToggleExpand = { gpuExpanded = !gpuExpanded },
-                    switchTag = "switch_gpu_section"
-                ) {
-                    // Toggles at the TOP of the card
-                    CompactSwitchRow(
-                        title = "Canvas 2D & WebAudio Noise Injection",
-                        subtitle = "Perturb HTMLCanvasElement & AudioBuffer against browser trackers",
-                        checked = spoofCanvasNoise,
-                        onCheckedChange = {
-                            spoofCanvasNoise = it
-                            spoofAudioContext = it
-                        }
-                    )
-                    CompactSwitchRow(
-                        title = "WebRTC Local IP Leak Blocker",
-                        subtitle = "Strip LAN & VPN interfaces from RTCPeerConnection",
-                        checked = spoofWebRtc,
-                        onCheckedChange = { spoofWebRtc = it }
-                    )
-                    CompactSwitchRow(
-                        title = "Client Hints & System Font Enumeration Mask",
-                        subtitle = "Align Sec-CH-UA headers and cap enumerated font list",
-                        checked = spoofClientHints,
-                        onCheckedChange = {
-                            spoofClientHints = it
-                            spoofFontEnumeration = it
-                        }
-                    )
-                    CompactSwitchRow(
-                        title = "Spoof Browser & WebView User-Agent",
-                        subtitle = "Sync WebView & HTTP User-Agent with spoofed model",
-                        checked = spoofBrowserUserAgent,
-                        onCheckedChange = { spoofBrowserUserAgent = it }
-                    )
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        CompactProInput(
-                            label = "GPU Vendor",
-                            value = gpuVendor,
-                            onValueChange = { gpuVendor = it; spoofGpuFingerprint = true },
-                            modifier = Modifier.weight(0.9f)
-                        )
-                        CompactProInput(
-                            label = "GPU Renderer",
-                            value = gpuRenderer,
-                            onValueChange = { gpuRenderer = it; spoofGpuFingerprint = true },
-                            modifier = Modifier.weight(1.3f)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        CompactProInput(
-                            label = "Resolution",
-                            value = screenResolution,
-                            onValueChange = { screenResolution = it },
-                            modifier = Modifier.weight(1.1f)
-                        )
-                        CompactProInput(
-                            label = "DPI",
-                            value = screenDpiText,
-                            onValueChange = { screenDpiText = it.filter { ch -> ch.isDigit() } },
-                            modifier = Modifier.weight(0.7f)
-                        )
-                        CompactProInput(
-                            label = "CPU Cores",
-                            value = cpuCoresText,
-                            onValueChange = { cpuCoresText = it.filter { ch -> ch.isDigit() } },
-                            modifier = Modifier.weight(0.7f)
-                        )
-                        CompactProInput(
-                            label = "RAM GB",
-                            value = ramGbText,
-                            onValueChange = { ramGbText = it.filter { ch -> ch.isDigit() } },
-                            modifier = Modifier.weight(0.7f)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    CompactProInput(
-                        label = "Custom User-Agent String",
-                        value = customUserAgent,
-                        onValueChange = { customUserAgent = it; spoofBrowserUserAgent = true },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            }
-
-            // 4. VIRTUAL GPS LOCATION & TIMEZONE (With Header ON/OFF Switch!)
-            item {
-                CompactModuleCard(
-                    icon = Icons.Default.GpsFixed,
-                    title = "Virtual GPS & Timezone",
-                    statusSummary = if (spoofLocationEnabled) "GPS $latitudeText, $longitudeText • TZ $timezoneId" else "Off • Real GPS Location",
-                    enabled = spoofLocationEnabled,
-                    expanded = gpsExpanded,
-                    onToggleEnabled = { on ->
-                        spoofLocationEnabled = on
-                        if (on) gpsExpanded = true
-                    },
-                    onToggleExpand = { gpsExpanded = !gpsExpanded },
-                    switchTag = "switch_gps_section"
-                ) {
-                    CompactSwitchRow(
-                        title = "Hide Mock Location Flag",
-                        subtitle = "Force Location.isFromMockProvider() and isMock() to return false",
-                        checked = hideMockLocation,
-                        onCheckedChange = { hideMockLocation = it }
-                    )
-                    CompactSwitchRow(
-                        title = "Auto-Sync Timezone & Locale",
-                        subtitle = "Match TimeZone.getDefault() and Locale with virtual location",
-                        checked = autoSyncTimezone,
-                        onCheckedChange = { autoSyncTimezone = it }
-                    )
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        CITY_TELEPORT_PRESETS.forEach { city ->
-                            FilterChip(
-                                selected = latitudeText == city.lat && longitudeText == city.lng,
-                                onClick = {
-                                    spoofLocationEnabled = true
-                                    latitudeText = city.lat
-                                    longitudeText = city.lng
-                                    timezoneId = city.tz
-                                    localeTag = city.locale
-                                },
-                                label = { Text(city.label, fontSize = 11.sp, fontFamily = JakartaFontFamily) },
-                                shape = RoundedCornerShape(50),
-                                modifier = Modifier.height(28.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        CompactProInput(
-                            label = "Latitude",
-                            value = latitudeText,
-                            onValueChange = { latitudeText = it; spoofLocationEnabled = true },
-                            modifier = Modifier.weight(1f)
-                        )
-                        CompactProInput(
-                            label = "Longitude",
-                            value = longitudeText,
-                            onValueChange = { longitudeText = it; spoofLocationEnabled = true },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        CompactProInput(
-                            label = "IANA Timezone",
-                            value = timezoneId,
-                            onValueChange = { timezoneId = it; autoSyncTimezone = true },
-                            modifier = Modifier.weight(1.3f)
-                        )
-                        CompactProInput(
-                            label = "Locale Tag",
-                            value = localeTag,
-                            onValueChange = { localeTag = it; autoSyncTimezone = true },
-                            modifier = Modifier.weight(0.7f)
-                        )
-                    }
-                }
-            }
-
-            // 5. SENSORS & VIRTUAL BATTERY (With Header ON/OFF Switch!)
-            item {
-                CompactModuleCard(
-                    icon = Icons.Default.Sensors,
-                    title = "Sensors & Virtual Battery",
-                    statusSummary = if (anonymizeSensors || fakeBatteryEnabled) {
-                        "Sensors Scrubbed • Battery ${if (fakeBatteryEnabled) "${fakeBatteryLevel.toInt()}%" else "Real"}"
-                    } else "Off • Real Sensors & Battery",
-                    enabled = anonymizeSensors || fakeBatteryEnabled,
-                    expanded = sensorsExpanded,
-                    onToggleEnabled = { on ->
-                        anonymizeSensors = on
-                        sensorBiasNeutralizer = on
-                        fakeBatteryEnabled = on
-                        if (on) sensorsExpanded = true
-                    },
-                    onToggleExpand = { sensorsExpanded = !sensorsExpanded },
-                    switchTag = "switch_sensors_section"
-                ) {
-                    CompactSwitchRow(
-                        title = "Anonymize Hardware Sensor Vendors",
-                        subtitle = "Scrub Sensor.getVendor() & block step/heart-rate tracking",
-                        checked = anonymizeSensors,
-                        onCheckedChange = { anonymizeSensors = it }
-                    )
-                    CompactSwitchRow(
-                        title = "MEMS Calibration Bias Neutralizer",
-                        subtitle = "Add micro-jitter to accelerometer/gyroscope to defeat hardware ID",
-                        checked = sensorBiasNeutralizer,
-                        onCheckedChange = { sensorBiasNeutralizer = it }
-                    )
-                    CompactSwitchRow(
-                        title = "Spoof Virtual Battery Level (${fakeBatteryLevel.toInt()}%)",
-                        subtitle = "Prevent cross-app battery level & charging correlation",
-                        checked = fakeBatteryEnabled,
-                        onCheckedChange = { fakeBatteryEnabled = it }
-                    )
-
-                    if (fakeBatteryEnabled) {
-                        Slider(
-                            value = fakeBatteryLevel,
-                            onValueChange = { fakeBatteryLevel = it },
-                            valueRange = 5f..100f,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(28.dp)
-                        )
-                    }
-                }
-            }
-
-            // 6. ROOT, LSPOSED & SYSTEM SHIELDS (With Header ON/OFF Switch!)
-            item {
-                val activeShieldCount = listOf(
-                    hideRootAndXposed, hideAdbAndDevOptions, hideVpnAndProxy,
-                    knoxWarrantyBitSpoof, blockCellTowerTracking, spoofWifiBssid,
-                    blockClipboardRead, hideOtherApps, preventScreenshots,
-                    disableLogcatLogging, disableAllNetworking
-                ).count { it }
-
-                CompactModuleCard(
-                    icon = Icons.Default.Shield,
-                    title = "Root, LSPosed & App Shields",
-                    statusSummary = if (activeShieldCount > 0) "$activeShieldCount of 11 stealth shields active" else "All shields disabled",
-                    enabled = activeShieldCount > 0,
-                    expanded = shieldsExpanded,
-                    onToggleEnabled = { on ->
-                        hideRootAndXposed = on
-                        hideAdbAndDevOptions = on
-                        hideVpnAndProxy = on
-                        blockCellTowerTracking = on
-                        spoofWifiBssid = on
-                        if (on) shieldsExpanded = true
-                    },
-                    onToggleExpand = { shieldsExpanded = !shieldsExpanded },
-                    switchTag = "switch_shields_section"
-                ) {
-                    CompactSwitchRow(
-                        title = "Hide Root, Magisk, KernelSU & LSPosed",
-                        subtitle = "Cloak su binaries, mounts, Xposed stack traces & test-keys",
-                        checked = hideRootAndXposed,
-                        onCheckedChange = { hideRootAndXposed = it }
-                    )
-                    CompactSwitchRow(
-                        title = "Hide ADB & Developer Options",
-                        subtitle = "Force ADB_ENABLED and DEVELOPMENT_SETTINGS_ENABLED to 0",
-                        checked = hideAdbAndDevOptions,
-                        onCheckedChange = { hideAdbAndDevOptions = it }
-                    )
-                    CompactSwitchRow(
-                        title = "Hide VPN & Proxy Network Interfaces",
-                        subtitle = "Scrub tun0/ppp0, TRANSPORT_VPN & system proxy properties",
-                        checked = hideVpnAndProxy,
-                        onCheckedChange = { hideVpnAndProxy = it }
-                    )
-                    CompactSwitchRow(
-                        title = "Samsung Knox 0x0 Warranty Bit",
-                        subtitle = "Spoof ro.boot.warranty_bit=0 for Samsung financial & Knox apps",
-                        checked = knoxWarrantyBitSpoof,
-                        onCheckedChange = { knoxWarrantyBitSpoof = it }
-                    )
-                    CompactSwitchRow(
-                        title = "Block Cell Tower CID/LAC Tracking",
-                        subtitle = "Return empty CellInfo lists from TelephonyManager",
-                        checked = blockCellTowerTracking,
-                        onCheckedChange = { blockCellTowerTracking = it }
-                    )
-                    CompactSwitchRow(
-                        title = "Spoof Wi-Fi Router BSSID & SSID",
-                        subtitle = "Prevent physical geolocation via nearby Wi-Fi MACs",
-                        checked = spoofWifiBssid,
-                        onCheckedChange = { spoofWifiBssid = it }
-                    )
-                    CompactSwitchRow(
-                        title = "Block Background Clipboard Read",
-                        subtitle = "Prevent app from silently reading copied passwords/keys",
-                        checked = blockClipboardRead,
-                        onCheckedChange = { blockClipboardRead = it }
-                    )
-                    CompactSwitchRow(
-                        title = "Hide Other Installed Apps",
-                        subtitle = "Filter getInstalledPackages() so this app only sees itself",
-                        checked = hideOtherApps,
-                        onCheckedChange = { hideOtherApps = it }
-                    )
-                    CompactSwitchRow(
-                        title = "Prevent Screenshots & Recording (FLAG_SECURE)",
-                        subtitle = "Block screen capture and recents thumbnail previews",
-                        checked = preventScreenshots,
-                        onCheckedChange = { preventScreenshots = it }
-                    )
-                    CompactSwitchRow(
-                        title = "Disable Logcat Output",
-                        subtitle = "Silence android.util.Log calls from this app",
-                        checked = disableLogcatLogging,
-                        onCheckedChange = { disableLogcatLogging = it }
-                    )
-                    CompactSwitchRow(
-                        title = "Strict Offline Network Kill Switch",
-                        subtitle = "Block all outgoing sockets and network access for this app",
-                        checked = disableAllNetworking,
-                        onCheckedChange = { disableAllNetworking = it }
-                    )
-                }
-            }
-
-            // 7. TOTAL IDENTITY LEAK DEADMAN SWITCH (With Header ON/OFF Switch!)
-            item {
-                val appUid = remember(appInfo.packageName) {
-                    (appInfo.packageName.hashCode() and 0x7FFF) + 10000
-                }
-                CompactModuleCard(
-                    icon = Icons.Default.Warning,
-                    title = "Identity Leak Deadman Switch",
-                    statusSummary = if (deadmanSwitchEnabled) "Armed • Kills app & blocks UID via iptables on leak" else "Disarmed",
-                    enabled = deadmanSwitchEnabled,
-                    expanded = deadmanExpanded,
-                    accentColor = Color(0xFFEF4444),
-                    onToggleEnabled = { on ->
-                        deadmanSwitchEnabled = on
-                        if (on) deadmanExpanded = true
-                    },
-                    onToggleExpand = { deadmanExpanded = !deadmanExpanded },
-                    switchTag = "switch_deadman_section"
-                ) {
-                    if (deadmanIncidents.isNotEmpty()) {
-                        val latest = deadmanIncidents.first()
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFFEF4444).copy(alpha = 0.12f))
-                                .padding(8.dp)
-                        ) {
-                            Text(
-                                text = "Blocked: ${latest.appName} (UID ${latest.appUid}) • ${latest.triggerVector}",
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = Color(0xFFEF4444)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(6.dp))
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                viewModel.simulateIdentityLeak(
-                                    packageName = appInfo.packageName,
-                                    appName = appInfo.appName,
-                                    uid = appUid
-                                )
-                            },
-                            shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(34.dp)
-                                .testTag("btn_simulate_leak")
-                        ) {
-                            Text("Test Leak Kill", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily)
-                        }
-
-                        OutlinedButton(
-                            onClick = { viewModel.restoreAppNetwork(appUid) },
-                            shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(34.dp)
-                                .testTag("btn_restore_uid_network")
-                        ) {
-                            Text("Restore Network", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = JakartaFontFamily)
-                        }
-                    }
-                }
-            }
-        }
+        Spacer(modifier = Modifier.height(10.dp))
     }
 }
 
 @Composable
-private fun CompactModuleCard(
-    icon: ImageVector,
+private fun SectionMasterBanner(
     title: String,
-    statusSummary: String,
-    enabled: Boolean,
-    expanded: Boolean,
-    onToggleEnabled: (Boolean) -> Unit,
-    onToggleExpand: () -> Unit,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
     switchTag: String,
-    accentColor: Color? = null,
-    content: @Composable () -> Unit
+    accentColor: Color? = null
 ) {
     val scheme = MaterialTheme.colorScheme
     val activeColor = accentColor ?: scheme.primary
 
     Card(
         colors = CardDefaults.cardColors(
-            containerColor = if (enabled) activeColor.copy(alpha = 0.08f) else scheme.surface
+            containerColor = if (checked) activeColor.copy(alpha = 0.12f) else scheme.surface
         ),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(16.dp),
         border = BorderStroke(
             1.dp,
-            if (enabled) activeColor.copy(alpha = 0.45f) else scheme.outlineVariant
+            if (checked) activeColor.copy(alpha = 0.45f) else scheme.outlineVariant
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            // Sleek Header Row with ON/OFF Switch & Expand Chevron
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onToggleExpand() }
-                    .padding(horizontal = 12.dp, vertical = 10.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(
-                                if (enabled) activeColor.copy(alpha = 0.18f)
-                                else scheme.surfaceVariant
-                            )
-                    ) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            tint = if (enabled) activeColor else scheme.onSurfaceVariant,
-                            modifier = Modifier.size(17.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = title,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = scheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            fontFamily = JakartaFontFamily
-                        )
-                        Text(
-                            text = statusSummary,
-                            fontSize = 11.sp,
-                            color = if (enabled) activeColor else scheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            fontFamily = JakartaFontFamily
-                        )
-                    }
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(
-                        checked = enabled,
-                        onCheckedChange = onToggleEnabled,
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = scheme.onPrimary,
-                            checkedTrackColor = activeColor
-                        ),
-                        modifier = Modifier
-                            .scale(0.82f)
-                            .testTag(switchTag)
-                    )
-                    Icon(
-                        imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = if (expanded) "Collapse" else "Expand",
-                        tint = scheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .size(20.dp)
-                            .clickable { onToggleExpand() }
-                    )
-                }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onCheckedChange(!checked) }
+                .padding(horizontal = 16.dp, vertical = 14.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = scheme.onSurface,
+                    fontFamily = JakartaFontFamily
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = subtitle,
+                    fontSize = 12.sp,
+                    color = if (checked) activeColor else scheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontFamily = JakartaFontFamily
+                )
             }
 
-            AnimatedVisibility(visible = expanded) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
-                ) {
-                    HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.45f))
-                    Spacer(modifier = Modifier.height(8.dp))
-                    content()
-                }
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = scheme.onPrimary,
+                    checkedTrackColor = activeColor
+                ),
+                modifier = Modifier
+                    .scale(0.88f)
+                    .testTag(switchTag)
+            )
+        }
+    }
+}
+
+@Composable
+private fun GroupedSettingsCard(
+    header: String,
+    content: @Composable () -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = header,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.7.sp,
+            color = scheme.onSurfaceVariant,
+            fontFamily = JakartaFontFamily,
+            modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)
+        )
+        Card(
+            colors = CardDefaults.cardColors(containerColor = scheme.surface),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, scheme.outlineVariant),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                content()
             }
         }
     }
 }
 
 @Composable
-private fun CompactProInput(
+private fun InlineEditableRow(
     label: String,
     value: String,
-    onValueChange: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    onRandomize: (() -> Unit)? = null
+    onRandomize: (() -> Unit)? = null,
+    onValueChange: (String) -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(scheme.surfaceVariant.copy(alpha = 0.45f))
-            .border(1.dp, scheme.outlineVariant.copy(alpha = 0.7f), RoundedCornerShape(10.dp))
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier.fillMaxWidth()
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            color = scheme.onSurfaceVariant,
+            fontFamily = JakartaFontFamily,
+            modifier = Modifier.width(124.dp)
+        )
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(8.dp))
+                .background(scheme.surfaceContainerLow)
+                .border(1.dp, scheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                .padding(horizontal = 10.dp, vertical = 6.dp)
         ) {
-            Text(
-                text = label,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Medium,
-                color = scheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                fontFamily = JakartaFontFamily,
-                modifier = Modifier.weight(1f)
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                textStyle = TextStyle(
+                    color = scheme.onSurface,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.SemiBold
+                ),
+                cursorBrush = SolidColor(scheme.primary),
+                modifier = Modifier.fillMaxWidth()
             )
-            if (onRandomize != null) {
+        }
+        if (onRandomize != null) {
+            Spacer(modifier = Modifier.width(6.dp))
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(26.dp)
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(scheme.primary.copy(alpha = 0.14f))
+                    .clickable { onRandomize() }
+            ) {
                 Icon(
                     imageVector = Icons.Default.Refresh,
                     contentDescription = "Randomize $label",
                     tint = scheme.primary,
-                    modifier = Modifier
-                        .size(14.dp)
-                        .clickable { onRandomize() }
+                    modifier = Modifier.size(14.dp)
                 )
             }
         }
-        Spacer(modifier = Modifier.height(2.dp))
-        BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            singleLine = true,
-            textStyle = TextStyle(
-                color = scheme.onSurface,
-                fontSize = 12.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.SemiBold
-            ),
-            cursorBrush = SolidColor(scheme.primary),
-            modifier = Modifier.fillMaxWidth()
-        )
     }
 }
 
 @Composable
-private fun CompactSwitchRow(
+private fun GroupedToggleRow(
     title: String,
     subtitle: String,
     checked: Boolean,
@@ -1475,26 +1450,26 @@ private fun CompactSwitchRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onCheckedChange(!checked) }
-            .padding(vertical = 3.dp)
+            .padding(horizontal = 14.dp, vertical = 9.dp)
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                fontSize = 12.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = scheme.onSurface,
                 fontFamily = JakartaFontFamily
             )
             Text(
                 text = subtitle,
-                fontSize = 10.sp,
+                fontSize = 11.sp,
                 color = scheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 fontFamily = JakartaFontFamily
             )
         }
-        Spacer(modifier = Modifier.width(6.dp))
+        Spacer(modifier = Modifier.width(8.dp))
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
@@ -1502,7 +1477,7 @@ private fun CompactSwitchRow(
                 checkedThumbColor = scheme.onPrimary,
                 checkedTrackColor = scheme.primary
             ),
-            modifier = Modifier.scale(0.8f)
+            modifier = Modifier.scale(0.82f)
         )
     }
 }

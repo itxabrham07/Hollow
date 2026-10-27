@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hollow • Cloud Admin & Module Licensing Console</title>
+  <link rel="stylesheet" href="/admin.css" />
+</head>
+<body>
+  <!-- LOGIN OVERLAY -->
+  <div id="login-view" class="login-backdrop">
+    <div class="login-card">
+      <div class="brand-row">
+        <div class="brand-emblem">H</div>
+        <div>
+          <h1>Hollow Cloud Admin</h1>
+          <p class="subtitle">MongoDB Atlas • Dynamic Module & Root Vault Control</p>
+        </div>
+      </div>
+      <form id="login-form">
+        <label>Administrator Username</label>
+        <input type="text" id="admin-user" placeholder="admin" required />
+        <label>Master Password</label>
+        <input type="password" id="admin-pass" placeholder="••••••••••••" required />
+        <div id="login-error" class="error-banner hidden"></div>
+        <button type="submit" class="btn-primary full-width">Sign In to Console</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- MAIN ADMIN CONSOLE -->
+  <div id="dashboard-view" class="console-wrapper hidden">
+    <header class="topbar">
+      <div class="brand-row">
+        <div class="brand-emblem">H</div>
+        <div>
+          <h2>Hollow Command Center</h2>
+          <span id="mongo-status" class="status-pill">MongoDB Atlas: Checking...</span>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button id="refresh-btn" class="btn-secondary">Refresh Live Data</button>
+        <button id="logout-btn" class="btn-danger-outline">Sign Out</button>
+      </div>
+    </header>
+
+    <!-- METRICS ROW -->
+    <section class="stats-grid">
+      <div class="stat-card">
+        <span class="stat-label">PENDING APPROVALS</span>
+        <span id="stat-pending" class="stat-value accent-amber">0</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">APPROVED & ACTIVE DEVICES</span>
+        <span id="stat-approved" class="stat-value accent-emerald">0</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">BANNED HARDWARE IDS</span>
+        <span id="stat-banned" class="stat-value accent-red">0</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">HOSTED MODULES</span>
+        <span id="stat-modules" class="stat-value">4</span>
+      </div>
+    </section>
+
+    <!-- PENDING APPROVALS QUEUE -->
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h3>Pending Device Registrations (Waiting for Approval)</h3>
+          <p class="subtitle">Approve new users, set license expiry, and select which dynamic modules they can download.</p>
+        </div>
+      </div>
+      <div id="pending-list" class="device-list"></div>
+    </section>
+
+    <!-- ACTIVE & BANNED DEVICES -->
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h3>Registered Devices & Module Entitlements</h3>
+          <p class="subtitle">Toggle individual modules remotely, inspect hardware fingerprints (SoC + AID + CID), or permanently ban devices.</p>
+        </div>
+      </div>
+      <div id="devices-list" class="device-list"></div>
+    </section>
+
+    <!-- DEADMAN & SECURITY INCIDENTS -->
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h3>Root Deadman Watchdog & Anti-Tamper Incidents</h3>
+          <p class="subtitle">Real-time alerts reported when a hooked app or attacker attempts to bypass LSPosed or leak hardware IDs.</p>
+        </div>
+      </div>
+      <div id="incidents-list" class="device-list"></div>
+    </section>
+  </div>
+
+  <script src="/admin.js"></script>
+</body>
+</html>

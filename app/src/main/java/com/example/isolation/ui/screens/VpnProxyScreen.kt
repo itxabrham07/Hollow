@@ -1260,13 +1260,11 @@ private fun PerAppVpnRoutingCard(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f)
                 ) {
-                    val iconBitmap = remember(appInfo.packageName, appInfo.icon) {
-                        try {
-                            appInfo.icon?.toBitmap(88, 88)?.asImageBitmap()
-                        } catch (_: Throwable) {
-                            null
-                        }
-                    }
+                    val iconBitmap = com.example.isolation.ui.components.rememberAppIconBitmap(
+                        packageName = appInfo.packageName,
+                        drawable = appInfo.icon,
+                        sizePx = 88
+                    )
                     if (iconBitmap != null) {
                         Image(
                             bitmap = iconBitmap,

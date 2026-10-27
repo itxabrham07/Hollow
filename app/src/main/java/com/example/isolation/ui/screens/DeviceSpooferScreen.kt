@@ -96,7 +96,8 @@ private enum class PrivacyAppFilter {
 @Composable
 fun DeviceSpooferScreen(
     viewModel: IsoVaultViewModel,
-    onBack: () -> Unit = {}
+    onBack: () -> Unit = {},
+    onDetailOpenChanged: (Boolean) -> Unit = {}
 ) {
     val scheme = MaterialTheme.colorScheme
     val allApps by viewModel.allInstalledApps.collectAsState()
@@ -109,9 +110,16 @@ fun DeviceSpooferScreen(
     var editingApp by remember { mutableStateOf<InstalledAppInfo?>(null) }
     var editingProfile by remember { mutableStateOf<PrivacyProfile?>(null) }
 
+    androidx.compose.runtime.LaunchedEffect(editingApp) {
+        onDetailOpenChanged(editingApp != null)
+    }
+
     BackHandler {
         when {
-            editingApp != null -> editingApp = null
+            editingApp != null -> {
+                editingApp = null
+                onDetailOpenChanged(false)
+            }
             showAllAppsMode -> {
                 showAllAppsMode = false
                 activeFilter = PrivacyAppFilter.SPOOFED_ONLY
@@ -127,7 +135,10 @@ fun DeviceSpooferScreen(
         ConfigurePrivacyCategorizedScreen(
             appInfo = target,
             viewModel = viewModel,
-            onBack = { editingApp = null }
+            onBack = {
+                editingApp = null
+                onDetailOpenChanged(false)
+            }
         )
         return
     }
@@ -1003,13 +1014,11 @@ private fun SpoofedAppCard(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.weight(1f)
             ) {
-                val iconBitmap = remember(appInfo.packageName, appInfo.icon) {
-                    try {
-                        appInfo.icon?.toBitmap(96, 96)?.asImageBitmap()
-                    } catch (_: Throwable) {
-                        null
-                    }
-                }
+                val iconBitmap = com.example.isolation.ui.components.rememberAppIconBitmap(
+                    packageName = appInfo.packageName,
+                    drawable = appInfo.icon,
+                    sizePx = 96
+                )
                 if (iconBitmap != null) {
                     Image(
                         bitmap = iconBitmap,
