@@ -163,7 +163,18 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 hideRootAndXposed = cfg?.hideRootAndXposed ?: true,
                 hideAdbAndDevOptions = cfg?.hideAdbAndDevOptions ?: true,
                 hideVpnAndProxy = cfg?.hideVpnAndProxy ?: true,
-                blockClipboardRead = cfg?.blockClipboardRead ?: false
+                blockClipboardRead = cfg?.blockClipboardRead ?: false,
+                spoofLocationEnabled = cfg?.spoofLocationEnabled ?: false,
+                spoofLatitude = cfg?.spoofLatitude ?: 37.7749,
+                spoofLongitude = cfg?.spoofLongitude ?: -122.4194,
+                hideMockLocation = cfg?.hideMockLocation ?: true,
+                preventScreenshots = cfg?.preventScreenshots ?: false,
+                hideOtherApps = cfg?.hideOtherApps ?: false,
+                disableLogcatLogging = cfg?.disableLogcatLogging ?: false,
+                fakeBatteryEnabled = cfg?.fakeBatteryEnabled ?: false,
+                fakeBatteryLevel = cfg?.fakeBatteryLevel ?: 85,
+                knoxWarrantyBitSpoof = cfg?.knoxWarrantyBitSpoof ?: true,
+                disableAllNetworking = cfg?.disableAllNetworking ?: false
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -498,7 +509,18 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
         hideRootAndXposed: Boolean,
         hideAdbAndDevOptions: Boolean,
         hideVpnAndProxy: Boolean,
-        blockClipboardRead: Boolean
+        blockClipboardRead: Boolean,
+        spoofLocationEnabled: Boolean = appInfo.spoofLocationEnabled,
+        spoofLatitude: Double = appInfo.spoofLatitude,
+        spoofLongitude: Double = appInfo.spoofLongitude,
+        hideMockLocation: Boolean = appInfo.hideMockLocation,
+        preventScreenshots: Boolean = appInfo.preventScreenshots,
+        hideOtherApps: Boolean = appInfo.hideOtherApps,
+        disableLogcatLogging: Boolean = appInfo.disableLogcatLogging,
+        fakeBatteryEnabled: Boolean = appInfo.fakeBatteryEnabled,
+        fakeBatteryLevel: Int = appInfo.fakeBatteryLevel,
+        knoxWarrantyBitSpoof: Boolean = appInfo.knoxWarrantyBitSpoof,
+        disableAllNetworking: Boolean = appInfo.disableAllNetworking
     ) {
         viewModelScope.launch {
             val existing = dao.getConfigForPackage(appInfo.packageName)
@@ -529,7 +551,18 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 hideRootAndXposed = hideRootAndXposed,
                 hideAdbAndDevOptions = hideAdbAndDevOptions,
                 hideVpnAndProxy = hideVpnAndProxy,
-                blockClipboardRead = blockClipboardRead
+                blockClipboardRead = blockClipboardRead,
+                spoofLocationEnabled = spoofLocationEnabled,
+                spoofLatitude = spoofLatitude,
+                spoofLongitude = spoofLongitude,
+                hideMockLocation = hideMockLocation,
+                preventScreenshots = preventScreenshots,
+                hideOtherApps = hideOtherApps,
+                disableLogcatLogging = disableLogcatLogging,
+                fakeBatteryEnabled = fakeBatteryEnabled,
+                fakeBatteryLevel = fakeBatteryLevel,
+                knoxWarrantyBitSpoof = knoxWarrantyBitSpoof,
+                disableAllNetworking = disableAllNetworking
             ) ?: AppIsolationConfig(
                 packageName = appInfo.packageName,
                 appName = appInfo.appName,
@@ -549,7 +582,18 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 hideRootAndXposed = hideRootAndXposed,
                 hideAdbAndDevOptions = hideAdbAndDevOptions,
                 hideVpnAndProxy = hideVpnAndProxy,
-                blockClipboardRead = blockClipboardRead
+                blockClipboardRead = blockClipboardRead,
+                spoofLocationEnabled = spoofLocationEnabled,
+                spoofLatitude = spoofLatitude,
+                spoofLongitude = spoofLongitude,
+                hideMockLocation = hideMockLocation,
+                preventScreenshots = preventScreenshots,
+                hideOtherApps = hideOtherApps,
+                disableLogcatLogging = disableLogcatLogging,
+                fakeBatteryEnabled = fakeBatteryEnabled,
+                fakeBatteryLevel = fakeBatteryLevel,
+                knoxWarrantyBitSpoof = knoxWarrantyBitSpoof,
+                disableAllNetworking = disableAllNetworking
             )
 
             dao.insertOrUpdateConfig(updated)
@@ -572,8 +616,8 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 appendTerminalLog("Spoofed device identity for ${appInfo.appName} -> $resolvedBrand $resolvedModel (AID=$resolvedAndroidId)")
                 _statusMessage.value = "Device identity spoofed for ${appInfo.appName} ($resolvedModel)."
             } else {
-                appendTerminalLog("Restored real device identity for ${appInfo.appName}")
-                _statusMessage.value = "Real device identity restored for ${appInfo.appName}."
+                appendTerminalLog("Updated privacy settings for ${appInfo.appName}")
+                _statusMessage.value = "Privacy settings updated for ${appInfo.appName}."
             }
         }
     }
@@ -596,7 +640,18 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             hideRootAndXposed = appInfo.hideRootAndXposed,
             hideAdbAndDevOptions = appInfo.hideAdbAndDevOptions,
             hideVpnAndProxy = appInfo.hideVpnAndProxy,
-            blockClipboardRead = appInfo.blockClipboardRead
+            blockClipboardRead = appInfo.blockClipboardRead,
+            spoofLocationEnabled = false,
+            spoofLatitude = appInfo.spoofLatitude,
+            spoofLongitude = appInfo.spoofLongitude,
+            hideMockLocation = appInfo.hideMockLocation,
+            preventScreenshots = false,
+            hideOtherApps = false,
+            disableLogcatLogging = false,
+            fakeBatteryEnabled = false,
+            fakeBatteryLevel = appInfo.fakeBatteryLevel,
+            knoxWarrantyBitSpoof = false,
+            disableAllNetworking = false
         )
     }
 

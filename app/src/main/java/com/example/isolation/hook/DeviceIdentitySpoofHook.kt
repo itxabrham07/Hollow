@@ -1,18 +1,27 @@
 package com.example.isolation.hook
 
+import android.app.Activity
 import android.app.AndroidAppHelper
 import android.bluetooth.BluetoothAdapter
 import android.content.ClipboardManager
 import android.content.ContentResolver
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
+import android.content.pm.ResolveInfo
 import android.database.MatrixCursor
+import android.location.Location
+import android.location.LocationManager
 import android.media.MediaDrm
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.net.wifi.WifiInfo
+import android.os.BatteryManager
 import android.os.Build
 import android.provider.Settings
 import android.telephony.TelephonyManager
+import android.util.Log
+import android.view.WindowManager
 import com.example.isolation.model.IsolationRuleManager
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XSharedPreferences
@@ -20,7 +29,9 @@ import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 import java.io.File
+import java.net.ConnectException
 import java.net.NetworkInterface
+import java.net.Socket
 import java.security.MessageDigest
 import java.util.Collections
 import java.util.Enumeration
@@ -33,7 +44,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Spoofs hardware identifiers (Android ID, IMEI/MEID, IMSI, ICCID, Advertising ID, GSF ID,
  * Widevine MediaDrm Unique ID, Wi-Fi/BT MAC, Build/SystemProperties, Carrier) and provides
  * Privacy Shields (Root/Magisk/KSU/LSPosed hiding, ADB/Dev Options hiding, VPN/Proxy hiding,
- * and Clipboard read protection).
+ * Clipboard protection, Screenshot prevention, Package visibility guard, Location mocking,
+ * Logcat silencing, Fake Battery, Knox warranty bit, and Network Kill Switch).
  */
 object DeviceIdentitySpoofHook {
 
@@ -113,6 +125,8 @@ object DeviceIdentitySpoofHook {
         attachNetworkAndMacHooks(lpparam, currentPkg, xSharedPrefs)
         attachDrmGsfAndAdIdHooks(lpparam, currentPkg, xSharedPrefs)
         attachPrivacyShieldHooks(lpparam, currentPkg, xSharedPrefs)
+        attachLocationMockHooks(lpparam, currentPkg, xSharedPrefs)
+        attachAppClonerPrivacyHooks(lpparam, currentPkg, xSharedPrefs)
     }
 
     private fun obtainXPrefs(passed: XSharedPreferences?): XSharedPreferences? {
@@ -232,15 +246,17 @@ object DeviceIdentitySpoofHook {
     private fun applyBuildStaticFieldsOnce(rule: IsolationRuleManager.IdentitySpoofRule) {
         if (!buildFieldsApplied.compareAndSet(false, true)) return
         try {
-            XposedHelpers.setStaticObjectField(Build::class.java, "BRAND", rule.brand)
-            XposedHelpers.setStaticObjectField(Build::class.java, "MANUFACTURER", rule.manufacturer)
-            XposedHelpers.setStaticObjectField(Build::class.java, "MODEL", rule.model)
-            XposedHelpers.setStaticObjectField(Build::class.java, "DEVICE", rule.device)
-            XposedHelpers.setStaticObjectField(Build::class.java, "PRODUCT", rule.product)
-            XposedHelpers.setStaticObjectField(Build::class.java, "BOARD", rule.board)
-            XposedHelpers.setStaticObjectField(Build::class.java, "HARDWARE", rule.board)
-            XposedHelpers.setStaticObjectField(Build::class.java, "FINGERPRINT", rule.fingerprint)
-            XposedHelpers.setStaticObjectField(Build::class.java, "SERIAL", rule.serial)
+            if (rule.isIdentitySpoofed) {
+                XposedHelpers.setStaticObjectField(Build::class.java, "BRAND", rule.brand)
+                XposedHelpers.setStaticObjectField(Build::class.java, "MANUFACTURER", rule.manufacturer)
+                XposedHelpers.setStaticObjectField(Build::class.java, "MODEL", rule.model)
+                XposedHelpers.setStaticObjectField(Build::class.java, "DEVICE", rule.device)
+                XposedHelpers.setStaticObjectField(Build::class.java, "PRODUCT", rule.product)
+                XposedHelpers.setStaticObjectField(Build::class.java, "BOARD", rule.board)
+                XposedHelpers.setStaticObjectField(Build::class.java, "HARDWARE", rule.board)
+                XposedHelpers.setStaticObjectField(Build::class.java, "FINGERPRINT", rule.fingerprint)
+                XposedHelpers.setStaticObjectField(Build::class.java, "SERIAL", rule.serial)
+            }
             if (rule.hideRootAndXposed) {
                 XposedHelpers.setStaticObjectField(Build::class.java, "TAGS", "release-keys")
                 XposedHelpers.setStaticObjectField(Build::class.java, "TYPE", "user")
@@ -265,21 +281,23 @@ object DeviceIdentitySpoofHook {
                         override fun beforeHookedMethod(param: MethodHookParam) {
                             val key = param.args.firstOrNull() as? String ?: return
                             val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                            val isIdentityOn = rule.isIdentitySpoofed
                             val spoofed: String? = when (key) {
-                                "ro.product.brand", "ro.product.system.brand", "ro.product.vendor.brand" -> rule.brand
-                                "ro.product.manufacturer", "ro.product.system.manufacturer", "ro.product.vendor.manufacturer" -> rule.manufacturer
-                                "ro.product.model", "ro.product.system.model", "ro.product.vendor.model" -> rule.model
-                                "ro.product.device", "ro.product.system.device", "ro.product.vendor.device", "ro.build.product" -> rule.device
-                                "ro.product.name", "ro.product.system.name", "ro.product.vendor.name" -> rule.product
-                                "ro.product.board", "ro.hardware" -> rule.board
-                                "ro.build.fingerprint", "ro.system.build.fingerprint", "ro.vendor.build.fingerprint", "ro.bootimage.build.fingerprint" -> rule.fingerprint
-                                "ro.serialno", "ro.boot.serialno" -> rule.serial
-                                "gsm.sim.operator.alpha", "gsm.operator.alpha" -> rule.carrierName
-                                "gsm.sim.operator.numeric", "gsm.operator.numeric" -> rule.simOperator
+                                "ro.product.brand", "ro.product.system.brand", "ro.product.vendor.brand" -> if (isIdentityOn) rule.brand else null
+                                "ro.product.manufacturer", "ro.product.system.manufacturer", "ro.product.vendor.manufacturer" -> if (isIdentityOn) rule.manufacturer else null
+                                "ro.product.model", "ro.product.system.model", "ro.product.vendor.model" -> if (isIdentityOn) rule.model else null
+                                "ro.product.device", "ro.product.system.device", "ro.product.vendor.device", "ro.build.product" -> if (isIdentityOn) rule.device else null
+                                "ro.product.name", "ro.product.system.name", "ro.product.vendor.name" -> if (isIdentityOn) rule.product else null
+                                "ro.product.board", "ro.hardware" -> if (isIdentityOn) rule.board else null
+                                "ro.build.fingerprint", "ro.system.build.fingerprint", "ro.vendor.build.fingerprint", "ro.bootimage.build.fingerprint" -> if (isIdentityOn) rule.fingerprint else null
+                                "ro.serialno", "ro.boot.serialno" -> if (isIdentityOn) rule.serial else null
+                                "gsm.sim.operator.alpha", "gsm.operator.alpha" -> if (isIdentityOn) rule.carrierName else null
+                                "gsm.sim.operator.numeric", "gsm.operator.numeric" -> if (isIdentityOn) rule.simOperator else null
+                                "ro.boot.warranty_bit", "ro.warranty_bit" -> if (rule.knoxWarrantyBitSpoof) "0" else null
                                 "ro.build.tags" -> if (rule.hideRootAndXposed) "release-keys" else null
                                 "ro.build.type" -> if (rule.hideRootAndXposed) "user" else null
                                 "ro.debuggable" -> if (rule.hideRootAndXposed) "0" else null
-                                "ro.secure" -> if (rule.hideRootAndXposed) "1" else null
+                                "ro.secure" -> if (rule.hideRootAndXposed || rule.knoxWarrantyBitSpoof) "1" else null
                                 "ro.boot.vbmeta.device_state" -> if (rule.hideRootAndXposed) "locked" else null
                                 "ro.boot.verifiedbootstate" -> if (rule.hideRootAndXposed) "green" else null
                                 "ro.boot.flash.locked" -> if (rule.hideRootAndXposed) "1" else null
@@ -301,20 +319,22 @@ object DeviceIdentitySpoofHook {
                 val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
                 when (name) {
                     Settings.Secure.ANDROID_ID, "android_id" -> {
-                        if (rule.androidId.isNotBlank()) param.result = rule.androidId
+                        if (rule.isIdentitySpoofed && rule.androidId.isNotBlank()) param.result = rule.androidId
                     }
                     "advertising_id", "aaid" -> {
-                        if (rule.advertisingId.isNotBlank()) param.result = rule.advertisingId
+                        if (rule.isIdentitySpoofed && rule.advertisingId.isNotBlank()) param.result = rule.advertisingId
                     }
-                    "limit_ad_tracking" -> param.result = "1"
+                    "limit_ad_tracking" -> if (rule.isIdentitySpoofed) param.result = "1"
                     "bluetooth_name", "device_name" -> {
-                        if (rule.model.isNotBlank()) param.result = rule.model
+                        if (rule.isIdentitySpoofed && rule.model.isNotBlank()) param.result = rule.model
                     }
                     Settings.Global.ADB_ENABLED,
                     Settings.Global.DEVELOPMENT_SETTINGS_ENABLED,
-                    "adb_wifi_enabled",
-                    "mock_location" -> {
+                    "adb_wifi_enabled" -> {
                         if (rule.hideAdbAndDevOptions) param.result = "0"
+                    }
+                    "mock_location" -> {
+                        if (rule.hideMockLocation || rule.hideAdbAndDevOptions) param.result = "0"
                     }
                 }
             }
@@ -328,9 +348,11 @@ object DeviceIdentitySpoofHook {
                     when (name) {
                         Settings.Global.ADB_ENABLED,
                         Settings.Global.DEVELOPMENT_SETTINGS_ENABLED,
-                        "adb_wifi_enabled",
-                        "mock_location" -> param.result = 0
+                        "adb_wifi_enabled" -> param.result = 0
                     }
+                }
+                if (rule.hideMockLocation || rule.hideAdbAndDevOptions) {
+                    if (name == "mock_location") param.result = 0
                 }
             }
         }
@@ -363,7 +385,7 @@ object DeviceIdentitySpoofHook {
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
-                        if (rule.serial.isNotBlank()) param.result = rule.serial
+                        if (rule.isIdentitySpoofed && rule.serial.isNotBlank()) param.result = rule.serial
                     }
                 }
             )
@@ -374,7 +396,7 @@ object DeviceIdentitySpoofHook {
         val imeiHook = object : XC_MethodHook() {
             override fun beforeHookedMethod(param: MethodHookParam) {
                 val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
-                if (rule.imei.isNotBlank()) param.result = rule.imei
+                if (rule.isIdentitySpoofed && rule.imei.isNotBlank()) param.result = rule.imei
             }
         }
         for (m in listOf("getDeviceId", "getImei", "getMeid")) {
@@ -391,6 +413,7 @@ object DeviceIdentitySpoofHook {
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                        if (!rule.isIdentitySpoofed) return
                         val prefix = rule.simOperator.ifBlank { "310260" }.take(6)
                         val suffix = rule.imei.takeLast(15 - prefix.length).padEnd(15 - prefix.length, '4')
                         param.result = prefix + suffix
@@ -407,6 +430,7 @@ object DeviceIdentitySpoofHook {
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                        if (!rule.isIdentitySpoofed) return
                         val op = rule.simOperator.ifBlank { "310260" }.take(6)
                         val tail = rule.imei.takeLast(11).padEnd(11, '7')
                         param.result = "89$op$tail"
@@ -423,7 +447,8 @@ object DeviceIdentitySpoofHook {
                     m,
                     object : XC_MethodHook() {
                         override fun beforeHookedMethod(param: MethodHookParam) {
-                            if (getRuleForPackage(currentPkg, xSharedPrefs) != null) {
+                            val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                            if (rule.isIdentitySpoofed) {
                                 param.result = ""
                             }
                         }
@@ -441,7 +466,7 @@ object DeviceIdentitySpoofHook {
                     object : XC_MethodHook() {
                         override fun beforeHookedMethod(param: MethodHookParam) {
                             val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
-                            if (rule.carrierName.isNotBlank()) param.result = rule.carrierName
+                            if (rule.isIdentitySpoofed && rule.carrierName.isNotBlank()) param.result = rule.carrierName
                         }
                     }
                 )
@@ -455,7 +480,7 @@ object DeviceIdentitySpoofHook {
                     object : XC_MethodHook() {
                         override fun beforeHookedMethod(param: MethodHookParam) {
                             val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
-                            if (rule.simOperator.isNotBlank()) param.result = rule.simOperator
+                            if (rule.isIdentitySpoofed && rule.simOperator.isNotBlank()) param.result = rule.simOperator
                         }
                     }
                 )
@@ -477,7 +502,7 @@ object DeviceIdentitySpoofHook {
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
-                        if (rule.macAddress.isNotBlank()) param.result = rule.macAddress
+                        if (rule.isIdentitySpoofed && rule.macAddress.isNotBlank()) param.result = rule.macAddress
                     }
                 }
             )
@@ -487,7 +512,9 @@ object DeviceIdentitySpoofHook {
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
-                        param.result = "\"${rule.brand.replaceFirstChar { it.uppercase() }}-5G\""
+                        if (rule.isIdentitySpoofed) {
+                            param.result = "\"${rule.brand.replaceFirstChar { it.uppercase() }}-5G\""
+                        }
                     }
                 }
             )
@@ -497,7 +524,7 @@ object DeviceIdentitySpoofHook {
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
-                        if (rule.macAddress.isNotBlank()) {
+                        if (rule.isIdentitySpoofed && rule.macAddress.isNotBlank()) {
                             param.result = rule.macAddress.dropLast(2) + "01"
                         }
                     }
@@ -513,7 +540,7 @@ object DeviceIdentitySpoofHook {
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
-                        if (rule.macAddress.isNotBlank()) param.result = rule.macAddress
+                        if (rule.isIdentitySpoofed && rule.macAddress.isNotBlank()) param.result = rule.macAddress
                     }
                 }
             )
@@ -527,7 +554,7 @@ object DeviceIdentitySpoofHook {
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
-                        if (rule.macAddress.isNotBlank()) {
+                        if (rule.isIdentitySpoofed && rule.macAddress.isNotBlank()) {
                             val parts = rule.macAddress.split(":")
                             if (parts.size == 6) {
                                 param.result = ByteArray(6) { idx ->
@@ -556,6 +583,7 @@ object DeviceIdentitySpoofHook {
                         val prop = param.args.firstOrNull() as? String ?: return
                         if (prop == MediaDrm.PROPERTY_DEVICE_UNIQUE_ID || prop == "deviceUniqueId") {
                             val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                            if (!rule.isIdentitySpoofed) return
                             val seed = "${rule.androidId}:${rule.imei}:${rule.serial}"
                             val digest = MessageDigest.getInstance("SHA-256").digest(seed.toByteArray())
                             param.result = digest
@@ -575,6 +603,7 @@ object DeviceIdentitySpoofHook {
                         val uri = param.args.firstOrNull() as? Uri ?: return
                         if (uri.authority == "com.google.android.gsf.gservices") {
                             val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                            if (!rule.isIdentitySpoofed) return
                             val fakeDecId = (rule.androidId.take(15).toLongOrNull(16) ?: 3891204918204192L).toString()
                             val cursor = MatrixCursor(arrayOf("key", "value"), 1)
                             cursor.addRow(arrayOf<Any>("android_id", fakeDecId))
@@ -598,7 +627,7 @@ object DeviceIdentitySpoofHook {
                     object : XC_MethodHook() {
                         override fun beforeHookedMethod(param: MethodHookParam) {
                             val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
-                            if (rule.advertisingId.isNotBlank()) param.result = rule.advertisingId
+                            if (rule.isIdentitySpoofed && rule.advertisingId.isNotBlank()) param.result = rule.advertisingId
                         }
                     }
                 )
@@ -607,7 +636,8 @@ object DeviceIdentitySpoofHook {
                     "isLimitAdTrackingEnabled",
                     object : XC_MethodHook() {
                         override fun beforeHookedMethod(param: MethodHookParam) {
-                            if (getRuleForPackage(currentPkg, xSharedPrefs) != null) {
+                            val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                            if (rule.isIdentitySpoofed) {
                                 param.result = true
                             }
                         }
@@ -731,6 +761,240 @@ object DeviceIdentitySpoofHook {
                         val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
                         if (rule.blockClipboardRead) {
                             param.result = false
+                        }
+                    }
+                }
+            )
+        } catch (_: Throwable) {}
+    }
+
+    @Suppress("UNUSED_PARAMETER")
+    private fun attachLocationMockHooks(
+        lpparam: XC_LoadPackage.LoadPackageParam,
+        currentPkg: String,
+        xSharedPrefs: XSharedPreferences?
+    ) {
+        // 1. LocationManager.getLastKnownLocation & getCurrentLocation
+        try {
+            XposedBridge.hookAllMethods(
+                LocationManager::class.java,
+                "getLastKnownLocation",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                        if (!rule.spoofLocationEnabled) return
+                        val provider = param.args.firstOrNull() as? String ?: "gps"
+                        val loc = Location(provider).apply {
+                            latitude = rule.spoofLatitude
+                            longitude = rule.spoofLongitude
+                            altitude = 25.0
+                            accuracy = 3.5f
+                            time = System.currentTimeMillis()
+                            elapsedRealtimeNanos = android.os.SystemClock.elapsedRealtimeNanos()
+                            if (rule.hideMockLocation) {
+                                try {
+                                    XposedHelpers.callMethod(this, "setIsFromMockProvider", false)
+                                } catch (_: Throwable) {}
+                            }
+                        }
+                        param.result = loc
+                    }
+                }
+            )
+        } catch (_: Throwable) {}
+
+        // 2. Location getters (getLatitude, getLongitude, isFromMockProvider, isMock)
+        try {
+            XposedBridge.hookAllMethods(
+                Location::class.java,
+                "getLatitude",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                        if (rule.spoofLocationEnabled) {
+                            param.result = rule.spoofLatitude
+                        }
+                    }
+                }
+            )
+            XposedBridge.hookAllMethods(
+                Location::class.java,
+                "getLongitude",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                        if (rule.spoofLocationEnabled) {
+                            param.result = rule.spoofLongitude
+                        }
+                    }
+                }
+            )
+            XposedBridge.hookAllMethods(
+                Location::class.java,
+                "isFromMockProvider",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                        if (rule.hideMockLocation) {
+                            param.result = false
+                        }
+                    }
+                }
+            )
+            val isMockMethod = XposedHelpers.findMethodExactIfExists(Location::class.java, "isMock")
+            if (isMockMethod != null) {
+                XposedBridge.hookMethod(
+                    isMockMethod,
+                    object : XC_MethodHook() {
+                        override fun beforeHookedMethod(param: MethodHookParam) {
+                            val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                            if (rule.hideMockLocation) {
+                                param.result = false
+                            }
+                        }
+                    }
+                )
+            }
+        } catch (_: Throwable) {}
+    }
+
+    @Suppress("UNUSED_PARAMETER")
+    private fun attachAppClonerPrivacyHooks(
+        lpparam: XC_LoadPackage.LoadPackageParam,
+        currentPkg: String,
+        xSharedPrefs: XSharedPreferences?
+    ) {
+        // 1. Screenshot Prevention (FLAG_SECURE)
+        try {
+            XposedBridge.hookAllMethods(
+                Activity::class.java,
+                "onCreate",
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                        if (rule.preventScreenshots) {
+                            val act = param.thisObject as? Activity ?: return
+                            try {
+                                act.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                            } catch (_: Throwable) {}
+                        }
+                    }
+                }
+            )
+            XposedBridge.hookAllMethods(
+                Activity::class.java,
+                "onResume",
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                        if (rule.preventScreenshots) {
+                            val act = param.thisObject as? Activity ?: return
+                            try {
+                                act.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                            } catch (_: Throwable) {}
+                        }
+                    }
+                }
+            )
+        } catch (_: Throwable) {}
+
+        // 2. Package Visibility Guard (Hide Other Installed Apps)
+        try {
+            val appPmCls = XposedHelpers.findClassIfExists(
+                "android.app.ApplicationPackageManager",
+                lpparam.classLoader
+            )
+            if (appPmCls != null) {
+                XposedBridge.hookAllMethods(
+                    appPmCls,
+                    "getInstalledPackages",
+                    object : XC_MethodHook() {
+                        override fun afterHookedMethod(param: MethodHookParam) {
+                            val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                            if (!rule.hideOtherApps) return
+                            val origList = param.result as? List<*> ?: return
+                            val filtered = origList.filterIsInstance<PackageInfo>().filter { pi ->
+                                val pn = pi.packageName
+                                pn == currentPkg ||
+                                    pn.startsWith("android") ||
+                                    pn.startsWith("com.android.") ||
+                                    pn.startsWith("com.google.android.gms") ||
+                                    pn.startsWith("com.google.android.gsf")
+                            }
+                            param.result = filtered
+                        }
+                    }
+                )
+                XposedBridge.hookAllMethods(
+                    appPmCls,
+                    "getInstalledApplications",
+                    object : XC_MethodHook() {
+                        override fun afterHookedMethod(param: MethodHookParam) {
+                            val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                            if (!rule.hideOtherApps) return
+                            val origList = param.result as? List<*> ?: return
+                            val filtered = origList.filterIsInstance<ApplicationInfo>().filter { ai ->
+                                val pn = ai.packageName
+                                pn == currentPkg ||
+                                    pn.startsWith("android") ||
+                                    pn.startsWith("com.android.") ||
+                                    pn.startsWith("com.google.android.gms") ||
+                                    pn.startsWith("com.google.android.gsf")
+                            }
+                            param.result = filtered
+                        }
+                    }
+                )
+            }
+        } catch (_: Throwable) {}
+
+        // 3. Disable Logcat Logging (Silence android.util.Log)
+        try {
+            val logHook = object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                    if (rule.disableLogcatLogging) {
+                        param.result = 0
+                    }
+                }
+            }
+            for (m in listOf("v", "d", "i", "w", "e", "println")) {
+                try {
+                    XposedBridge.hookAllMethods(Log::class.java, m, logHook)
+                } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) {}
+
+        // 4. Fake Battery Level & Charging State
+        try {
+            XposedBridge.hookAllMethods(
+                BatteryManager::class.java,
+                "getIntProperty",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                        if (!rule.fakeBatteryEnabled) return
+                        val id = param.args.firstOrNull() as? Int ?: return
+                        when (id) {
+                            BatteryManager.BATTERY_PROPERTY_CAPACITY -> param.result = rule.fakeBatteryLevel
+                            BatteryManager.BATTERY_PROPERTY_STATUS -> param.result = BatteryManager.BATTERY_STATUS_CHARGING
+                            BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER -> param.result = 3500000
+                        }
+                    }
+                }
+            )
+        } catch (_: Throwable) {}
+
+        // 5. Network Kill Switch (Block All Internet Access)
+        try {
+            XposedBridge.hookAllMethods(
+                Socket::class.java,
+                "connect",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                        if (rule.disableAllNetworking) {
+                            throw ConnectException("IsoVault Privacy Shield: All networking blocked for $currentPkg")
                         }
                     }
                 }

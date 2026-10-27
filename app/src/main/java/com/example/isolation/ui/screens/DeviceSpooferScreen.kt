@@ -114,10 +114,14 @@ fun DeviceSpooferScreen(
         ConfigureDeviceIdentityFullScreen(
             appInfo = target,
             onBack = { editingApp = null },
-            onSave = { preset, brand, model, device, androidId, imei, adId, mac, carrier, simOp, serial, hideRoot, hideAdb, hideVpn, blockClip ->
+            onSave = { isIdentityOn, preset, brand, model, device, androidId, imei, adId, mac, carrier, simOp, serial,
+                       hideRoot, hideAdb, hideVpn, blockClip,
+                       spoofLoc, lat, lng, hideMock,
+                       noScreenshots, hideApps, noLogcat,
+                       fakeBat, batLevel, knoxSpoof, noNet ->
                 viewModel.saveAppIdentitySpoofConfig(
                     appInfo = target,
-                    enabled = true,
+                    enabled = isIdentityOn,
                     preset = preset,
                     brand = brand,
                     model = model,
@@ -132,7 +136,18 @@ fun DeviceSpooferScreen(
                     hideRootAndXposed = hideRoot,
                     hideAdbAndDevOptions = hideAdb,
                     hideVpnAndProxy = hideVpn,
-                    blockClipboardRead = blockClip
+                    blockClipboardRead = blockClip,
+                    spoofLocationEnabled = spoofLoc,
+                    spoofLatitude = lat,
+                    spoofLongitude = lng,
+                    hideMockLocation = hideMock,
+                    preventScreenshots = noScreenshots,
+                    hideOtherApps = hideApps,
+                    disableLogcatLogging = noLogcat,
+                    fakeBatteryEnabled = fakeBat,
+                    fakeBatteryLevel = batLevel,
+                    knoxWarrantyBitSpoof = knoxSpoof,
+                    disableAllNetworking = noNet
                 )
                 editingApp = null
             },
@@ -145,13 +160,18 @@ fun DeviceSpooferScreen(
     }
 
     val spoofedAppsCount = remember(allApps) {
-        allApps.count { it.isIdentitySpoofed }
+        allApps.count {
+            it.isIdentitySpoofed || it.spoofLocationEnabled || it.preventScreenshots ||
+                    it.hideOtherApps || it.disableLogcatLogging || it.fakeBatteryEnabled || it.disableAllNetworking
+        }
     }
 
     val displayedApps = remember(allApps, searchQuery, showAllAppsMode, activeFilter) {
         allApps.filter { app ->
+            val hasShields = app.isIdentitySpoofed || app.spoofLocationEnabled || app.preventScreenshots ||
+                    app.hideOtherApps || app.disableLogcatLogging || app.fakeBatteryEnabled || app.disableAllNetworking
             val matchesFilter = when (activeFilter) {
-                PrivacyAppFilter.SPOOFED_ONLY -> app.isIdentitySpoofed
+                PrivacyAppFilter.SPOOFED_ONLY -> hasShields
                 PrivacyAppFilter.USER_APPS -> !app.isSystemApp
                 PrivacyAppFilter.SYSTEM_APPS -> app.isSystemApp
                 PrivacyAppFilter.ALL -> true
@@ -518,17 +538,25 @@ private fun SpoofedAppCard(
 ) {
     val scheme = MaterialTheme.colorScheme
     val isSpoofed = appInfo.isIdentitySpoofed
+    val hasActiveShields = isSpoofed ||
+            appInfo.spoofLocationEnabled ||
+            appInfo.preventScreenshots ||
+            appInfo.hideOtherApps ||
+            appInfo.disableLogcatLogging ||
+            appInfo.fakeBatteryEnabled ||
+            appInfo.disableAllNetworking
+
     val displayBrand = appInfo.spoofBrand.ifBlank { appInfo.deviceProfilePreset.brand }
     val displayModel = appInfo.spoofModel.ifBlank { appInfo.deviceProfilePreset.model }
 
     Card(
         colors = CardDefaults.cardColors(
-            containerColor = if (isSpoofed) scheme.primaryContainer.copy(alpha = 0.22f) else scheme.surface
+            containerColor = if (hasActiveShields) scheme.primaryContainer.copy(alpha = 0.22f) else scheme.surface
         ),
         shape = RoundedCornerShape(18.dp),
         border = BorderStroke(
             1.dp,
-            if (isSpoofed) scheme.primary.copy(alpha = 0.45f) else scheme.outlineVariant
+            if (hasActiveShields) scheme.primary.copy(alpha = 0.45f) else scheme.outlineVariant
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = Modifier
@@ -591,25 +619,39 @@ private fun SpoofedAppCard(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        if (isSpoofed) {
-                            Text(
-                                text = "$displayBrand $displayModel • Tap to customize",
-                                fontSize = 12.sp,
-                                color = scheme.primary,
-                                fontWeight = FontWeight.Medium,
-                                fontFamily = JakartaFontFamily,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        } else {
-                            Text(
-                                text = "Not spoofed • Tap to configure identity",
-                                fontSize = 12.sp,
-                                color = scheme.onSurfaceVariant,
-                                fontFamily = JakartaFontFamily,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                        when {
+                            isSpoofed -> {
+                                Text(
+                                    text = "$displayBrand $displayModel • Tap to customize",
+                                    fontSize = 12.sp,
+                                    color = scheme.primary,
+                                    fontWeight = FontWeight.Medium,
+                                    fontFamily = JakartaFontFamily,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            hasActiveShields -> {
+                                Text(
+                                    text = "Privacy Shields Active (Real Hardware ID) • Tap to edit",
+                                    fontSize = 12.sp,
+                                    color = scheme.primary,
+                                    fontWeight = FontWeight.Medium,
+                                    fontFamily = JakartaFontFamily,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            else -> {
+                                Text(
+                                    text = "Not spoofed • Tap to configure privacy & identity",
+                                    fontSize = 12.sp,
+                                    color = scheme.onSurfaceVariant,
+                                    fontFamily = JakartaFontFamily,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }
@@ -617,7 +659,7 @@ private fun SpoofedAppCard(
                 Spacer(modifier = Modifier.width(8.dp))
 
                 Switch(
-                    checked = isSpoofed,
+                    checked = hasActiveShields,
                     onCheckedChange = { onToggleSpoof(it) },
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = scheme.onPrimary,
@@ -627,7 +669,7 @@ private fun SpoofedAppCard(
                 )
             }
 
-            if (isSpoofed) {
+            if (hasActiveShields) {
                 Spacer(modifier = Modifier.height(10.dp))
 
                 Row(
@@ -636,15 +678,24 @@ private fun SpoofedAppCard(
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState())
                 ) {
-                    if (appInfo.spoofAndroidId.isNotBlank()) {
+                    if (isSpoofed && appInfo.spoofAndroidId.isNotBlank()) {
                         IdentityMetaChip("AID: ${appInfo.spoofAndroidId.take(8)}…")
                     }
-                    if (appInfo.spoofImei.isNotBlank()) {
+                    if (isSpoofed && appInfo.spoofImei.isNotBlank()) {
                         IdentityMetaChip("IMEI: ${appInfo.spoofImei.take(6)}…${appInfo.spoofImei.takeLast(3)}")
                     }
-                    if (appInfo.spoofMacAddress.isNotBlank()) {
+                    if (isSpoofed && appInfo.spoofMacAddress.isNotBlank()) {
                         IdentityMetaChip("MAC: ${appInfo.spoofMacAddress}")
                     }
+                    if (appInfo.spoofLocationEnabled) {
+                        IdentityMetaChip("GPS: ${"%.2f".format(appInfo.spoofLatitude)}, ${"%.2f".format(appInfo.spoofLongitude)}")
+                    }
+                    if (appInfo.preventScreenshots) IdentityMetaChip("No Screenshots")
+                    if (appInfo.hideOtherApps) IdentityMetaChip("Apps Hidden")
+                    if (appInfo.disableLogcatLogging) IdentityMetaChip("No Logcat")
+                    if (appInfo.fakeBatteryEnabled) IdentityMetaChip("Bat ${appInfo.fakeBatteryLevel}%")
+                    if (appInfo.knoxWarrantyBitSpoof) IdentityMetaChip("Knox 0x0")
+                    if (appInfo.disableAllNetworking) IdentityMetaChip("Net Blocked")
                     if (appInfo.hideRootAndXposed) IdentityMetaChip("Root/LSPosed Hidden")
                     if (appInfo.hideAdbAndDevOptions) IdentityMetaChip("ADB Hidden")
                     if (appInfo.hideVpnAndProxy) IdentityMetaChip("VPN Hidden")
@@ -660,7 +711,7 @@ private fun SpoofedAppCard(
                         modifier = Modifier.testTag("btn_restore_identity_${appInfo.packageName}")
                     ) {
                         Text(
-                            text = "Restore Real ID",
+                            text = "Reset All",
                             fontSize = 12.sp,
                             fontFamily = JakartaFontFamily
                         )
@@ -679,7 +730,7 @@ private fun SpoofedAppCard(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Configure Identity",
+                            text = "Configure Privacy",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = JakartaFontFamily
@@ -709,11 +760,23 @@ private fun IdentityMetaChip(label: String) {
     }
 }
 
+private data class CityLocationPreset(val name: String, val lat: Double, val lng: Double)
+
+private val FAVORITE_CITY_PRESETS = listOf(
+    CityLocationPreset("San Francisco", 37.7749, -122.4194),
+    CityLocationPreset("New York", 40.7128, -74.0060),
+    CityLocationPreset("London", 51.5074, -0.1278),
+    CityLocationPreset("Tokyo", 35.6762, 139.6503),
+    CityLocationPreset("Paris", 48.8566, 2.3522),
+    CityLocationPreset("Sydney", -33.8688, 151.2093)
+)
+
 @Composable
 private fun ConfigureDeviceIdentityFullScreen(
     appInfo: InstalledAppInfo,
     onBack: () -> Unit,
     onSave: (
+        isIdentityOn: Boolean,
         preset: DeviceProfilePreset,
         brand: String,
         model: String,
@@ -728,11 +791,41 @@ private fun ConfigureDeviceIdentityFullScreen(
         hideRoot: Boolean,
         hideAdb: Boolean,
         hideVpn: Boolean,
-        blockClip: Boolean
+        blockClip: Boolean,
+        spoofLoc: Boolean,
+        lat: Double,
+        lng: Double,
+        hideMock: Boolean,
+        noScreenshots: Boolean,
+        hideApps: Boolean,
+        noLogcat: Boolean,
+        fakeBat: Boolean,
+        batLevel: Int,
+        knoxSpoof: Boolean,
+        noNet: Boolean
     ) -> Unit,
     onDisable: () -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
+
+    // Master toggle for Hardware Identity Spoofing (User can choose to spoof identity OR keep real ID while using other privacy options)
+    var isIdentitySpoofed by remember {
+        mutableStateOf(
+            if (!appInfo.isIdentitySpoofed &&
+                !appInfo.spoofLocationEnabled &&
+                !appInfo.preventScreenshots &&
+                !appInfo.hideOtherApps &&
+                !appInfo.disableLogcatLogging &&
+                !appInfo.fakeBatteryEnabled &&
+                !appInfo.disableAllNetworking
+            ) {
+                true // Default to true when opening a fresh unconfigured app
+            } else {
+                appInfo.isIdentitySpoofed
+            }
+        )
+    }
+
     var preset by remember { mutableStateOf(appInfo.deviceProfilePreset) }
     var brand by remember { mutableStateOf(appInfo.spoofBrand.ifBlank { preset.brand }) }
     var model by remember { mutableStateOf(appInfo.spoofModel.ifBlank { preset.model }) }
@@ -745,10 +838,62 @@ private fun ConfigureDeviceIdentityFullScreen(
     var simOp by remember { mutableStateOf(appInfo.spoofSimOperator.ifBlank { "310260" }) }
     var serial by remember { mutableStateOf(appInfo.spoofSerial.ifBlank { IsolationRuleManager.generateSerial() }) }
 
+    // Security & Environment Shields
     var hideRoot by remember { mutableStateOf(appInfo.hideRootAndXposed) }
     var hideAdb by remember { mutableStateOf(appInfo.hideAdbAndDevOptions) }
     var hideVpn by remember { mutableStateOf(appInfo.hideVpnAndProxy) }
     var blockClip by remember { mutableStateOf(appInfo.blockClipboardRead) }
+
+    // Mock Location Options
+    var spoofLocationEnabled by remember { mutableStateOf(appInfo.spoofLocationEnabled) }
+    var latInput by remember { mutableStateOf(appInfo.spoofLatitude.toString()) }
+    var lngInput by remember { mutableStateOf(appInfo.spoofLongitude.toString()) }
+    var hideMockLocation by remember { mutableStateOf(appInfo.hideMockLocation) }
+
+    // Privacy & System Guards
+    var preventScreenshots by remember { mutableStateOf(appInfo.preventScreenshots) }
+    var hideOtherApps by remember { mutableStateOf(appInfo.hideOtherApps) }
+    var disableLogcatLogging by remember { mutableStateOf(appInfo.disableLogcatLogging) }
+    var fakeBatteryEnabled by remember { mutableStateOf(appInfo.fakeBatteryEnabled) }
+    var fakeBatteryLevel by remember { mutableStateOf(appInfo.fakeBatteryLevel) }
+    var knoxWarrantyBitSpoof by remember { mutableStateOf(appInfo.knoxWarrantyBitSpoof) }
+
+    // Network Kill Switch
+    var disableAllNetworking by remember { mutableStateOf(appInfo.disableAllNetworking) }
+
+    val triggerSave = {
+        val parsedLat = latInput.toDoubleOrNull()?.coerceIn(-90.0, 90.0) ?: 37.7749
+        val parsedLng = lngInput.toDoubleOrNull()?.coerceIn(-180.0, 180.0) ?: -122.4194
+        onSave(
+            isIdentitySpoofed,
+            preset,
+            brand,
+            model,
+            device,
+            androidId,
+            imei,
+            adId,
+            mac,
+            carrier,
+            simOp,
+            serial,
+            hideRoot,
+            hideAdb,
+            hideVpn,
+            blockClip,
+            spoofLocationEnabled,
+            parsedLat,
+            parsedLng,
+            hideMockLocation,
+            preventScreenshots,
+            hideOtherApps,
+            disableLogcatLogging,
+            fakeBatteryEnabled,
+            fakeBatteryLevel.coerceIn(1, 100),
+            knoxWarrantyBitSpoof,
+            disableAllNetworking
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -820,25 +965,7 @@ private fun ConfigureDeviceIdentityFullScreen(
             Spacer(modifier = Modifier.width(8.dp))
 
             Button(
-                onClick = {
-                    onSave(
-                        preset,
-                        brand,
-                        model,
-                        device,
-                        androidId,
-                        imei,
-                        adId,
-                        mac,
-                        carrier,
-                        simOp,
-                        serial,
-                        hideRoot,
-                        hideAdb,
-                        hideVpn,
-                        blockClip
-                    )
-                },
+                onClick = triggerSave,
                 shape = RoundedCornerShape(50),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 modifier = Modifier.testTag("btn_save_identity_spoof")
@@ -867,45 +994,199 @@ private fun ConfigureDeviceIdentityFullScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // 1-Tap Randomize All Card
-            FilledTonalButton(
-                onClick = {
-                    val presets = DeviceProfilePreset.entries.filter { it != DeviceProfilePreset.CUSTOM }
-                    val randomPreset = presets.random()
-                    preset = randomPreset
-                    brand = randomPreset.brand
-                    model = randomPreset.model
-                    device = randomPreset.device
-                    androidId = IsolationRuleManager.generateAndroidId()
-                    imei = IsolationRuleManager.generateLuhnImei()
-                    adId = IsolationRuleManager.generateAdvertisingId()
-                    mac = IsolationRuleManager.generateMacAddress()
-                    serial = IsolationRuleManager.generateSerial()
-                    val (cName, cCode) = IsolationRuleManager.generateRandomCarrier()
-                    carrier = cName
-                    simOp = cCode
-                },
-                shape = RoundedCornerShape(16.dp),
-                contentPadding = PaddingValues(vertical = 12.dp, horizontal = 16.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("btn_randomize_all_identity")
+            // =========================================================================
+            // SECTION 1: HARDWARE IDENTITY SPOOFING (Optional Master Toggle)
+            // =========================================================================
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isIdentitySpoofed) scheme.primaryContainer.copy(alpha = 0.16f) else scheme.surface
+                ),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(
+                    1.dp,
+                    if (isIdentitySpoofed) scheme.primary.copy(alpha = 0.45f) else scheme.outlineVariant
+                ),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Icon(
-                    imageVector = Icons.Default.Casino,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "1-Tap Randomize Full Device Identity",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    fontFamily = JakartaFontFamily
-                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    PrivacyShieldToggleRow(
+                        title = "Spoof Hardware Device Identity",
+                        subtitle = if (isIdentitySpoofed) {
+                            "Active: Spoofing Model, Android ID, IMEI, DRM, MAC & Serial"
+                        } else {
+                            "Disabled: App sees your real phone model & hardware IDs"
+                        },
+                        checked = isIdentitySpoofed,
+                        onCheckedChange = { isIdentitySpoofed = it }
+                    )
+
+                    if (isIdentitySpoofed) {
+                        HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+
+                        FilledTonalButton(
+                            onClick = {
+                                val presets = DeviceProfilePreset.entries.filter { it != DeviceProfilePreset.CUSTOM }
+                                val randomPreset = presets.random()
+                                preset = randomPreset
+                                brand = randomPreset.brand
+                                model = randomPreset.model
+                                device = randomPreset.device
+                                androidId = IsolationRuleManager.generateAndroidId()
+                                imei = IsolationRuleManager.generateLuhnImei()
+                                adId = IsolationRuleManager.generateAdvertisingId()
+                                mac = IsolationRuleManager.generateMacAddress()
+                                serial = IsolationRuleManager.generateSerial()
+                                val (cName, cCode) = IsolationRuleManager.generateRandomCarrier()
+                                carrier = cName
+                                simOp = cCode
+                            },
+                            shape = RoundedCornerShape(14.dp),
+                            contentPadding = PaddingValues(vertical = 10.dp, horizontal = 14.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("btn_randomize_all_identity")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Casino,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "1-Tap Randomize Full Device Identity",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                fontFamily = JakartaFontFamily
+                            )
+                        }
+
+                        Text(
+                            text = "Device Model Preset",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = scheme.onSurface,
+                            fontFamily = JakartaFontFamily
+                        )
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                        ) {
+                            DeviceProfilePreset.entries.forEach { item ->
+                                FilterChip(
+                                    selected = preset == item,
+                                    onClick = {
+                                        preset = item
+                                        if (item != DeviceProfilePreset.CUSTOM) {
+                                            brand = item.brand
+                                            model = item.model
+                                            device = item.device
+                                        }
+                                    },
+                                    label = {
+                                        Text(
+                                            text = item.label,
+                                            fontSize = 12.sp,
+                                            fontFamily = JakartaFontFamily
+                                        )
+                                    },
+                                    shape = RoundedCornerShape(50)
+                                )
+                            }
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = brand,
+                                onValueChange = {
+                                    brand = it
+                                    preset = DeviceProfilePreset.CUSTOM
+                                },
+                                label = { Text("Brand", fontSize = 11.sp) },
+                                singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedTextField(
+                                value = model,
+                                onValueChange = {
+                                    model = it
+                                    preset = DeviceProfilePreset.CUSTOM
+                                },
+                                label = { Text("Model", fontSize = 11.sp) },
+                                singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.weight(1.3f)
+                            )
+                        }
+
+                        IdentifierFieldWithRandomize(
+                            label = "Android ID (16-hex) & Widevine DRM Seed",
+                            value = androidId,
+                            onValueChange = { androidId = it },
+                            onRandomize = { androidId = IsolationRuleManager.generateAndroidId() }
+                        )
+
+                        IdentifierFieldWithRandomize(
+                            label = "IMEI / MEID (15-digit Luhn Valid)",
+                            value = imei,
+                            onValueChange = { imei = it },
+                            onRandomize = { imei = IsolationRuleManager.generateLuhnImei() }
+                        )
+
+                        IdentifierFieldWithRandomize(
+                            label = "Google Advertising ID (AAID)",
+                            value = adId,
+                            onValueChange = { adId = it },
+                            onRandomize = { adId = IsolationRuleManager.generateAdvertisingId() }
+                        )
+
+                        IdentifierFieldWithRandomize(
+                            label = "Wi-Fi & Bluetooth MAC Address",
+                            value = mac,
+                            onValueChange = { mac = it },
+                            onRandomize = { mac = IsolationRuleManager.generateMacAddress() }
+                        )
+
+                        IdentifierFieldWithRandomize(
+                            label = "Hardware Serial (Build.SERIAL)",
+                            value = serial,
+                            onValueChange = { serial = it },
+                            onRandomize = { serial = IsolationRuleManager.generateSerial() }
+                        )
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = carrier,
+                                onValueChange = { carrier = it },
+                                label = { Text("SIM Carrier", fontSize = 11.sp) },
+                                singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedTextField(
+                                value = simOp,
+                                onValueChange = { simOp = it },
+                                label = { Text("MCC/MNC", fontSize = 11.sp) },
+                                singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.weight(0.8f)
+                            )
+                        }
+                    }
+                }
             }
 
-            // Section 1: Hardware Model Preset Card
+            // =========================================================================
+            // SECTION 2: MOCK / SPOOF LOCATION (GPS & Geolocation)
+            // =========================================================================
             Card(
                 colors = CardDefaults.cardColors(containerColor = scheme.surface),
                 shape = RoundedCornerShape(20.dp),
@@ -919,69 +1200,89 @@ private fun ConfigureDeviceIdentityFullScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "Hardware Model Preset",
+                        text = "Mock & Geolocation Options",
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = scheme.onSurface,
                         fontFamily = JakartaFontFamily
                     )
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                    ) {
-                        DeviceProfilePreset.entries.forEach { item ->
-                            FilterChip(
-                                selected = preset == item,
-                                onClick = {
-                                    preset = item
-                                    if (item != DeviceProfilePreset.CUSTOM) {
-                                        brand = item.brand
-                                        model = item.model
-                                        device = item.device
-                                    }
-                                },
-                                label = {
-                                    Text(
-                                        text = item.label,
-                                        fontSize = 12.sp,
-                                        fontFamily = JakartaFontFamily
-                                    )
-                                },
-                                shape = RoundedCornerShape(50)
+
+                    PrivacyShieldToggleRow(
+                        title = "Spoof GPS Location",
+                        subtitle = "Overrides LocationManager & GPS coordinates for this app",
+                        checked = spoofLocationEnabled,
+                        onCheckedChange = { spoofLocationEnabled = it }
+                    )
+
+                    if (spoofLocationEnabled) {
+                        Text(
+                            text = "Quick Favorite Locations",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = scheme.onSurfaceVariant,
+                            fontFamily = JakartaFontFamily
+                        )
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                        ) {
+                            FAVORITE_CITY_PRESETS.forEach { city ->
+                                val isSelected = latInput == city.lat.toString() && lngInput == city.lng.toString()
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = {
+                                        latInput = city.lat.toString()
+                                        lngInput = city.lng.toString()
+                                    },
+                                    label = {
+                                        Text(
+                                            text = city.name,
+                                            fontSize = 12.sp,
+                                            fontFamily = JakartaFontFamily
+                                        )
+                                    },
+                                    shape = RoundedCornerShape(50)
+                                )
+                            }
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = latInput,
+                                onValueChange = { latInput = it },
+                                label = { Text("Latitude", fontSize = 11.sp) },
+                                singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedTextField(
+                                value = lngInput,
+                                onValueChange = { lngInput = it },
+                                label = { Text("Longitude", fontSize = 11.sp) },
+                                singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.weight(1f)
                             )
                         }
                     }
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = brand,
-                            onValueChange = {
-                                brand = it
-                                preset = DeviceProfilePreset.CUSTOM
-                            },
-                            label = { Text("Brand", fontSize = 11.sp) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.weight(1f)
-                        )
-                        OutlinedTextField(
-                            value = model,
-                            onValueChange = {
-                                model = it
-                                preset = DeviceProfilePreset.CUSTOM
-                            },
-                            label = { Text("Model", fontSize = 11.sp) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.weight(1.3f)
-                        )
-                    }
+                    HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+
+                    PrivacyShieldToggleRow(
+                        title = "Hide Mock Location Status",
+                        subtitle = "Forces Location.isFromMockProvider() & isMock() to return false",
+                        checked = hideMockLocation,
+                        onCheckedChange = { hideMockLocation = it }
+                    )
                 }
             }
 
-            // Section 2: Unique Hardware & Ad Identifiers Card
+            // =========================================================================
+            // SECTION 3: PRIVACY & SYSTEM GUARDS (App Cloner Options)
+            // =========================================================================
             Card(
                 colors = CardDefaults.cardColors(containerColor = scheme.surface),
                 shape = RoundedCornerShape(20.dp),
@@ -995,70 +1296,83 @@ private fun ConfigureDeviceIdentityFullScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "Unique Hardware & Ad Identifiers",
+                        text = "Privacy & System Guards",
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = scheme.onSurface,
                         fontFamily = JakartaFontFamily
                     )
 
-                    IdentifierFieldWithRandomize(
-                        label = "Android ID (16-hex) & Widevine DRM Seed",
-                        value = androidId,
-                        onValueChange = { androidId = it },
-                        onRandomize = { androidId = IsolationRuleManager.generateAndroidId() }
+                    PrivacyShieldToggleRow(
+                        title = "Prevent Screenshots & Screen Recording",
+                        subtitle = "Enforces WindowManager FLAG_SECURE on all app activities",
+                        checked = preventScreenshots,
+                        onCheckedChange = { preventScreenshots = it }
                     )
 
-                    IdentifierFieldWithRandomize(
-                        label = "IMEI / MEID (15-digit Luhn Valid)",
-                        value = imei,
-                        onValueChange = { imei = it },
-                        onRandomize = { imei = IsolationRuleManager.generateLuhnImei() }
+                    HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+
+                    PrivacyShieldToggleRow(
+                        title = "Hide Other Installed Apps",
+                        subtitle = "Blocks package snooping (getInstalledPackages sees only system & self)",
+                        checked = hideOtherApps,
+                        onCheckedChange = { hideOtherApps = it }
                     )
 
-                    IdentifierFieldWithRandomize(
-                        label = "Google Advertising ID (AAID)",
-                        value = adId,
-                        onValueChange = { adId = it },
-                        onRandomize = { adId = IsolationRuleManager.generateAdvertisingId() }
+                    HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+
+                    PrivacyShieldToggleRow(
+                        title = "Disable Logcat Logging",
+                        subtitle = "Silences android.util.Log calls so app cannot leak data to logs",
+                        checked = disableLogcatLogging,
+                        onCheckedChange = { disableLogcatLogging = it }
                     )
 
-                    IdentifierFieldWithRandomize(
-                        label = "Wi-Fi & Bluetooth MAC Address",
-                        value = mac,
-                        onValueChange = { mac = it },
-                        onRandomize = { mac = IsolationRuleManager.generateMacAddress() }
+                    HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+
+                    PrivacyShieldToggleRow(
+                        title = "Fake Battery Level & Charging State",
+                        subtitle = "Spoofs BatteryManager capacity ($fakeBatteryLevel%) & AC charging",
+                        checked = fakeBatteryEnabled,
+                        onCheckedChange = { fakeBatteryEnabled = it }
                     )
 
-                    IdentifierFieldWithRandomize(
-                        label = "Hardware Serial (Build.SERIAL)",
-                        value = serial,
-                        onValueChange = { serial = it },
-                        onRandomize = { serial = IsolationRuleManager.generateSerial() }
-                    )
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = carrier,
-                            onValueChange = { carrier = it },
-                            label = { Text("SIM Carrier", fontSize = 11.sp) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.weight(1f)
-                        )
-                        OutlinedTextField(
-                            value = simOp,
-                            onValueChange = { simOp = it },
-                            label = { Text("MCC/MNC", fontSize = 11.sp) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.weight(0.8f)
-                        )
+                    if (fakeBatteryEnabled) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            listOf(100, 85, 65, 40, 20).forEach { lvl ->
+                                FilterChip(
+                                    selected = fakeBatteryLevel == lvl,
+                                    onClick = { fakeBatteryLevel = lvl },
+                                    label = {
+                                        Text(
+                                            text = "$lvl%",
+                                            fontSize = 12.sp,
+                                            fontFamily = JakartaFontFamily
+                                        )
+                                    },
+                                    shape = RoundedCornerShape(50)
+                                )
+                            }
+                        }
                     }
+
+                    HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+
+                    PrivacyShieldToggleRow(
+                        title = "Samsung Knox 0x0 Warranty Bit",
+                        subtitle = "Spoofs ro.boot.warranty_bit=0 & ro.warranty_bit=0",
+                        checked = knoxWarrantyBitSpoof,
+                        onCheckedChange = { knoxWarrantyBitSpoof = it }
+                    )
                 }
             }
 
-            // Section 3: Environment & Privacy Shields Card
+            // =========================================================================
+            // SECTION 4: SECURITY & ENVIRONMENT SHIELDS
+            // =========================================================================
             Card(
                 colors = CardDefaults.cardColors(containerColor = scheme.surface),
                 shape = RoundedCornerShape(20.dp),
@@ -1072,7 +1386,7 @@ private fun ConfigureDeviceIdentityFullScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "Environment & Privacy Shields",
+                        text = "Security & Environment Shields",
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = scheme.onSurface,
@@ -1115,6 +1429,43 @@ private fun ConfigureDeviceIdentityFullScreen(
                 }
             }
 
+            // =========================================================================
+            // SECTION 5: NETWORK KILL SWITCH
+            // =========================================================================
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = if (disableAllNetworking) scheme.errorContainer.copy(alpha = 0.25f) else scheme.surface
+                ),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(
+                    1.dp,
+                    if (disableAllNetworking) scheme.error.copy(alpha = 0.5f) else scheme.outlineVariant
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Network & Connectivity Control",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = scheme.onSurface,
+                        fontFamily = JakartaFontFamily
+                    )
+
+                    PrivacyShieldToggleRow(
+                        title = "Disable All Networking (Firewall Kill Switch)",
+                        subtitle = "Blocks all outbound Socket & HTTP connections for this app",
+                        checked = disableAllNetworking,
+                        onCheckedChange = { disableAllNetworking = it }
+                    )
+                }
+            }
+
             // Bottom Action Row
             Row(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1122,41 +1473,21 @@ private fun ConfigureDeviceIdentityFullScreen(
                     .fillMaxWidth()
                     .padding(bottom = 24.dp)
             ) {
-                if (appInfo.isIdentitySpoofed) {
-                    OutlinedButton(
-                        onClick = onDisable,
-                        shape = RoundedCornerShape(50),
-                        border = BorderStroke(1.dp, scheme.error.copy(alpha = 0.5f)),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(
-                            text = "Restore Real ID",
-                            color = scheme.error,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = JakartaFontFamily
-                        )
-                    }
+                OutlinedButton(
+                    onClick = onDisable,
+                    shape = RoundedCornerShape(50),
+                    border = BorderStroke(1.dp, scheme.error.copy(alpha = 0.5f)),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = "Reset All",
+                        color = scheme.error,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = JakartaFontFamily
+                    )
                 }
                 Button(
-                    onClick = {
-                        onSave(
-                            preset,
-                            brand,
-                            model,
-                            device,
-                            androidId,
-                            imei,
-                            adId,
-                            mac,
-                            carrier,
-                            simOp,
-                            serial,
-                            hideRoot,
-                            hideAdb,
-                            hideVpn,
-                            blockClip
-                        )
-                    },
+                    onClick = triggerSave,
                     shape = RoundedCornerShape(50),
                     modifier = Modifier.weight(1f)
                 ) {

@@ -46,10 +46,25 @@ data class InstalledAppInfo(
     val spoofCarrierName: String = "",
     val spoofSimOperator: String = "",
     val spoofSerial: String = "",
+    // Location / GPS Mocking
+    val spoofLocationEnabled: Boolean = false,
+    val spoofLatitude: Double = 37.7749,
+    val spoofLongitude: Double = -122.4194,
+    val hideMockLocation: Boolean = true,
+    // Privacy & System Guards
+    val preventScreenshots: Boolean = false,
+    val hideOtherApps: Boolean = false,
+    val disableLogcatLogging: Boolean = false,
+    val fakeBatteryEnabled: Boolean = false,
+    val fakeBatteryLevel: Int = 100,
+    val knoxWarrantyBitSpoof: Boolean = false,
+    // Environment & Security Shields
     val hideRootAndXposed: Boolean = true,
     val hideAdbAndDevOptions: Boolean = true,
     val hideVpnAndProxy: Boolean = true,
-    val blockClipboardRead: Boolean = false
+    val blockClipboardRead: Boolean = false,
+    // Networking
+    val disableAllNetworking: Boolean = false
 )
 
 class AppPackageRepository(private val context: Context) {
@@ -94,10 +109,21 @@ class AppPackageRepository(private val context: Context) {
             spoofCarrierName = config?.spoofCarrierName ?: "",
             spoofSimOperator = config?.spoofSimOperator ?: "",
             spoofSerial = config?.spoofSerial ?: "",
+            spoofLocationEnabled = config?.spoofLocationEnabled ?: false,
+            spoofLatitude = config?.spoofLatitude ?: 37.7749,
+            spoofLongitude = config?.spoofLongitude ?: -122.4194,
+            hideMockLocation = config?.hideMockLocation ?: true,
+            preventScreenshots = config?.preventScreenshots ?: false,
+            hideOtherApps = config?.hideOtherApps ?: false,
+            disableLogcatLogging = config?.disableLogcatLogging ?: false,
+            fakeBatteryEnabled = config?.fakeBatteryEnabled ?: false,
+            fakeBatteryLevel = config?.fakeBatteryLevel ?: 100,
+            knoxWarrantyBitSpoof = config?.knoxWarrantyBitSpoof ?: false,
             hideRootAndXposed = config?.hideRootAndXposed ?: true,
             hideAdbAndDevOptions = config?.hideAdbAndDevOptions ?: true,
             hideVpnAndProxy = config?.hideVpnAndProxy ?: true,
-            blockClipboardRead = config?.blockClipboardRead ?: false
+            blockClipboardRead = config?.blockClipboardRead ?: false,
+            disableAllNetworking = config?.disableAllNetworking ?: false
         )
     }
 

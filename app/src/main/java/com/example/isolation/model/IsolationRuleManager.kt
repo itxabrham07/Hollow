@@ -77,7 +77,20 @@ object IsolationRuleManager {
         val hideRootAndXposed: Boolean = true,
         val hideAdbAndDevOptions: Boolean = true,
         val hideVpnAndProxy: Boolean = true,
-        val blockClipboardRead: Boolean = false
+        val blockClipboardRead: Boolean = false,
+        // Modular Features
+        val isIdentitySpoofed: Boolean = false,
+        val spoofLocationEnabled: Boolean = false,
+        val spoofLatitude: Double = 37.7749,
+        val spoofLongitude: Double = -122.4194,
+        val hideMockLocation: Boolean = true,
+        val preventScreenshots: Boolean = false,
+        val hideOtherApps: Boolean = false,
+        val disableLogcatLogging: Boolean = false,
+        val fakeBatteryEnabled: Boolean = false,
+        val fakeBatteryLevel: Int = 100,
+        val knoxWarrantyBitSpoof: Boolean = false,
+        val disableAllNetworking: Boolean = false
     )
 
     const val KEY_PICKER_POLICY = "global_picker_policy"
@@ -275,7 +288,20 @@ object IsolationRuleManager {
         // 3. All apps enrolled in Device Identity & Privacy Spoofing
         val identityEntries = mutableListOf<String>()
         for (cfg in configs) {
-            if (cfg.isIdentitySpoofed) {
+            val hasActivePrivacy = cfg.isIdentitySpoofed ||
+                    cfg.spoofLocationEnabled ||
+                    cfg.preventScreenshots ||
+                    cfg.hideOtherApps ||
+                    cfg.disableLogcatLogging ||
+                    cfg.fakeBatteryEnabled ||
+                    cfg.knoxWarrantyBitSpoof ||
+                    cfg.disableAllNetworking ||
+                    !cfg.hideRootAndXposed ||
+                    !cfg.hideAdbAndDevOptions ||
+                    !cfg.hideVpnAndProxy ||
+                    cfg.blockClipboardRead
+
+            if (hasActivePrivacy) {
                 val preset = cfg.deviceProfilePreset
                 val brand = cfg.spoofBrand.ifBlank { preset.brand }.replace("|", " ").trim()
                 val manufacturer = if (cfg.spoofBrand.isNotBlank()) cfg.spoofBrand.replace("|", " ").trim() else preset.manufacturer
@@ -313,7 +339,19 @@ object IsolationRuleManager {
                         if (cfg.hideRootAndXposed) "1" else "0",
                         if (cfg.hideAdbAndDevOptions) "1" else "0",
                         if (cfg.hideVpnAndProxy) "1" else "0",
-                        if (cfg.blockClipboardRead) "1" else "0"
+                        if (cfg.blockClipboardRead) "1" else "0",
+                        if (cfg.isIdentitySpoofed) "1" else "0",
+                        if (cfg.spoofLocationEnabled) "1" else "0",
+                        cfg.spoofLatitude.toString(),
+                        cfg.spoofLongitude.toString(),
+                        if (cfg.hideMockLocation) "1" else "0",
+                        if (cfg.preventScreenshots) "1" else "0",
+                        if (cfg.hideOtherApps) "1" else "0",
+                        if (cfg.disableLogcatLogging) "1" else "0",
+                        if (cfg.fakeBatteryEnabled) "1" else "0",
+                        cfg.fakeBatteryLevel.toString(),
+                        if (cfg.knoxWarrantyBitSpoof) "1" else "0",
+                        if (cfg.disableAllNetworking) "1" else "0"
                     ).joinToString("|")
                 )
             }
@@ -366,7 +404,19 @@ object IsolationRuleManager {
                 hideRootAndXposed = p[16] == "1",
                 hideAdbAndDevOptions = p[17] == "1",
                 hideVpnAndProxy = p[18] == "1",
-                blockClipboardRead = p[19] == "1"
+                blockClipboardRead = p[19] == "1",
+                isIdentitySpoofed = if (p.size > 20) p[20] == "1" else true,
+                spoofLocationEnabled = if (p.size > 21) p[21] == "1" else false,
+                spoofLatitude = if (p.size > 22) p[22].toDoubleOrNull() ?: 37.7749 else 37.7749,
+                spoofLongitude = if (p.size > 23) p[23].toDoubleOrNull() ?: -122.4194 else -122.4194,
+                hideMockLocation = if (p.size > 24) p[24] == "1" else true,
+                preventScreenshots = if (p.size > 25) p[25] == "1" else false,
+                hideOtherApps = if (p.size > 26) p[26] == "1" else false,
+                disableLogcatLogging = if (p.size > 27) p[27] == "1" else false,
+                fakeBatteryEnabled = if (p.size > 28) p[28] == "1" else false,
+                fakeBatteryLevel = if (p.size > 29) p[29].toIntOrNull() ?: 100 else 100,
+                knoxWarrantyBitSpoof = if (p.size > 30) p[30] == "1" else false,
+                disableAllNetworking = if (p.size > 31) p[31] == "1" else false
             )
         }
         return out

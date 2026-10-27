@@ -45,8 +45,23 @@ data class AppIsolationConfig(
     val spoofCarrierName: String = "",
     val spoofSimOperator: String = "",
     val spoofSerial: String = "",
+    // Location / GPS Mocking
+    val spoofLocationEnabled: Boolean = false,
+    val spoofLatitude: Double = 37.7749,
+    val spoofLongitude: Double = -122.4194,
+    val hideMockLocation: Boolean = true,
+    // Privacy & System Guards
+    val preventScreenshots: Boolean = false,
+    val hideOtherApps: Boolean = false,
+    val disableLogcatLogging: Boolean = false,
+    val fakeBatteryEnabled: Boolean = false,
+    val fakeBatteryLevel: Int = 100,
+    val knoxWarrantyBitSpoof: Boolean = false,
+    // Environment & Security Shields
     val hideRootAndXposed: Boolean = true,
     val hideAdbAndDevOptions: Boolean = true,
     val hideVpnAndProxy: Boolean = true,
-    val blockClipboardRead: Boolean = false
+    val blockClipboardRead: Boolean = false,
+    // Networking
+    val disableAllNetworking: Boolean = false
 )

@@ -76,7 +76,7 @@ class IsoVaultConverters {
         AccessAuditLog::class,
         VaultFileItem::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(IsoVaultConverters::class)
@@ -117,6 +117,21 @@ abstract class IsoVaultDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN isCompleteAnonymity INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN spoofUserAgent INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN shieldLocation INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN spoofLatitude REAL NOT NULL DEFAULT 0.0")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN spoofLongitude REAL NOT NULL DEFAULT 0.0")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN shieldSensors INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN shieldBattery INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN shieldAccounts INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN shieldInstallTimestamps INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE app_isolation_configs ADD COLUMN shieldCameraAudio INTEGER NOT NULL DEFAULT 1")
+            }
+        }
+
         fun getDatabase(context: Context): IsoVaultDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -124,7 +139,7 @@ abstract class IsoVaultDatabase : RoomDatabase() {
                     IsoVaultDatabase::class.java,
                     "isovault_database"
                 )
-                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
