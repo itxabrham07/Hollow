@@ -31,6 +31,9 @@ object DeviceHardwareFingerprint {
     @Volatile
     private var cachedInfo: HardwareBindingInfo? = null
 
+    @Volatile
+    private var cachedAesKey: SecretKeySpec? = null
+
     fun collect(context: Context): HardwareBindingInfo {
         cachedInfo?.let { return it }
 
@@ -65,6 +68,7 @@ object DeviceHardwareFingerprint {
     }
 
     fun deriveHardwareAesKey(context: Context): SecretKeySpec {
+        cachedAesKey?.let { return it }
         val info = collect(context)
         val spec = PBEKeySpec(
             "${info.fingerprintHex}:${info.socSerial}:${info.androidId}:${info.storageCid}".toCharArray(),
@@ -73,12 +77,17 @@ object DeviceHardwareFingerprint {
             256
         )
         val keyBytes = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
-        return SecretKeySpec(keyBytes, "AES")
+        return SecretKeySpec(keyBytes, "AES").also { cachedAesKey = it }
     }
 
     private fun readSystemProperty(key: String): String {
         return try {
             val proc = Runtime.getRuntime().exec(arrayOf("getprop", key))
+            val completed = proc.waitFor(400, java.util.concurrent.TimeUnit.MILLISECONDS)
+            if (!completed) {
+                proc.destroyForcibly()
+                return ""
+            }
             BufferedReader(InputStreamReader(proc.inputStream)).use { it.readLine()?.trim().orEmpty() }
         } catch (_: Throwable) {
             ""

@@ -100,7 +100,7 @@ fun AppHiderScreen(
     val scheme = MaterialTheme.colorScheme
     val allApps by viewModel.allInstalledApps.collectAsState()
 
-    var showAllAppsMode by remember { mutableStateOf(false) }
+    var showAllAppsMode by remember { mutableStateOf(true) }
     var searchQuery by remember { mutableStateOf("") }
     var includeSystemApps by remember { mutableStateOf(false) }
     var selectedAppForStealth by remember { mutableStateOf<InstalledAppInfo?>(null) }

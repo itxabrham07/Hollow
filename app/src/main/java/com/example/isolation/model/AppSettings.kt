@@ -12,8 +12,8 @@ data class AppSettings(
     val encryptVolumesAtRest: Boolean = true,
     /** What isolated apps get when they open the system picker. */
     val pickerPolicy: PickerPolicy = PickerPolicy.ALLOW,
-    /** Material 3 Pro Dark Theme toggle (enabled by default). */
-    val darkTheme: Boolean = true,
+    /** Material 3 Colorful Theme toggle (Light colorful Material 3 by default, Dark mode via top bar). */
+    val darkTheme: Boolean = false,
     /** Material You Dynamic Color on Android 12+. */
     val dynamicColor: Boolean = false,
     /** How Hollow itself appears in launchers & SystemUI. */
@@ -125,7 +125,7 @@ object SettingsStore {
             rootVolumesEnabled = p.getBoolean(K_ROOT, false),
             encryptVolumesAtRest = p.getBoolean(K_ENCRYPT, true),
             pickerPolicy = picker,
-            darkTheme = p.getBoolean(K_DARK, true),
+            darkTheme = p.getBoolean(K_DARK, false),
             dynamicColor = p.getBoolean(K_DYNAMIC, false),
             hollowVisibilityMode = hollowVis,
             hollowCustomName = p.getString(K_HOLLOW_NAME, "Calculator") ?: "Calculator",
@@ -147,7 +147,7 @@ object SettingsStore {
             matchTimezoneWithIpGlobal = p.getBoolean(K_MATCH_TZ_WITH_IP, true),
             showIpInfoInToolbar = p.getBoolean(K_SHOW_IP_INFO, true),
             customProxyServers = customServers,
-            devFullBuildMode = if (com.example.BuildConfig.DEBUG) p.getBoolean(K_DEV_FULL_BUILD, true) else false,
+            devFullBuildMode = p.getBoolean(K_DEV_FULL_BUILD, com.example.BuildConfig.DEBUG),
             cloudServerUrl = p.getString(K_CLOUD_SERVER_URL, "https://hollow.arshman.me") ?: "https://hollow.arshman.me"
         )
     }

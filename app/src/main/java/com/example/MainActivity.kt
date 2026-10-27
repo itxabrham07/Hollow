@@ -139,31 +139,6 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
         isDetailScreenOpen = false
     }
 
-    // If running in Release Shell mode and the account is not yet approved (or is banned),
-    // gate the entire application behind OnboardingAuthScreen.
-    val requireReleaseShellGate = !settings.devFullBuildMode &&
-            vaultRecord.status != LicenseAccountStatus.APPROVED
-
-    if (requireReleaseShellGate) {
-        Scaffold(
-            modifier = Modifier.fillMaxSize(),
-            containerColor = scheme.background,
-            snackbarHost = { SnackbarHost(snackbarHostState) }
-        ) { gatePadding ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(gatePadding)
-            ) {
-                OnboardingAuthScreen(
-                    viewModel = viewModel,
-                    isStandaloneGate = true
-                )
-            }
-        }
-        return
-    }
-
     BackHandler(enabled = currentScreen != NavDestination.DASHBOARD || activeModuleId != null || isDetailScreenOpen) {
         if (isDetailScreenOpen) {
             isDetailScreenOpen = false

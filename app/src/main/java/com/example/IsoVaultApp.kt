@@ -13,7 +13,9 @@ import kotlinx.coroutines.launch
 
 class IsoVaultApp : Application() {
 
-    val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    val applicationScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + kotlinx.coroutines.CoroutineExceptionHandler { _, _ -> }
+    )
 
     val database by lazy { IsoVaultDatabase.getDatabase(this) }
     val packageRepository by lazy { AppPackageRepository(this) }
@@ -22,31 +24,42 @@ class IsoVaultApp : Application() {
         super.onCreate()
         instance = this
 
-        com.example.isolation.service.RootDeadmanWatchdog.init(this)
+        try {
+            com.example.isolation.service.RootDeadmanWatchdog.init(this)
+        } catch (_: Throwable) {
+        }
 
         // Re-publish every stored rule so hooked apps see the current state after a reboot or update.
-        applicationScope.launch { republishRules() }
+        applicationScope.launch {
+            try {
+                republishRules()
+            } catch (_: Throwable) {
+            }
+        }
     }
 
     private suspend fun republishRules() {
-        IsolationRuleManager.publishPickerPolicy(SettingsStore.load(this).pickerPolicy)
-        for (cfg in database.isolationDao().getAllConfigs().first()) {
-            val whitelist = cfg.whitelistedFolders.split(',').map { it.trim() }.filter { it.isNotBlank() }.toSet()
-            if (cfg.isIsolated) {
-                IsolationRuleManager.updateRule(
-                    packageName = cfg.packageName,
-                    mode = cfg.isolationMode,
-                    blockRootPollution = cfg.blockRootPollution,
-                    whitelistedFolders = whitelist
-                )
-            } else {
-                IsolationRuleManager.disableRule(
-                    packageName = cfg.packageName,
-                    mode = cfg.isolationMode,
-                    blockRootPollution = cfg.blockRootPollution,
-                    whitelistedFolders = whitelist
-                )
+        try {
+            IsolationRuleManager.publishPickerPolicy(SettingsStore.load(this).pickerPolicy)
+            for (cfg in database.isolationDao().getAllConfigs().first()) {
+                val whitelist = cfg.whitelistedFolders.split(',').map { it.trim() }.filter { it.isNotBlank() }.toSet()
+                if (cfg.isIsolated) {
+                    IsolationRuleManager.updateRule(
+                        packageName = cfg.packageName,
+                        mode = cfg.isolationMode,
+                        blockRootPollution = cfg.blockRootPollution,
+                        whitelistedFolders = whitelist
+                    )
+                } else {
+                    IsolationRuleManager.disableRule(
+                        packageName = cfg.packageName,
+                        mode = cfg.isolationMode,
+                        blockRootPollution = cfg.blockRootPollution,
+                        whitelistedFolders = whitelist
+                    )
+                }
             }
+        } catch (_: Throwable) {
         }
     }
 

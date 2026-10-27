@@ -1702,6 +1702,20 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             context = app,
             devFullBuild = _settings.value.devFullBuildMode
         )
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val ioRecord = RootLicenseVaultManager.readVaultRecord(app)
+                val ioClock = RootLicenseVaultManager.verifyVaultClockIntegrity(app)
+                val ioModules = HollowModuleRegistry.resolveModuleStates(
+                    context = app,
+                    devFullBuild = _settings.value.devFullBuildMode
+                )
+                _vaultLicenseRecord.value = ioRecord
+                _clockVerification.value = ioClock
+                _moduleStates.value = ioModules
+            } catch (_: Throwable) {
+            }
+        }
     }
 
     fun setDevFullBuildMode(enabled: Boolean) {

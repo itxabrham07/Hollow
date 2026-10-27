@@ -237,23 +237,24 @@ object RootLicenseVaultManager {
 
     fun listDownloadedModulesInVault(context: Context): Set<String> {
         val result = mutableSetOf<String>()
-        // Check root directory first
-        val rootList = execRootCommandWithOutput("ls $ROOT_MODULES_DIR 2>/dev/null")
-        rootList.lines().forEach { line ->
-            val trimmed = line.trim()
-            if (trimmed.endsWith(".dex.enc")) {
-                result.add(trimmed.removeSuffix(".dex.enc"))
-            }
-        }
-        // Check fallback mirror
+        // Check fallback mirror first (instant, zero main-thread blocking)
         val fallbackMods = File(getFallbackVaultDir(context), "modules")
         fallbackMods.listFiles()?.forEach { file ->
             if (file.name.endsWith(".dex.enc")) {
                 val modId = file.name.removeSuffix(".dex.enc")
-                // Verify it decrypts with this device's hardware key
                 val raw = try { file.readText().trim() } catch (_: Throwable) { "" }
                 if (raw.isNotEmpty() && decryptWithHardwareKey(context, raw) != null) {
                     result.add(modId)
+                }
+            }
+        }
+        // Only invoke su ls if not on the main thread or if fallback is empty and root is known available
+        if (!isOnMainThread()) {
+            val rootList = execRootCommandWithOutput("ls $ROOT_MODULES_DIR 2>/dev/null")
+            rootList.lines().forEach { line ->
+                val trimmed = line.trim()
+                if (trimmed.endsWith(".dex.enc")) {
+                    result.add(trimmed.removeSuffix(".dex.enc"))
                 }
             }
         }
@@ -291,7 +292,7 @@ object RootLicenseVaultManager {
             lastRecordedWallClockMs = rec.highWaterWallClockMs,
             lastRecordedElapsedRealtimeMs = rec.lastElapsedRealtimeMs
         )
-        if (check.isValid && rec.status == LicenseAccountStatus.APPROVED) {
+        if (check.isValid && rec.status == LicenseAccountStatus.APPROVED && !isOnMainThread()) {
             // Advance monotonic watermark
             writeVaultRecord(context, rec.copy(highWaterWallClockMs = check.effectiveCurrentTimeMs))
         }
@@ -351,31 +352,74 @@ object RootLicenseVaultManager {
         rootPath: String,
         relativeName: String
     ): String {
-        val rootContent = execRootCommandWithOutput("cat $rootPath 2>/dev/null").trim()
-        if (rootContent.isNotEmpty()) return rootContent
-        return try {
+        val localText = try {
             val f = File(getFallbackVaultDir(context), relativeName)
             if (f.exists()) f.readText().trim() else ""
         } catch (_: Throwable) {
             ""
         }
+        if (localText.isNotEmpty()) return localText
+        if (isOnMainThread()) return ""
+
+        val rootContent = execRootCommandWithOutput("cat $rootPath 2>/dev/null").trim()
+        if (rootContent.isNotEmpty()) {
+            // Restore local mirror from /data/adb/.hollow_vault after Clear App Data
+            try {
+                val f = File(getFallbackVaultDir(context), relativeName)
+                f.parentFile?.mkdirs()
+                f.writeText(rootContent)
+            } catch (_: Throwable) {
+            }
+            return rootContent
+        }
+        return ""
+    }
+
+    private fun isOnMainThread(): Boolean {
+        return try {
+            android.os.Looper.getMainLooper()?.thread === Thread.currentThread()
+        } catch (_: Throwable) {
+            false
+        }
     }
 
     private fun execRootCommand(cmd: String): Boolean {
+        if (isOnMainThread()) {
+            Thread {
+                try {
+                    val proc = Runtime.getRuntime().exec(arrayOf("su", "-c", cmd))
+                    if (!proc.waitFor(800, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                        proc.destroyForcibly()
+                    }
+                } catch (_: Throwable) {
+                }
+            }.start()
+            return true
+        }
         return try {
             val proc = Runtime.getRuntime().exec(arrayOf("su", "-c", cmd))
-            proc.waitFor() == 0
+            val finished = proc.waitFor(800, java.util.concurrent.TimeUnit.MILLISECONDS)
+            if (!finished) {
+                proc.destroyForcibly()
+                false
+            } else {
+                proc.exitValue() == 0
+            }
         } catch (_: Throwable) {
             false
         }
     }
 
     private fun execRootCommandWithOutput(cmd: String): String {
+        if (isOnMainThread()) return ""
         return try {
             val proc = Runtime.getRuntime().exec(arrayOf("su", "-c", cmd))
-            val out = proc.inputStream.bufferedReader().readText()
-            proc.waitFor()
-            out
+            val finished = proc.waitFor(800, java.util.concurrent.TimeUnit.MILLISECONDS)
+            if (!finished) {
+                proc.destroyForcibly()
+                return ""
+            }
+            proc.inputStream.bufferedReader().readText()
         } catch (_: Throwable) {
             ""
         }
