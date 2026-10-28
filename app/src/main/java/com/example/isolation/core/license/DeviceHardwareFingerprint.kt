@@ -70,13 +70,20 @@ object DeviceHardwareFingerprint {
     fun deriveHardwareAesKey(context: Context): SecretKeySpec {
         cachedAesKey?.let { return it }
         val info = collect(context)
-        val spec = PBEKeySpec(
-            "${info.fingerprintHex}:${info.socSerial}:${info.androidId}:${info.storageCid}".toCharArray(),
-            PBKDF2_SALT.toByteArray(Charsets.UTF_8),
-            12000,
-            256
-        )
-        val keyBytes = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
+        val passChars = "${info.fingerprintHex}:${info.socSerial}:${info.androidId}:${info.storageCid}".toCharArray()
+        val saltBytes = PBKDF2_SALT.toByteArray(Charsets.UTF_8)
+
+        val keyBytes = try {
+            val spec = PBEKeySpec(passChars, saltBytes, 12000, 256)
+            SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
+        } catch (_: Throwable) {
+            try {
+                val spec = PBEKeySpec(passChars, saltBytes, 12000, 256)
+                SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1").generateSecret(spec).encoded
+            } catch (_: Throwable) {
+                MessageDigest.getInstance("SHA-256").digest("${info.fingerprintHex}:$PBKDF2_SALT".toByteArray(Charsets.UTF_8))
+            }
+        }
         return SecretKeySpec(keyBytes, "AES").also { cachedAesKey = it }
     }
 

@@ -24,6 +24,17 @@ class IsoVaultApp : Application() {
         super.onCreate()
         instance = this
 
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            try {
+                android.util.Log.e("IsoVaultCrash", "Uncaught exception on ${thread.name}", throwable)
+                val crashFile = java.io.File(filesDir, "last_crash.txt")
+                crashFile.writeText("${java.util.Date()}\n${throwable.stackTraceToString()}")
+            } catch (_: Throwable) {
+            }
+            defaultHandler?.uncaughtException(thread, throwable)
+        }
+
         try {
             com.example.isolation.service.RootDeadmanWatchdog.init(this)
         } catch (_: Throwable) {
