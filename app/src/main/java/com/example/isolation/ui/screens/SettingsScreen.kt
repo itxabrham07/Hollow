@@ -312,30 +312,23 @@ fun SettingsScreen(
                 ) {
                     HollowIconTheme.entries.forEach { themeOption ->
                         val isSelected = settings.hollowIconTheme == themeOption
-                        Card(
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isSelected) {
-                                    scheme.primaryContainer.copy(alpha = 0.4f)
-                                } else {
-                                    scheme.surfaceContainerLow
-                                }
-                            ),
+                        ContentCard(
+                            onClick = { viewModel.setHollowIconTheme(themeOption) },
+                            containerColor = if (isSelected) {
+                                scheme.primaryContainer.copy(alpha = 0.4f)
+                            } else {
+                                scheme.surfaceContainerLow
+                            },
+                            borderColor = if (isSelected) scheme.primary else scheme.outlineVariant,
                             shape = shapes.small,
-                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                            border = BorderStroke(
-                                width = 1.dp,
-                                color = if (isSelected) scheme.primary else scheme.outlineVariant
-                            ),
+                            contentPadding = PaddingValues(vertical = 8.dp, horizontal = 4.dp),
                             modifier = Modifier
                                 .weight(1f)
-                                .clickable { viewModel.setHollowIconTheme(themeOption) }
                                 .testTag("icon_theme_${themeOption.name.lowercase()}")
                         ) {
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 8.dp, horizontal = 4.dp)
+                                modifier = Modifier.fillMaxWidth()
                             ) {
                                 HollowDynamicEmblem(
                                     iconTheme = themeOption,

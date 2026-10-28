@@ -98,6 +98,12 @@ fun DashboardScreen(
         .filter { it.isAuthorizedByAdmin && !it.isDownloadedInRootVault && !settings.devFullBuildMode }
         .map { it.module.displayName }
 
+    androidx.compose.runtime.LaunchedEffect(pendingDownloadTitles.size) {
+        if (pendingDownloadTitles.isNotEmpty()) {
+            viewModel.downloadAllAuthorizedModules()
+        }
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -139,13 +145,13 @@ fun DashboardScreen(
                             )
                         }
                         StatusIndicator(
-                            label = if (isLsposedActive) "System Protection Active" else "Hollow Privacy Suite Ready",
+                            label = if (isLsposedActive) "System Protection Active" else "Hollow Privacy Layer Ready",
                             color = if (isLsposedActive) scheme.secondary else scheme.primary
                         )
                     }
 
                     StatusIndicator(
-                        label = "${mountedIds.size}/$totalCatalogSize Modules",
+                        label = "${mountedIds.size} Active Modules",
                         color = scheme.onSurfaceVariant,
                         showDot = false
                     )
@@ -154,87 +160,95 @@ fun DashboardScreen(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
-                    text = "Your Personal Privacy & App Workspace",
+                    text = "The Privacy Layer Between Your Apps & You",
                     style = MaterialTheme.typography.headlineMedium.copy(fontFamily = FrauncesFontFamily),
                     color = scheme.onSurface
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Isolate app folders, customize per-app device identity, and keep private photos safe in one place.",
+                    text = "OS-level workspace sandboxing, per-app identity protection, and modular privacy controls.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = scheme.onSurfaceVariant
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
-                HorizontalDivider(color = scheme.outlineVariant)
-                Spacer(modifier = Modifier.height(16.dp))
+                if ("module_privacy" in mountedIds || "module_isolation" in mountedIds || "module_hider" in mountedIds) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    HorizontalDivider(color = scheme.outlineVariant)
+                    Spacer(modifier = Modifier.height(16.dp))
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    ContentCard(
-                        onClick = { onOpenModule("module_privacy") },
-                        containerColor = scheme.surfaceContainerLow,
-                        contentPadding = PaddingValues(12.dp),
-                        modifier = Modifier.weight(1f)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = "$spoofedCount Apps",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = scheme.onSurface,
-                            maxLines = 1
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Privacy Shield",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = scheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    ContentCard(
-                        onClick = { onOpenModule("module_isolation") },
-                        containerColor = scheme.surfaceContainerLow,
-                        contentPadding = PaddingValues(12.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(
-                            text = "$isolatedCount Apps",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = scheme.onSurface,
-                            maxLines = 1
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Storage Isolated",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = scheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    ContentCard(
-                        onClick = { viewModel.refreshDiagnostics() },
-                        containerColor = scheme.surfaceContainerLow,
-                        contentPadding = PaddingValues(12.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(
-                            text = "$hiddenCount Apps",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = scheme.onSurface,
-                            maxLines = 1
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Hidden / Disguised",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = scheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        if ("module_privacy" in mountedIds) {
+                            ContentCard(
+                                onClick = { onOpenModule("module_privacy") },
+                                containerColor = scheme.surfaceContainerLow,
+                                contentPadding = PaddingValues(12.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = "$spoofedCount Apps",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = scheme.onSurface,
+                                    maxLines = 1
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Privacy Shield",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = scheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                        if ("module_isolation" in mountedIds) {
+                            ContentCard(
+                                onClick = { onOpenModule("module_isolation") },
+                                containerColor = scheme.surfaceContainerLow,
+                                contentPadding = PaddingValues(12.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = "$isolatedCount Apps",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = scheme.onSurface,
+                                    maxLines = 1
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Storage Isolated",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = scheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                        if ("module_hider" in mountedIds) {
+                            ContentCard(
+                                onClick = { onOpenModule("module_hider") },
+                                containerColor = scheme.surfaceContainerLow,
+                                contentPadding = PaddingValues(12.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = "$hiddenCount Apps",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = scheme.onSurface,
+                                    maxLines = 1
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "App Visibility",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = scheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -264,7 +278,7 @@ fun DashboardScreen(
             }
         }
 
-        // 4. Release Shell Quick Unlock Prompt (when 0 modules active)
+        // 4. Sync / Install Modules Prompt (when 0 modules active)
         if (mountedModules.isEmpty()) {
             item {
                 ContentCard(
@@ -274,8 +288,8 @@ fun DashboardScreen(
                         .testTag("card_zero_modules_shell")
                 ) {
                     ListRow(
-                        title = "Activate Your Feature Modules",
-                        subtitle = "Sign in to sync your cloud modules or activate all modules immediately.",
+                        title = "Sync Your Authorized Modules",
+                        subtitle = "Fetch and install your approved privacy modules from your account.",
                         leadingIcon = Icons.Default.AutoAwesome,
                         tintLeadingIcon = true,
                         modifier = Modifier.padding(vertical = 0.dp)
@@ -286,20 +300,20 @@ fun DashboardScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         PrimaryButton(
-                            text = "Account & Cloud",
+                            text = "Sync & Install",
                             icon = Icons.Default.CloudDownload,
-                            onClick = onNavigateToLicenseHub,
+                            onClick = {
+                                viewModel.syncLicenseAndModulesFromServer()
+                                viewModel.downloadAllAuthorizedModules()
+                            },
                             modifier = Modifier
                                 .weight(1f)
                                 .testTag("btn_open_module_downloader")
                         )
                         SecondaryButton(
-                            text = "Quick Unlock All",
+                            text = "Account Status",
                             icon = Icons.Default.VerifiedUser,
-                            onClick = {
-                                viewModel.simulateAdminApproveAccount()
-                                viewModel.downloadAllAuthorizedModules()
-                            },
+                            onClick = onNavigateToLicenseHub,
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -308,161 +322,162 @@ fun DashboardScreen(
         }
 
         // 5. Privacy & Protection Feature Modules (Single Indigo Accent + Semantic Status)
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                SectionHeader(
-                    title = "Privacy & Protection Features",
-                    trailing = {
-                        Text(
-                            text = "Manage Modules",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = scheme.primary,
-                            modifier = Modifier
-                                .clickable { onNavigateToLicenseHub() }
-                                .testTag("btn_open_license_hub")
-                        )
-                    }
-                )
-
-                val moduleRows = moduleStates.chunked(2)
-                moduleRows.forEach { rowStates ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        rowStates.forEach { state ->
-                            val mod = state.module
-                            val isMounted = state.isReadyToUse
-                            val statusText = when {
-                                isMounted -> mod.resolveCardBadge(viewModel)
-                                state.isAuthorizedByAdmin -> "Install"
-                                else -> "Locked"
-                            }
-                            val statusColor = when {
-                                isMounted -> scheme.secondary
-                                state.isAuthorizedByAdmin -> M3AmberAccent
-                                else -> scheme.onSurfaceVariant
-                            }
-
-                            ContentCard(
-                                onClick = {
-                                    if (isMounted) {
-                                        onOpenModule(mod.id)
-                                    } else if (state.isAuthorizedByAdmin) {
-                                        viewModel.downloadModuleIntoRootVault(mod.id)
-                                    } else {
-                                        onNavigateToLicenseHub()
-                                    }
-                                },
+        val activeOrAuthorizedStates = moduleStates.filter { it.isReadyToUse || it.isAuthorizedByAdmin }
+        if (activeOrAuthorizedStates.isNotEmpty()) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SectionHeader(
+                        title = "Privacy & Protection Features",
+                        trailing = {
+                            Text(
+                                text = "Manage Modules",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = scheme.primary,
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .testTag(mod.cardTestTag)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Box(
-                                        contentAlignment = Alignment.Center,
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .clip(MaterialTheme.shapes.small)
-                                            .background(scheme.surfaceVariant)
-                                    ) {
-                                        Icon(
-                                            imageVector = mod.icon,
-                                            contentDescription = null,
-                                            tint = scheme.primary
-                                        )
-                                    }
-                                    StatusIndicator(
-                                        label = statusText,
-                                        color = statusColor
-                                    )
+                                    .clickable { onNavigateToLicenseHub() }
+                                    .testTag("btn_open_license_hub")
+                            )
+                        }
+                    )
+
+                    val moduleRows = activeOrAuthorizedStates.chunked(2)
+                    moduleRows.forEach { rowStates ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            rowStates.forEach { state ->
+                                val mod = state.module
+                                val isMounted = state.isReadyToUse
+                                val statusText = when {
+                                    isMounted -> mod.resolveCardBadge(viewModel)
+                                    else -> "Install"
+                                }
+                                val statusColor = when {
+                                    isMounted -> scheme.secondary
+                                    else -> M3AmberAccent
                                 }
 
-                                Spacer(modifier = Modifier.height(16.dp))
+                                ContentCard(
+                                    onClick = {
+                                        if (isMounted) {
+                                            onOpenModule(mod.id)
+                                        } else {
+                                            viewModel.downloadModuleIntoRootVault(mod.id)
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag(mod.cardTestTag)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Box(
+                                            contentAlignment = Alignment.Center,
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .clip(MaterialTheme.shapes.small)
+                                                .background(scheme.surfaceVariant)
+                                        ) {
+                                            Icon(
+                                                imageVector = mod.icon,
+                                                contentDescription = null,
+                                                tint = scheme.primary
+                                            )
+                                        }
+                                        StatusIndicator(
+                                            label = statusText,
+                                            color = statusColor
+                                        )
+                                    }
 
-                                Text(
-                                    text = mod.cardTitle,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = scheme.onSurface,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = if (isMounted) mod.resolveCardSubtitle(viewModel) else "Tap to activate module",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = scheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                    Spacer(modifier = Modifier.height(16.dp))
+
+                                    Text(
+                                        text = mod.cardTitle,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = scheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = if (isMounted) mod.resolveCardSubtitle(viewModel) else "Tap to install module",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = scheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             }
-                        }
-                        if (rowStates.size == 1) {
-                            Spacer(modifier = Modifier.weight(1f))
+                            if (rowStates.size == 1) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
                         }
                     }
                 }
             }
         }
 
-        // 6. Files, Gallery & Safe Folder Section
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                SectionHeader(title = "Files, Gallery & Safe Folder")
+        // 6. Files, Gallery & Safe Folder Section — ONLY shown when Vault Storage module (module_isolation) is mounted
+        if ("module_isolation" in mountedIds) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SectionHeader(title = "Files, Gallery & Safe Folder")
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    CyberStatCard(
-                        title = "Browse Files",
-                        value = "Workspace",
-                        subtitle = "Folders & ZIP",
-                        icon = Icons.Default.Folder,
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable { onNavigateToFileManager() },
-                        testTag = "stat_selinux"
-                    )
-                    CyberStatCard(
-                        title = "Photos Gallery",
-                        value = "Albums",
-                        subtitle = "Private Media",
-                        icon = Icons.Default.PhotoLibrary,
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable { onNavigateToGallery() }
-                    )
-                }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        CyberStatCard(
+                            title = "Browse Files",
+                            value = "Workspace",
+                            subtitle = "Folders & ZIP",
+                            icon = Icons.Default.Folder,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onNavigateToFileManager() },
+                            testTag = "stat_selinux"
+                        )
+                        CyberStatCard(
+                            title = "Photos Gallery",
+                            value = "Albums",
+                            subtitle = "Private Media",
+                            icon = Icons.Default.PhotoLibrary,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onNavigateToGallery() }
+                        )
+                    }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    CyberStatCard(
-                        title = "Safe Folder",
-                        value = formattedEncrypted,
-                        subtitle = "Encrypted Vault",
-                        icon = Icons.Default.Lock,
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable { onNavigateToVault() },
-                        testTag = "stat_vault_size"
-                    )
-                    CyberStatCard(
-                        title = "Activity Log",
-                        value = "${recentLogs.size}",
-                        subtitle = "Recent Events",
-                        icon = Icons.Default.History,
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable { onNavigateToAudit() },
-                        testTag = "nav_audit"
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        CyberStatCard(
+                            title = "Safe Folder",
+                            value = formattedEncrypted,
+                            subtitle = "Encrypted Vault",
+                            icon = Icons.Default.Lock,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onNavigateToVault() },
+                            testTag = "stat_vault_size"
+                        )
+                        CyberStatCard(
+                            title = "Activity Log",
+                            value = "${recentLogs.size}",
+                            subtitle = "Recent Events",
+                            icon = Icons.Default.History,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onNavigateToAudit() },
+                            testTag = "nav_audit"
+                        )
+                    }
                 }
             }
         }

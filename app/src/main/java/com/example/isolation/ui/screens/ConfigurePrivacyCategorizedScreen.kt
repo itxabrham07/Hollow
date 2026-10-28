@@ -683,22 +683,14 @@ fun ConfigurePrivacyCategorizedScreen(
                         ) {
                             privacyProfiles.forEach { profile ->
                                 val isSelected = selectedProfileId == profile.id
-                                Card(
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (isSelected) scheme.primaryContainer.copy(alpha = 0.35f) else scheme.surfaceContainerLow
-                                    ),
+                                ContentCard(
+                                    onClick = { applyReusableProfile(profile) },
+                                    containerColor = if (isSelected) scheme.primaryContainer.copy(alpha = 0.35f) else scheme.surfaceContainerLow,
+                                    borderColor = if (isSelected) scheme.primary else scheme.outlineVariant,
                                     shape = shapes.medium,
-                                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                                    border = BorderStroke(
-                                        width = 1.dp,
-                                        color = if (isSelected) scheme.primary else scheme.outlineVariant
-                                    ),
-                                    modifier = Modifier
-                                        .width(192.dp)
-                                        .clip(shapes.medium)
-                                        .clickable { applyReusableProfile(profile) }
+                                    contentPadding = PaddingValues(12.dp),
+                                    modifier = Modifier.width(192.dp)
                                 ) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -729,7 +721,6 @@ fun ConfigurePrivacyCategorizedScreen(
                                             maxLines = 2,
                                             overflow = TextOverflow.Ellipsis
                                         )
-                                    }
                                 }
                             }
                         }
@@ -751,22 +742,14 @@ fun ConfigurePrivacyCategorizedScreen(
                         ) {
                             DeviceProfilePreset.entries.forEach { preset ->
                                 val isSelected = selectedPreset == preset
-                                Card(
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (isSelected) scheme.primaryContainer.copy(alpha = 0.35f) else scheme.surfaceContainerLow
-                                    ),
+                                ContentCard(
+                                    onClick = { applyPresetValues(preset) },
+                                    containerColor = if (isSelected) scheme.primaryContainer.copy(alpha = 0.35f) else scheme.surfaceContainerLow,
+                                    borderColor = if (isSelected) scheme.primary else scheme.outlineVariant,
                                     shape = shapes.medium,
-                                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                                    border = BorderStroke(
-                                        width = 1.dp,
-                                        color = if (isSelected) scheme.primary else scheme.outlineVariant
-                                    ),
-                                    modifier = Modifier
-                                        .width(160.dp)
-                                        .clip(shapes.medium)
-                                        .clickable { applyPresetValues(preset) }
+                                    contentPadding = PaddingValues(12.dp),
+                                    modifier = Modifier.width(160.dp)
                                 ) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -798,7 +781,6 @@ fun ConfigurePrivacyCategorizedScreen(
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
-                                    }
                                 }
                             }
                         }
@@ -857,29 +839,21 @@ fun ConfigurePrivacyCategorizedScreen(
                             ) {
                                 allProxyNodes.forEach { node ->
                                     val selected = proxyServerId == node.id
-                                    Card(
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = if (selected) scheme.primaryContainer.copy(alpha = 0.35f) else scheme.surfaceContainerLow
-                                        ),
-                                        shape = shapes.small,
-                                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                                        border = BorderStroke(
-                                            width = 1.dp,
-                                            color = if (selected) scheme.primary else scheme.outlineVariant
-                                        ),
-                                        modifier = Modifier
-                                            .width(192.dp)
-                                            .clip(shapes.small)
-                                            .clickable {
-                                                proxyServerId = node.id
-                                                vpnProxyEnabled = true
-                                                if (matchTimezoneWithIp) {
-                                                    timezoneId = node.timezoneId
-                                                    localeTag = node.localeTag
-                                                }
+                                    ContentCard(
+                                        onClick = {
+                                            proxyServerId = node.id
+                                            vpnProxyEnabled = true
+                                            if (matchTimezoneWithIp) {
+                                                timezoneId = node.timezoneId
+                                                localeTag = node.localeTag
                                             }
+                                        },
+                                        containerColor = if (selected) scheme.primaryContainer.copy(alpha = 0.35f) else scheme.surfaceContainerLow,
+                                        borderColor = if (selected) scheme.primary else scheme.outlineVariant,
+                                        shape = shapes.small,
+                                        contentPadding = PaddingValues(12.dp),
+                                        modifier = Modifier.width(192.dp)
                                     ) {
-                                        Column(modifier = Modifier.padding(12.dp)) {
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -909,7 +883,6 @@ fun ConfigurePrivacyCategorizedScreen(
                                                 color = scheme.onSurfaceVariant,
                                                 maxLines = 1
                                             )
-                                        }
                                     }
                                 }
                             }

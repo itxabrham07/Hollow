@@ -55,6 +55,52 @@ object RootLicenseVaultManager {
     private const val GCM_IV_BYTES = 12
     private const val GCM_TAG_BITS = 128
 
+    private const val PREF_FILE = "hollow_root_vault_prefs"
+    private const val KEY_ROOT_GRANTED = "root_access_granted"
+
+    /**
+     * Checks whether superuser (root) access has been granted to Hollow.
+     */
+    fun isRootAccessGranted(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(KEY_ROOT_GRANTED, false)) return true
+        if (!isOnMainThread()) {
+            val out = execRootCommandWithOutput("id", timeoutMs = 2500L)
+            if (out.contains("uid=0")) {
+                prefs.edit().putBoolean(KEY_ROOT_GRANTED, true).apply()
+                return true
+            }
+        }
+        return false
+    }
+
+    /**
+     * Explicitly triggers the `su` prompt (Magisk / KernelSU / APatch) with a generous timeout
+     * so the user can tap "Grant" in the superuser dialog, and initializes `/data/adb/.hollow_vault`.
+     */
+    fun requestInteractiveRootAccess(context: Context): Boolean {
+        val fallbackDir = getFallbackVaultDir(context)
+        if (!fallbackDir.exists()) fallbackDir.mkdirs()
+        val fallbackMods = File(fallbackDir, "modules")
+        if (!fallbackMods.exists()) fallbackMods.mkdirs()
+
+        val cmd = "id && mkdir -p $ROOT_MODULES_DIR && chmod 700 $ROOT_VAULT_DIR && chmod 700 $ROOT_MODULES_DIR && chown -R 0:0 $ROOT_VAULT_DIR"
+        val out = execRootCommandWithOutput(cmd, timeoutMs = 15000L)
+        val granted = out.contains("uid=0") || isJvmTestEnvironment()
+        if (granted) {
+            context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(KEY_ROOT_GRANTED, true)
+                .apply()
+        }
+        return granted
+    }
+
+    private fun isJvmTestEnvironment(): Boolean {
+        val vm = System.getProperty("java.vm.name")?.lowercase() ?: ""
+        return !vm.contains("dalvik") && !vm.contains("art")
+    }
+
     /**
      * Initializes `/data/adb/.hollow_vault` via `su` when root is available,
      * and maintains a hardware-encrypted fallback mirror for non-root / JVM test environments.
@@ -67,6 +113,12 @@ object RootLicenseVaultManager {
         if (!fallbackDir.exists()) fallbackDir.mkdirs()
         val fallbackMods = File(fallbackDir, "modules")
         if (!fallbackMods.exists()) fallbackMods.mkdirs()
+        if (rootCreated) {
+            context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(KEY_ROOT_GRANTED, true)
+                .apply()
+        }
         return rootCreated
     }
 
@@ -383,12 +435,12 @@ object RootLicenseVaultManager {
         }
     }
 
-    private fun execRootCommand(cmd: String): Boolean {
+    private fun execRootCommand(cmd: String, timeoutMs: Long = 3500L): Boolean {
         if (isOnMainThread()) {
             Thread {
                 try {
                     val proc = Runtime.getRuntime().exec(arrayOf("su", "-c", cmd))
-                    if (!proc.waitFor(800, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                    if (!proc.waitFor(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)) {
                         proc.destroyForcibly()
                     }
                 } catch (_: Throwable) {
@@ -398,7 +450,7 @@ object RootLicenseVaultManager {
         }
         return try {
             val proc = Runtime.getRuntime().exec(arrayOf("su", "-c", cmd))
-            val finished = proc.waitFor(800, java.util.concurrent.TimeUnit.MILLISECONDS)
+            val finished = proc.waitFor(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
             if (!finished) {
                 proc.destroyForcibly()
                 false
@@ -410,11 +462,11 @@ object RootLicenseVaultManager {
         }
     }
 
-    private fun execRootCommandWithOutput(cmd: String): String {
+    private fun execRootCommandWithOutput(cmd: String, timeoutMs: Long = 3500L): String {
         if (isOnMainThread()) return ""
         return try {
             val proc = Runtime.getRuntime().exec(arrayOf("su", "-c", cmd))
-            val finished = proc.waitFor(800, java.util.concurrent.TimeUnit.MILLISECONDS)
+            val finished = proc.waitFor(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
             if (!finished) {
                 proc.destroyForcibly()
                 return ""

@@ -6,7 +6,7 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Deep Obsidian Void Base -->
+    <!-- Deep Velvet Indigo-Slate Base -->
     <path android:pathData="M0,0h108v108h-108z">
         <aapt:attr name="android:fillColor">
             <gradient
@@ -15,14 +15,14 @@
                 android:endX="108"
                 android:endY="108"
                 android:type="linear">
-                <item android:color="#050811" android:offset="0.0" />
-                <item android:color="#0B1325" android:offset="0.55" />
-                <item android:color="#111C38" android:offset="1.0" />
+                <item android:color="#0F111A" android:offset="0.0" />
+                <item android:color="#171A26" android:offset="0.55" />
+                <item android:color="#252A3C" android:offset="1.0" />
             </gradient>
         </aapt:attr>
     </path>
 
-    <!-- Radial Ambient Portal Glow -->
+    <!-- Radial Ambient Indigo/Violet Glow -->
     <path android:pathData="M0,0h108v108h-108z">
         <aapt:attr name="android:fillColor">
             <gradient
@@ -30,9 +30,9 @@
                 android:centerY="54"
                 android:gradientRadius="48"
                 android:type="radial">
-                <item android:color="#3800E5FF" android:offset="0.0" />
-                <item android:color="#186366F1" android:offset="0.55" />
-                <item android:color="#00050811" android:offset="1.0" />
+                <item android:color="#387C3AED" android:offset="0.0" />
+                <item android:color="#184F46E5" android:offset="0.55" />
+                <item android:color="#000F111A" android:offset="1.0" />
             </gradient>
         </aapt:attr>
     </path>
@@ -40,7 +40,7 @@
     <!-- Subtle Concentric Isometric Grid Rings -->
     <path
         android:fillColor="#00000000"
-        android:strokeColor="#1438BDF8"
+        android:strokeColor="#14818CF8"
         android:strokeWidth="0.7"
         android:pathData="M54,12 A42,42 0 1,1 53.99,12 Z M54,20 A34,34 0 1,1 53.99,20 Z" />
 </vector>

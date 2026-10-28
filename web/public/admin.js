@@ -1,17 +1,25 @@
 /**
- * Hollow Web App & Cloud Admin Controller
+ * Hollow — Material 3 Expressive Web & Admin Console Controller
  */
 
 let adminToken = localStorage.getItem('hollow_admin_jwt') || '';
-let cachedOverview = { modules: [], devices: [], auditLogs: [] };
+let cachedOverview = { modules: [], devices: [], auditLogs: [], stats: {} };
+let adminPollTimer = null;
 
 const MODULE_LABELS = {
-  module_hider: { label: 'App Hider', icon: 'visibility_off', color: '#7C3AED' },
-  module_isolation: { label: 'Storage Isolate', icon: 'folder_special', color: '#0D9488' },
-  module_privacy: { label: 'Privacy & Identity', icon: 'smartphone', color: '#4F46E5' },
-  module_network: { label: 'V2Ray & Proxy', icon: 'public', color: '#0284C7' },
-  module_sensor_firewall: { label: 'Sensor Firewall', icon: 'sensors', color: '#E11D48' }
+  module_isolation: { label: 'Storage Isolation', icon: 'folder_supervised' },
+  module_privacy: { label: 'Identity & Privacy Shield', icon: 'fingerprint_off' },
+  module_hider: { label: 'App Visibility Control', icon: 'visibility_lock' },
+  module_network: { label: 'Per-App Network Routing', icon: 'vpn_lock' },
+  module_sensor_firewall: { label: 'Sensor Firewall', icon: 'sensors' }
 };
+
+const ALL_DEFAULT_MODULES = [
+  'module_isolation',
+  'module_privacy',
+  'module_hider',
+  'module_network'
+];
 
 // ---------------------------------------------------------------------------
 // 1. Navigation & Theme Setup
@@ -32,6 +40,9 @@ function switchTab(tabName) {
   });
   if (tabName === 'admin') {
     updateAdminAuthView();
+    startAdminAutoRefresh();
+  } else {
+    stopAdminAutoRefresh();
   }
 }
 
@@ -41,6 +52,7 @@ document.querySelectorAll('.m3-nav-tab').forEach((btn) => {
 
 document.getElementById('brandHomeLink')?.addEventListener('click', () => switchTab('home'));
 document.getElementById('heroCheckDeviceBtn')?.addEventListener('click', () => switchTab('register'));
+document.getElementById('heroOpenAdminBtn')?.addEventListener('click', () => switchTab('admin'));
 
 // Theme Toggle
 const themeBtn = document.getElementById('themeToggleBtn');
@@ -55,7 +67,6 @@ themeBtn?.addEventListener('click', () => {
   if (themeIcon) themeIcon.textContent = isDark ? 'light_mode' : 'dark_mode';
 });
 
-// Auto-open Admin tab if URL is /admin
 if (window.location.pathname.startsWith('/admin')) {
   switchTab('admin');
 }
@@ -71,27 +82,40 @@ async function loadPublicCatalog() {
 
     const mongoText = document.getElementById('mongoStatusText');
     if (mongoText) {
-      mongoText.textContent = data.mongodbState === 'CONNECTED' ? 'MongoDB Atlas Live' : 'Hollow Cloud Ready';
+      mongoText.textContent = data.mongodbState === 'CONNECTED'
+        ? 'Cloud DB Connected'
+        : 'Privacy Hub Online';
     }
 
     const container = document.getElementById('publicModuleGrid');
     if (container) {
       container.innerHTML = (data.modules || []).map((mod) => {
-        const meta = MODULE_LABELS[mod.moduleId] || { label: mod.displayName, icon: 'extension', color: '#10B981' };
-        const features = (mod.features || []).map((f) => `<span class="m3-feature-chip">${f.title}</span>`).join('');
+        const meta = MODULE_LABELS[mod.moduleId] || { label: mod.displayName, icon: 'extension' };
+        const features = (mod.features || [])
+          .map((f) => `<span class="m3-feature-chip">${f.title || f}</span>`)
+          .join('');
+        const shortHash = (mod.sha256Checksum || '').slice(0, 16);
         return `
-          <div class="m3-module-card">
-            <div>
-              <div class="m3-module-top">
-                <div class="m3-module-badge-icon" style="background:${meta.color}">
+          <div class="m3-card">
+            <div class="m3-card-header" style="justify-content:space-between">
+              <div style="display:flex;align-items:center;gap:12px">
+                <div class="m3-icon-box">
                   <span class="material-symbols-rounded">${meta.icon}</span>
                 </div>
-                <span class="m3-module-version">v${mod.version || '2.4.0'} • ${mod.moduleId}</span>
+                <div>
+                  <h3>${mod.displayName || meta.label}</h3>
+                  <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">
+                    v${mod.version || 1} · ${mod.moduleId} · ${mod.sizeKb || 12} KB
+                  </span>
+                </div>
               </div>
-              <h3 style="margin-top:14px">${mod.displayName || meta.label}</h3>
-              <p style="margin-top:4px">${mod.description || mod.cardSubtitle || ''}</p>
+              <span class="m3-badge m3-badge-active">Ed25519 Signed</span>
             </div>
-            <div class="m3-module-features">${features}</div>
+            <p style="margin-bottom:12px">${mod.description || mod.cardSubtitle || ''}</p>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${features}</div>
+            <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">
+              SHA-256: ${shortHash}…
+            </div>
           </div>
         `;
       }).join('');
@@ -109,12 +133,11 @@ document.getElementById('btnCheckDeviceStatus')?.addEventListener('click', async
   const fp = document.getElementById('checkHwInput').value.trim();
   const resultBox = document.getElementById('checkDeviceResult');
   if (!fp) {
-    alert('Please enter your Hardware Fingerprint from the Hollow App (e.g. HLW-XXXXXXXX-XXXXXXXX-XXXXXXXX).');
     return;
   }
 
   resultBox.classList.remove('hidden');
-  resultBox.innerHTML = '<p style="color:var(--text-muted)">Querying Hollow Cloud Server...</p>';
+  resultBox.innerHTML = '<p style="color:var(--text-muted)">Checking device status...</p>';
 
   try {
     const res = await fetch('/api/v1/auth/status', {
@@ -123,47 +146,70 @@ document.getElementById('btnCheckDeviceStatus')?.addEventListener('click', async
       body: JSON.stringify({ hardwareFingerprint: fp, elapsedRealtimeMs: 1000 })
     });
     const data = await res.json();
-    if (!res.ok) {
+    if (!res.ok || data.status === 'UNREGISTERED') {
       resultBox.innerHTML = `
-        <div style="padding:14px;border-radius:12px;background:rgba(239,68,68,0.12);border:1px solid #EF4444;color:#F87171">
-          <strong>Device Not Found</strong>
-          <p style="font-size:12px;margin-top:4px">No registration found for <code>${fp}</code>. Please open Hollow Release APK on your phone and tap Register.</p>
+        <div style="padding:16px;border-radius:12px;background:var(--semantic-warning-bg);color:var(--semantic-warning)">
+          <strong>No Registration Found</strong>
+          <p style="font-size:13px;margin-top:4px">
+            Device <code>${fp}</code> is not registered yet. Open the Hollow app on your phone and create an account first.
+          </p>
         </div>
       `;
       return;
     }
 
     const isApproved = data.status === 'APPROVED';
-    const statusColor = isApproved ? '#10B981' : (data.status === 'PENDING_APPROVAL' ? '#F59E0B' : '#EF4444');
-    const grantedMods = (data.allowedModules || []).map((m) => `<span class="m3-feature-chip">${m}</span>`).join(' ') || '<em>None assigned yet</em>';
+    const badgeClass = isApproved
+      ? 'm3-badge-active'
+      : data.status === 'PENDING_APPROVAL'
+      ? 'm3-badge-warning'
+      : 'm3-badge-error';
+    const grantedMods = (data.allowedModules || [])
+      .map((m) => `<span class="m3-feature-chip">${(MODULE_LABELS[m]?.label) || m}</span>`)
+      .join(' ') || '<span style="font-size:13px;color:var(--text-muted)">Pending administrator assignment</span>';
 
     resultBox.innerHTML = `
-      <div style="padding:16px;border-radius:14px;background:var(--bg-surface-low);border:1px solid var(--border-subtle)">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="padding:16px;border-radius:12px;background:var(--bg-surface-low);border:1px solid var(--border-subtle)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
           <div>
-            <strong style="font-size:15px">${data.username || 'Device Registered'}</strong>
-            <span style="display:block;font-size:11px;color:var(--text-muted);font-family:'JetBrains Mono'">${fp}</span>
+            <strong style="font-size:15px">${data.username || 'Registered Device'}</strong>
+            <span style="display:block;font-size:12px;color:var(--text-muted);font-family:var(--font-mono)">${fp}</span>
           </div>
-          <span style="padding:4px 10px;border-radius:50px;font-size:11px;font-weight:700;background:${statusColor}22;color:${statusColor}">${data.status}</span>
+          <span class="m3-badge ${badgeClass}">${data.status.replace('_', ' ')}</span>
         </div>
-        <div style="margin-top:10px">
-          <strong style="font-size:12px;color:var(--text-secondary)">Unlocked Modules:</strong>
+        <div>
+          <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">Authorized Modules:</span>
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${grantedMods}</div>
         </div>
-        ${isApproved ? '<p style="margin-top:12px;font-size:12px;color:#10B981;font-weight:600">✓ Approved! Open your Hollow App to sync and mount your modules.</p>' : '<p style="margin-top:12px;font-size:12px;color:#F59E0B">Waiting for Hollow Administrator approval in the Admin Console.</p>'}
       </div>
     `;
   } catch (err) {
-    resultBox.innerHTML = `<p style="color:#EF4444">Error: ${err.message}</p>`;
+    resultBox.innerHTML = `<p style="color:var(--semantic-error)">Error: ${err.message}</p>`;
   }
 });
 
 // ---------------------------------------------------------------------------
-// 4. Admin Portal Logic
+// 4. Administrator Console Logic (with Live 5s Auto-Refresh)
 // ---------------------------------------------------------------------------
 const adminLoginCard = document.getElementById('adminLoginCard');
 const adminDashboard = document.getElementById('adminDashboard');
 const adminLoginErr = document.getElementById('adminLoginErr');
+
+function startAdminAutoRefresh() {
+  stopAdminAutoRefresh();
+  adminPollTimer = setInterval(() => {
+    if (adminToken && !views.admin.classList.contains('hidden')) {
+      loadAdminOverview();
+    }
+  }, 5000);
+}
+
+function stopAdminAutoRefresh() {
+  if (adminPollTimer) {
+    clearInterval(adminPollTimer);
+    adminPollTimer = null;
+  }
+}
 
 function updateAdminAuthView() {
   if (adminToken) {
@@ -188,7 +234,7 @@ document.getElementById('btnAdminLogin')?.addEventListener('click', async () => 
     });
     const data = await res.json();
     if (!res.ok || !data.ok) {
-      adminLoginErr.textContent = data.error || 'Invalid administrator password';
+      adminLoginErr.textContent = data.error || 'Invalid administrator credentials';
       adminLoginErr.classList.remove('hidden');
       return;
     }
@@ -225,11 +271,31 @@ async function loadAdminOverview() {
     if (!data.ok) return;
 
     cachedOverview = data;
+    renderAdminStats(data.stats || {});
     renderAdminDevices(data.devices || []);
     renderAdminLogs(data.auditLogs || []);
   } catch (err) {
     console.error('Failed to load admin overview:', err);
   }
+}
+
+function renderAdminStats(stats) {
+  const el = document.getElementById('adminStatsGrid');
+  if (!el) return;
+  el.innerHTML = `
+    <div class="m3-card">
+      <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">Pending Approval</span>
+      <div style="font-size:28px;font-weight:700;color:var(--semantic-warning);margin-top:4px">${stats.pendingCount || 0}</div>
+    </div>
+    <div class="m3-card">
+      <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">Approved Devices</span>
+      <div style="font-size:28px;font-weight:700;color:var(--semantic-active);margin-top:4px">${stats.approvedCount || 0}</div>
+    </div>
+    <div class="m3-card">
+      <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">Signed Modules Hosted</span>
+      <div style="font-size:28px;font-weight:700;color:var(--accent-primary);margin-top:4px">${stats.modulesCount || 4}</div>
+    </div>
+  `;
 }
 
 function renderAdminDevices(devices) {
@@ -239,57 +305,85 @@ function renderAdminDevices(devices) {
   if (devices.length === 0) {
     container.innerHTML = `
       <div style="padding: 40px 20px; text-align: center; color: var(--text-muted)">
-        <span class="material-symbols-rounded" style="font-size: 36px; display: block; margin-bottom: 8px">devices_other</span>
+        <span class="material-symbols-rounded" style="font-size: 36px; display: block; margin-bottom: 8px">devices</span>
         <p style="font-weight: 600">No devices registered yet.</p>
-        <p style="font-size: 12px; margin-top: 4px">When a user installs Hollow Release APK and taps "Register", their device will appear here instantly for approval.</p>
+        <p style="font-size: 13px; margin-top: 4px">When a user creates an account in the Hollow app, their device will appear here automatically.</p>
       </div>
     `;
     return;
   }
 
   container.innerHTML = `
-    <table style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">
+    <table class="m3-table">
       <thead>
-        <tr style="border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-size:11px;text-transform:uppercase">
-          <th style="padding:12px 16px">Device / User</th>
-          <th style="padding:12px 16px">Hardware Fingerprint</th>
-          <th style="padding:12px 16px">Status</th>
-          <th style="padding:12px 16px">Granted Modules</th>
-          <th style="padding:12px 16px;text-align:right">Actions</th>
+        <tr>
+          <th>Account &amp; Device</th>
+          <th>Hardware Verification ID</th>
+          <th>Status</th>
+          <th>Authorized Modules</th>
+          <th style="text-align:right">Actions</th>
         </tr>
       </thead>
       <tbody>
         ${devices.map((dev) => {
           const isApproved = dev.status === 'APPROVED';
-          const statusColor = isApproved ? '#10B981' : (dev.status === 'PENDING_APPROVAL' ? '#F59E0B' : '#EF4444');
+          const isBanned = dev.status === 'BANNED';
+          const badgeClass = isApproved
+            ? 'm3-badge-active'
+            : isBanned
+            ? 'm3-badge-error'
+            : 'm3-badge-warning';
+
           return `
-            <tr style="border-bottom:1px solid var(--border-subtle)">
-              <td style="padding:14px 16px">
-                <strong>${dev.username || 'Unnamed'}</strong>
-                <span style="display:block;font-size:11px;color:var(--text-muted)">${dev.deviceModel || 'Android Device'} • ${dev.email || 'No email'}</span>
+            <tr>
+              <td>
+                <strong style="font-size:14px">${dev.username || 'User'}</strong>
+                <span style="display:block;font-size:12px;color:var(--text-secondary)">
+                  ${dev.deviceModel || 'Android Device'}${dev.email ? ` · ${dev.email}` : ''}
+                </span>
               </td>
-              <td style="padding:14px 16px;font-family:'JetBrains Mono';font-size:11px">${dev.hardwareFingerprint}</td>
-              <td style="padding:14px 16px">
-                <span style="padding:3px 8px;border-radius:50px;font-size:10px;font-weight:700;background:${statusColor}22;color:${statusColor}">${dev.status}</span>
+              <td style="font-family:var(--font-mono);font-size:12px;color:var(--accent-primary)">
+                ${dev.hardwareFingerprint}
               </td>
-              <td style="padding:14px 16px">
-                <div style="display:flex;gap:4px;flex-wrap:wrap">
-                  ${['module_isolation', 'module_privacy', 'module_hider', 'module_network'].map((m) => {
+              <td>
+                <span class="m3-badge ${badgeClass}">${dev.status.replace('_', ' ')}</span>
+              </td>
+              <td>
+                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                  ${ALL_DEFAULT_MODULES.map((m) => {
                     const checked = (dev.allowedModules || []).includes(m);
+                    const shortLabel = m.replace('module_', '');
                     return `
-                      <label style="font-size:10px;padding:2px 6px;border-radius:4px;background:var(--bg-surface-low);border:1px solid var(--border-subtle);cursor:pointer">
-                        <input type="checkbox" onchange="toggleDeviceModule('${dev.hardwareFingerprint}', '${m}', this.checked)" ${checked ? 'checked' : ''} style="margin-right:3px" />
-                        ${m.replace('module_', '')}
+                      <label class="m3-feature-chip" style="cursor:pointer">
+                        <input
+                          type="checkbox"
+                          onchange="toggleDeviceModule('${dev.hardwareFingerprint}', '${m}', this.checked)"
+                          ${checked ? 'checked' : ''}
+                          style="margin-right:4px"
+                        />
+                        ${shortLabel}
                       </label>
                     `;
                   }).join('')}
                 </div>
               </td>
-              <td style="padding:14px 16px;text-align:right">
+              <td style="text-align:right;white-space:nowrap">
                 ${!isApproved ? `
-                  <button onclick="approveDevice('${dev.hardwareFingerprint}')" class="m3-btn" style="background:#10B981;color:#fff;padding:4px 10px;font-size:11px;border-radius:6px">Approve</button>
+                  <button
+                    onclick="approveDevice('${dev.hardwareFingerprint}')"
+                    class="m3-btn m3-btn-primary"
+                    style="padding:6px 14px;min-height:36px;font-size:12px"
+                  >
+                    Approve &amp; Grant All
+                  </button>
                 ` : `
-                  <button onclick="revokeDevice('${dev.hardwareFingerprint}')" class="m3-btn" style="background:rgba(239,68,68,0.15);color:#EF4444;padding:4px 10px;font-size:11px;border-radius:6px">Revoke</button>
+                  <button
+                    onclick="revokeDevice('${dev.hardwareFingerprint}')"
+                    class="m3-btn m3-btn-tonal"
+                    style="padding:6px 14px;min-height:36px;font-size:12px;color:var(--semantic-error)"
+                  >
+                    Restrict
+                  </button>
                 `}
               </td>
             </tr>
@@ -305,27 +399,29 @@ function renderAdminLogs(logs) {
   if (!container) return;
 
   if (logs.length === 0) {
-    container.innerHTML = '<div style="padding: 24px; text-align: center; color: var(--text-muted)">No audit events recorded yet.</div>';
+    container.innerHTML = '<div style="padding: 24px; text-align: center; color: var(--text-muted)">No activity recorded yet.</div>';
     return;
   }
 
   container.innerHTML = `
-    <table style="width:100%;border-collapse:collapse;text-align:left;font-size:12px">
+    <table class="m3-table">
       <thead>
-        <tr style="border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-size:11px;text-transform:uppercase">
-          <th style="padding:10px 16px">Time</th>
-          <th style="padding:10px 16px">Event</th>
-          <th style="padding:10px 16px">Hardware Fingerprint</th>
-          <th style="padding:10px 16px">Details</th>
+        <tr>
+          <th>Time</th>
+          <th>Event</th>
+          <th>Device ID</th>
+          <th>Details</th>
         </tr>
       </thead>
       <tbody>
         ${logs.slice(0, 30).map((l) => `
-          <tr style="border-bottom:1px solid var(--border-subtle)">
-            <td style="padding:10px 16px;color:var(--text-muted);font-family:'JetBrains Mono';font-size:11px">${new Date(l.timestamp).toLocaleTimeString()}</td>
-            <td style="padding:10px 16px"><strong>${l.event}</strong></td>
-            <td style="padding:10px 16px;font-family:'JetBrains Mono';font-size:11px">${l.hardwareFingerprint || '—'}</td>
-            <td style="padding:10px 16px;color:var(--text-secondary)">${l.details || ''}</td>
+          <tr>
+            <td style="color:var(--text-muted);font-family:var(--font-mono);font-size:11px">
+              ${new Date(l.timestamp).toLocaleTimeString()}
+            </td>
+            <td><strong>${l.event}</strong></td>
+            <td style="font-family:var(--font-mono);font-size:11px">${l.hardwareFingerprint || '—'}</td>
+            <td style="color:var(--text-secondary)">${l.details || ''}</td>
           </tr>
         `).join('')}
       </tbody>
@@ -335,7 +431,7 @@ function renderAdminLogs(logs) {
 
 window.approveDevice = async function(fp) {
   try {
-    const res = await fetch('/api/v1/admin/license/issue', {
+    const res = await fetch('/api/v1/admin/devices/approve', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -343,7 +439,7 @@ window.approveDevice = async function(fp) {
       },
       body: JSON.stringify({
         hardwareFingerprint: fp,
-        durationDays: 365,
+        validityDays: 365,
         allowedModules: ['module_isolation', 'module_privacy', 'module_hider', 'module_network', 'module_sensor_firewall']
       })
     });
@@ -357,7 +453,7 @@ window.approveDevice = async function(fp) {
 
 window.revokeDevice = async function(fp) {
   try {
-    const res = await fetch('/api/v1/admin/license/revoke', {
+    const res = await fetch('/api/v1/admin/devices/ban', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -365,11 +461,11 @@ window.revokeDevice = async function(fp) {
       },
       body: JSON.stringify({
         hardwareFingerprint: fp,
-        reason: 'Revoked by administrator.'
+        banReason: 'Access restricted by administrator.'
       })
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Revocation failed');
+    if (!res.ok) throw new Error(data.error || 'Restriction failed');
     loadAdminOverview();
   } catch (err) {
     alert(err.message);
@@ -383,7 +479,10 @@ window.toggleDeviceModule = async function(fp, modId, isEnabled) {
   if (isEnabled) currentMods.add(modId); else currentMods.delete(modId);
 
   try {
-    const res = await fetch('/api/v1/admin/license/issue', {
+    const endpoint = dev.status === 'APPROVED'
+      ? '/api/v1/admin/devices/update-modules'
+      : '/api/v1/admin/devices/approve';
+    const res = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -391,7 +490,7 @@ window.toggleDeviceModule = async function(fp, modId, isEnabled) {
       },
       body: JSON.stringify({
         hardwareFingerprint: fp,
-        durationDays: 365,
+        validityDays: 365,
         allowedModules: Array.from(currentMods)
       })
     });

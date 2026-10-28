@@ -481,19 +481,194 @@ app.post('/api/v1/auth/register', async (req, res) => {
   }
 });
 
+app.post('/api/v1/auth/login', async (req, res) => {
+  try {
+    const body = decryptEnvelope(req.body);
+    const {
+      identifier,
+      username,
+      email,
+      password,
+      hardwareFingerprint,
+      socSerial,
+      androidId,
+      storageCid,
+      deviceModel
+    } = body;
+
+    const lookup = String(identifier || username || email || '').trim();
+    const pwHash = hashPassword(password);
+
+    if (!lookup) {
+      return sendClientResponse(req, res, { ok: false, error: 'Please enter your username or email.' });
+    }
+
+    if (isDbLive()) {
+      let record = await Device.findOne({
+        $or: [
+          { username: lookup },
+          { email: lookup },
+          ...(hardwareFingerprint ? [{ hardwareFingerprint }] : [])
+        ]
+      });
+
+      if (!record) {
+        return sendClientResponse(req, res, {
+          ok: false,
+          error: 'Account not found. Please use Create Account to register this device.'
+        });
+      }
+
+      if (record.passwordHash && password && record.passwordHash !== pwHash) {
+        return sendClientResponse(req, res, {
+          ok: false,
+          error: 'Invalid password for this account.'
+        });
+      }
+
+      if (hardwareFingerprint && record.hardwareFingerprint !== hardwareFingerprint) {
+        record.hardwareFingerprint = hardwareFingerprint;
+        record.deviceModel = deviceModel || record.deviceModel;
+      }
+      record.updatedAt = new Date();
+      await record.save();
+
+      const activeLicense = await License.findOne({
+        hardwareFingerprint: record.hardwareFingerprint,
+        revoked: false
+      }).sort({ issuedAtMs: -1 });
+
+      await recordAudit('USER_SIGN_IN', record.hardwareFingerprint, record.username, `Signed in on ${record.deviceModel}`, req);
+      return sendClientResponse(req, res, {
+        ok: true,
+        status: record.status,
+        username: record.username,
+        email: record.email,
+        hardwareFingerprint: record.hardwareFingerprint,
+        allowedModules: record.status === 'APPROVED' ? record.allowedModules : [],
+        licenseToken: activeLicense ? activeLicense.licenseToken : '',
+        validUntilMs: activeLicense ? activeLicense.validUntilMs : 0,
+        banReason: record.banReason || '',
+        serverTimeMs: Date.now(),
+        message: record.status === 'APPROVED'
+          ? 'Signed in! Your authorized modules are being synchronized.'
+          : 'Signed in. Waiting for Administrator approval.'
+      });
+    }
+
+    // In-memory store lookup
+    let memDev = memoryStore.devices.find(
+      (d) =>
+        d.username.toLowerCase() === lookup.toLowerCase() ||
+        (d.email && d.email.toLowerCase() === lookup.toLowerCase()) ||
+        (hardwareFingerprint && d.hardwareFingerprint === hardwareFingerprint)
+    );
+
+    if (!memDev) {
+      return sendClientResponse(req, res, {
+        ok: false,
+        error: 'Account not found. Please use Create Account to register this device.'
+      });
+    }
+
+    if (memDev.passwordHash && password && memDev.passwordHash !== pwHash) {
+      return sendClientResponse(req, res, {
+        ok: false,
+        error: 'Invalid password for this account.'
+      });
+    }
+
+    if (hardwareFingerprint) {
+      memDev.hardwareFingerprint = hardwareFingerprint;
+    }
+    if (deviceModel) {
+      memDev.deviceModel = deviceModel;
+    }
+    memDev.updatedAt = new Date();
+
+    const memLic = memoryStore.licenses.get(memDev.hardwareFingerprint);
+    await recordAudit('USER_SIGN_IN', memDev.hardwareFingerprint, memDev.username, `Signed in on ${memDev.deviceModel}`, req);
+    return sendClientResponse(req, res, {
+      ok: true,
+      status: memDev.status,
+      username: memDev.username,
+      email: memDev.email,
+      hardwareFingerprint: memDev.hardwareFingerprint,
+      allowedModules: memDev.status === 'APPROVED' ? memDev.allowedModules : [],
+      licenseToken: memLic ? memLic.licenseToken : '',
+      validUntilMs: memLic ? memLic.validUntilMs : 0,
+      banReason: memDev.banReason || '',
+      serverTimeMs: Date.now(),
+      message: memDev.status === 'APPROVED'
+        ? 'Signed in! Your authorized modules are being synchronized.'
+        : 'Signed in. Waiting for Administrator approval.'
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.post('/api/v1/auth/status', async (req, res) => {
   try {
     const body = decryptEnvelope(req.body);
-    const { hardwareFingerprint, elapsedRealtimeMs } = body;
+    const {
+      username,
+      email,
+      hardwareFingerprint,
+      socSerial,
+      androidId,
+      storageCid,
+      deviceModel,
+      elapsedRealtimeMs
+    } = body;
 
     let record = null;
     let activeLicense = null;
 
     if (isDbLive()) {
       record = await Device.findOne({ hardwareFingerprint });
+      if (!record && username && hardwareFingerprint) {
+        record = await Device.create({
+          hardwareFingerprint,
+          username,
+          email: email || '',
+          passwordHash: '',
+          socSerial: socSerial || '',
+          androidId: androidId || '',
+          storageCid: storageCid || '',
+          deviceModel: deviceModel || 'Android Device',
+          status: 'PENDING_APPROVAL',
+          allowedModules: [],
+          banReason: '',
+          registeredAt: new Date(),
+          updatedAt: new Date()
+        });
+        await recordAudit('REGISTER_PENDING', hardwareFingerprint, username, `Synced pending registration (${record.deviceModel})`, req);
+      }
       activeLicense = await License.findOne({ hardwareFingerprint, revoked: false }).sort({ issuedAtMs: -1 });
     } else {
       record = memoryStore.devices.find((d) => d.hardwareFingerprint === hardwareFingerprint);
+      if (!record && username && hardwareFingerprint) {
+        record = {
+          hardwareFingerprint,
+          username,
+          email: email || '',
+          passwordHash: '',
+          socSerial: socSerial || '',
+          androidId: androidId || '',
+          storageCid: storageCid || '',
+          deviceModel: deviceModel || 'Android Device',
+          status: 'PENDING_APPROVAL',
+          allowedModules: [],
+          banReason: '',
+          highWaterWallClockMs: Date.now(),
+          lastElapsedRealtimeMs: Number(elapsedRealtimeMs || 0),
+          registeredAt: new Date(),
+          updatedAt: new Date()
+        };
+        memoryStore.devices.unshift(record);
+        await recordAudit('REGISTER_PENDING', hardwareFingerprint, username, `Synced pending registration (${record.deviceModel})`, req);
+      }
       activeLicense = memoryStore.licenses.get(hardwareFingerprint);
     }
 
@@ -518,6 +693,7 @@ app.post('/api/v1/auth/status', async (req, res) => {
       ok: true,
       status: record.status,
       username: record.username,
+      email: record.email || '',
       hardwareFingerprint: record.hardwareFingerprint,
       allowedModules: record.status === 'APPROVED' ? record.allowedModules : [],
       licenseToken: activeLicense ? activeLicense.licenseToken : '',
@@ -848,6 +1024,23 @@ app.post('/api/v1/admin/devices/unban', requireAdminAuth, async (req, res) => {
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });
   }
+});
+
+// Backwards-compatible route aliases for cached clients
+app.post('/api/v1/admin/license/issue', requireAdminAuth, (req, res, next) => {
+  req.url = '/api/v1/admin/devices/approve';
+  if (req.body && req.body.durationDays && !req.body.validityDays) {
+    req.body.validityDays = req.body.durationDays;
+  }
+  app._router.handle(req, res, next);
+});
+
+app.post('/api/v1/admin/license/revoke', requireAdminAuth, (req, res, next) => {
+  req.url = '/api/v1/admin/devices/ban';
+  if (req.body && req.body.reason && !req.body.banReason) {
+    req.body.banReason = req.body.reason;
+  }
+  app._router.handle(req, res, next);
 });
 
 app.listen(PORT, () => {

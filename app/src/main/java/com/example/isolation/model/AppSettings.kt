@@ -46,8 +46,8 @@ data class AppSettings(
     val showIpInfoInToolbar: Boolean = true,
     val customProxyServers: List<VpnProxyServer> = emptyList(),
     // Modular Engine & Cloud License Server Settings
-    /** Developer Full Build = all modules unlocked locally (true on Dev APK, false on Release Normal APK). */
-    val devFullBuildMode: Boolean = com.example.BuildConfig.DEBUG,
+    /** Developer Full Build = all modules unlocked locally (false by default so Core APK always runs onboarding & cloud auth). */
+    val devFullBuildMode: Boolean = false,
     /** Node.js + MongoDB Atlas Cloud Admin Server URL */
     val cloudServerUrl: String = "https://hollow.arshman.me"
 ) {
@@ -86,7 +86,7 @@ object SettingsStore {
     private const val K_MATCH_TZ_WITH_IP = "match_tz_with_ip_global"
     private const val K_SHOW_IP_INFO = "show_ip_info_toolbar"
     private const val K_CUSTOM_SERVERS_JSON = "custom_proxy_servers_json"
-    private const val K_DEV_FULL_BUILD = "dev_full_build_mode"
+    private const val K_DEV_FULL_BUILD = "dev_full_build_mode_v2"
     private const val K_CLOUD_SERVER_URL = "cloud_server_url"
 
     fun load(context: Context): AppSettings {
@@ -147,7 +147,7 @@ object SettingsStore {
             matchTimezoneWithIpGlobal = p.getBoolean(K_MATCH_TZ_WITH_IP, true),
             showIpInfoInToolbar = p.getBoolean(K_SHOW_IP_INFO, true),
             customProxyServers = customServers,
-            devFullBuildMode = p.getBoolean(K_DEV_FULL_BUILD, com.example.BuildConfig.DEBUG),
+            devFullBuildMode = p.getBoolean(K_DEV_FULL_BUILD, false),
             cloudServerUrl = p.getString(K_CLOUD_SERVER_URL, "https://hollow.arshman.me") ?: "https://hollow.arshman.me"
         )
     }

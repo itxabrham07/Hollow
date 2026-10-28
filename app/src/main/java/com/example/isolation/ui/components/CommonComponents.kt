@@ -514,13 +514,13 @@ fun HollowDynamicEmblem(
     val bgColor = when (iconTheme) {
         HollowIconTheme.DYNAMIC_MATERIAL_YOU -> scheme.primaryContainer
         HollowIconTheme.CYBER_ECLIPSE -> scheme.surfaceContainerHigh
-        HollowIconTheme.CRIMSON_VOID -> scheme.errorContainer
+        HollowIconTheme.CRIMSON_VOID -> scheme.primaryContainer
         HollowIconTheme.OBSIDIAN_MINIMAL -> scheme.surfaceVariant
     }
     val accentColor = when (iconTheme) {
         HollowIconTheme.DYNAMIC_MATERIAL_YOU -> scheme.primary
         HollowIconTheme.CYBER_ECLIPSE -> scheme.primary
-        HollowIconTheme.CRIMSON_VOID -> scheme.error
+        HollowIconTheme.CRIMSON_VOID -> scheme.primary
         HollowIconTheme.OBSIDIAN_MINIMAL -> scheme.onSurface
     }
 

@@ -1,630 +1,1135 @@
 package com.example.isolation.ui.screens
 
-import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.CloudSync
-import androidx.compose.material.icons.filled.DeveloperMode
-import androidx.compose.material.icons.filled.HourglassTop
-import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Restore
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.VerifiedUser
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.Login
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.example.BuildConfig
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.isolation.core.root.LicenseAccountStatus
-import com.example.isolation.core.root.RootLicenseVaultManager
 import com.example.isolation.ui.components.ContentCard
-import com.example.isolation.ui.components.ListRow
-import com.example.isolation.ui.components.MonoDataText
-import com.example.isolation.ui.components.PrimaryButton
-import com.example.isolation.ui.components.SecondaryButton
+import com.example.isolation.ui.components.ProSegmentedTabRow
 import com.example.isolation.ui.components.SectionHeader
 import com.example.isolation.ui.components.StatusIndicator
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
+import com.example.ui.theme.FrauncesFontFamily
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.M3AmberAccent
+import kotlinx.coroutines.delay
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OnboardingAuthScreen(
     viewModel: IsoVaultViewModel,
-    isStandaloneGate: Boolean = false,
-    onBack: () -> Unit = {}
+    onContinueToDashboard: () -> Unit,
+    onBack: (() -> Unit)? = null
 ) {
-    val scheme = MaterialTheme.colorScheme
-    val settings by viewModel.settings.collectAsState()
-    val vaultRecord by viewModel.vaultLicenseRecord.collectAsState()
-    val moduleStates by viewModel.moduleStates.collectAsState()
-    val clockCheck by viewModel.clockVerification.collectAsState()
+    val context = LocalContext.current
+    val vaultRecord by viewModel.vaultLicenseRecord.collectAsStateWithLifecycle()
+    val moduleStates by viewModel.moduleStates.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val isRootGranted by viewModel.isRootAccessGranted.collectAsStateWithLifecycle()
+    val isRequestingRoot by viewModel.isRequestingRoot.collectAsStateWithLifecycle()
+    val isAuthLoading by viewModel.isAuthLoading.collectAsStateWithLifecycle()
+    val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
     val hw = viewModel.hardwareBinding
 
-    var usernameInput by remember(vaultRecord.username) {
-        mutableStateOf(vaultRecord.username.ifBlank { "operator_01" })
+    // 0 = Create Account (Register), 1 = Sign In
+    var authTabIndex by remember { mutableIntStateOf(0) }
+    var username by remember(vaultRecord.username) {
+        mutableStateOf(vaultRecord.username)
     }
-    var emailInput by remember(vaultRecord.email) {
-        mutableStateOf(vaultRecord.email.ifBlank { "operator@hollow.sec" })
+    var email by remember(vaultRecord.email) {
+        mutableStateOf(vaultRecord.email)
     }
-    var passwordInput by remember { mutableStateOf("Hollow#Root2026") }
-    var serverUrlInput by remember(settings.cloudServerUrl) {
-        mutableStateOf(settings.cloudServerUrl)
+    var password by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
+
+    // Auto-poll server every 6 seconds while waiting for approval, and auto-navigate once approved
+    LaunchedEffect(vaultRecord.status) {
+        if (vaultRecord.status == LicenseAccountStatus.PENDING_APPROVAL) {
+            while (true) {
+                viewModel.syncLicenseAndModulesFromServer()
+                delay(6_000L)
+            }
+        } else if (vaultRecord.status == LicenseAccountStatus.APPROVED && onBack == null) {
+            viewModel.downloadAllAuthorizedModules()
+            delay(400L)
+            onContinueToDashboard()
+        }
     }
 
-    var adminGrantHider by remember { mutableStateOf(true) }
-    var adminGrantIsolation by remember { mutableStateOf(true) }
-    var adminGrantPrivacy by remember { mutableStateOf(true) }
-    var adminGrantNetwork by remember { mutableStateOf(true) }
-    var adminGrantSensorFirewall by remember { mutableStateOf(false) }
-
-    if (!isStandaloneGate) {
-        BackHandler { onBack() }
-    }
-
-    val statusColor = when (vaultRecord.status) {
-        LicenseAccountStatus.APPROVED -> scheme.secondary
-        LicenseAccountStatus.PENDING_APPROVAL -> M3AmberAccent
-        LicenseAccountStatus.BANNED -> scheme.error
-        else -> scheme.onSurfaceVariant
-    }
-
-    LazyColumn(
+    Scaffold(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
             .testTag("onboarding_auth_screen"),
-        contentPadding = PaddingValues(top = 12.dp, bottom = 32.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // Header bar
-        item {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    if (!isStandaloneGate) {
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Surface(
+                            shape = MaterialTheme.shapes.small,
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Shield,
+                                    contentDescription = "Hollow",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                        Column {
+                            Text(
+                                text = "Hollow",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontFamily = FrauncesFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = when (vaultRecord.status) {
+                                    LicenseAccountStatus.PENDING_APPROVAL -> "Approval Verification"
+                                    LicenseAccountStatus.APPROVED -> "Account & Modules"
+                                    LicenseAccountStatus.BANNED -> "Access Restricted"
+                                    else -> "Getting Started"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                },
+                navigationIcon = {
+                    if (onBack != null) {
                         IconButton(
                             onClick = onBack,
-                            modifier = Modifier.testTag("btn_back_from_license_hub")
+                            modifier = Modifier.testTag("btn_onboarding_back")
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
-                                tint = scheme.onBackground
+                                contentDescription = "Back"
                             )
                         }
-                        Spacer(modifier = Modifier.width(8.dp))
                     }
-                    Column {
-                        Text(
-                            text = if (isStandaloneGate) "Hollow Release Shell" else "Root Vault & Module Hub",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = scheme.onBackground
-                        )
-                        Text(
-                            text = "AES-256-GCM Root Vault • Dynamic Module Engine",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = scheme.onSurfaceVariant
-                        )
+                },
+                actions = {
+                    if (vaultRecord.status == LicenseAccountStatus.APPROVED || settings.devFullBuildMode) {
+                        FilledTonalButton(
+                            onClick = onContinueToDashboard,
+                            modifier = Modifier
+                                .padding(end = 8.dp)
+                                .testTag("btn_continue_dashboard"),
+                            shape = MaterialTheme.shapes.small,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = "Dashboard",
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                contentDescription = "Open Dashboard",
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background
+                )
+            )
+        }
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+            contentAlignment = Alignment.TopCenter
+        ) {
+            when (vaultRecord.status) {
+                LicenseAccountStatus.PENDING_APPROVAL -> {
+                    WaitingForApprovalView(
+                        username = vaultRecord.username,
+                        email = vaultRecord.email,
+                        hardwareId = hw.fingerprintHex,
+                        deviceModel = hw.deviceModel,
+                        isRootGranted = isRootGranted,
+                        statusMessage = statusMessage,
+                        onCheckStatus = { viewModel.syncLicenseAndModulesFromServer() },
+                        onRequestRoot = { viewModel.requestRootAccess() },
+                        onCopyHardwareId = {
+                            copyToClipboard(context, "Hollow Device ID", hw.fingerprintHex)
+                            viewModel.postStatusMessage("Device ID copied to clipboard")
+                        },
+                        onSwitchAccount = { viewModel.simulateAdminResetToUnregistered() }
+                    )
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
-                StatusIndicator(
-                    label = vaultRecord.status.name,
-                    color = statusColor
-                )
-            }
-        }
+                LicenseAccountStatus.BANNED -> {
+                    BannedDeviceView(
+                        banReason = vaultRecord.banReason,
+                        hardwareId = hw.fingerprintHex,
+                        onReset = { viewModel.simulateAdminResetToUnregistered() }
+                    )
+                }
 
-        // Build Flavor Switch: Developer Full Build vs Release Shell (Interactive only in Dev APK)
-        if (BuildConfig.DEBUG) {
-            item {
-                ContentCard(modifier = Modifier.fillMaxWidth()) {
-                    ListRow(
-                        title = if (settings.devFullBuildMode) "Developer Full Build (All Modules)" else "Release Shell Mode (Zero-Module APK)",
-                        subtitle = if (settings.devFullBuildMode) {
-                            "Switch OFF to test the Release Shell registration, waiting screen & dynamic server download."
-                        } else {
-                            "Zero modules bundled in APK. Features appear only after Admin approval & Root Vault download."
+                LicenseAccountStatus.APPROVED -> {
+                    ApprovedAccountHubView(
+                        viewModel = viewModel,
+                        username = vaultRecord.username,
+                        email = vaultRecord.email,
+                        hardwareId = hw.fingerprintHex,
+                        allowedCount = vaultRecord.allowedModules.size,
+                        downloadedCount = vaultRecord.downloadedModules.size,
+                        moduleStates = moduleStates,
+                        onContinueToDashboard = onContinueToDashboard
+                    )
+                }
+
+                else -> {
+                    GettingStartedOnboardingView(
+                        authTabIndex = authTabIndex,
+                        onTabChange = { authTabIndex = it },
+                        username = username,
+                        onUsernameChange = { username = it },
+                        email = email,
+                        onEmailChange = { email = it },
+                        password = password,
+                        onPasswordChange = { password = it },
+                        passwordVisible = passwordVisible,
+                        onTogglePasswordVisible = { passwordVisible = !passwordVisible },
+                        isRootGranted = isRootGranted,
+                        isRequestingRoot = isRequestingRoot,
+                        isAuthLoading = isAuthLoading,
+                        statusMessage = statusMessage,
+                        onRequestRoot = { viewModel.requestRootAccess() },
+                        onSubmitRegister = {
+                            viewModel.registerAccountWithCloud(
+                                username = username.ifBlank { "user_${hw.androidId.take(4)}" },
+                                email = email.ifBlank { "user@hollow.app" },
+                                password = password.ifBlank { "hollow_pass" }
+                            )
                         },
-                        leadingIcon = Icons.Default.DeveloperMode,
-                        tintLeadingIcon = true,
-                        modifier = Modifier.padding(vertical = 0.dp),
-                        trailing = {
-                            Switch(
-                                checked = settings.devFullBuildMode,
-                                onCheckedChange = { viewModel.setDevFullBuildMode(it) },
-                                modifier = Modifier.testTag("switch_dev_full_build")
+                        onSubmitSignIn = {
+                            viewModel.signInWithCloud(
+                                identifier = username.ifBlank { email },
+                                password = password
                             )
                         }
                     )
                 }
             }
         }
+    }
+}
 
-        // Hardware Fingerprint & Root Secret Volume Telemetry Card
+@Composable
+private fun GettingStartedOnboardingView(
+    authTabIndex: Int,
+    onTabChange: (Int) -> Unit,
+    username: String,
+    onUsernameChange: (String) -> Unit,
+    email: String,
+    onEmailChange: (String) -> Unit,
+    password: String,
+    onPasswordChange: (String) -> Unit,
+    passwordVisible: Boolean,
+    onTogglePasswordVisible: () -> Unit,
+    isRootGranted: Boolean,
+    isRequestingRoot: Boolean,
+    isAuthLoading: Boolean,
+    statusMessage: String?,
+    onRequestRoot: () -> Unit,
+    onSubmitRegister: () -> Unit,
+    onSubmitSignIn: () -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .widthIn(max = 600.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // 1. Expressive Getting Started Hero
         item {
-            ContentCard(modifier = Modifier.fillMaxWidth()) {
-                SectionHeader(
-                    title = "Root Secret Volume & Anti-Tamper",
-                    subtitle = "Hardware-bound storage & monotonic clock verification",
-                    trailing = {
+            ContentCard(
+                shape = MaterialTheme.shapes.large,
+                containerColor = scheme.primaryContainer,
+                borderColor = scheme.primary.copy(alpha = 0.25f),
+                modifier = Modifier.testTag("card_getting_started_hero")
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Surface(
+                        shape = MaterialTheme.shapes.medium,
+                        color = scheme.primary.copy(alpha = 0.14f),
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.VerifiedUser,
+                                contentDescription = "Privacy Layer",
+                                tint = scheme.primary,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
                         StatusIndicator(
-                            label = if (clockCheck.isClockRolledBack) "Clock Tamper" else "Monotonic OK",
-                            color = if (clockCheck.isClockRolledBack) scheme.error else scheme.secondary
+                            label = "Privacy Layer Architecture",
+                            color = scheme.primary
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "The Privacy Layer Between Your Apps & You",
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontFamily = FrauncesFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            color = scheme.onPrimaryContainer
                         )
                     }
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-                HorizontalDivider(color = scheme.outlineVariant)
-                Spacer(modifier = Modifier.height(8.dp))
-
-                ListRow(
-                    title = "Secret Volume Path",
-                    monoSubtitle = RootLicenseVaultManager.ROOT_VAULT_DIR,
-                    leadingIcon = Icons.Default.Security
-                )
-                HorizontalDivider(color = scheme.outlineVariant)
-
-                ListRow(
-                    title = "Hardware Fingerprint",
-                    monoSubtitle = hw.fingerprintHex
-                )
-                HorizontalDivider(color = scheme.outlineVariant)
-
-                ListRow(
-                    title = "SoC / Storage CID",
-                    monoSubtitle = "${hw.socSerial} • ${hw.storageCid.take(12)}"
-                )
-                HorizontalDivider(color = scheme.outlineVariant)
-
-                ListRow(
-                    title = "Anti-MITM Channel",
-                    monoSubtitle = "Proxy.NO_PROXY + AES-256-GCM + HMAC-SHA256"
-                )
-                HorizontalDivider(color = scheme.outlineVariant)
-
-                ListRow(
-                    title = "Monotonic Clock Guard",
-                    monoSubtitle = if (vaultRecord.validUntilMs > 0L) {
-                        "Remaining: ${clockCheck.remainingDays} days"
-                    } else {
-                        "SystemClock.elapsedRealtime() watermark active"
-                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "Hollow enforces OS-level storage sandboxing, identity protection, and modular privacy controls. Grant root access and sign in or create an account to activate your device.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = scheme.onPrimaryContainer.copy(alpha = 0.85f)
                 )
             }
         }
 
-        // State-specific Panel: BANNED / UNREGISTERED / PENDING_APPROVAL / APPROVED
-        when (vaultRecord.status) {
-            LicenseAccountStatus.BANNED -> {
-                item {
-                    ContentCard(
-                        borderColor = scheme.error,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("card_device_banned")
+        // 2. Step 1: Root Access Permission Gate
+        item {
+            ContentCard(
+                modifier = Modifier.testTag("card_root_permission_step"),
+                borderColor = if (isRootGranted) scheme.secondary else scheme.outlineVariant
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.weight(1f)
                     ) {
-                        ListRow(
-                            title = "Device Permanently Banned",
-                            subtitle = vaultRecord.banReason.ifBlank {
-                                "Administrator revoked this device. All encrypted modules in /data/adb/.hollow_vault/modules have been wiped."
+                        Surface(
+                            shape = CircleShape,
+                            color = if (isRootGranted) {
+                                scheme.secondary.copy(alpha = 0.14f)
+                            } else {
+                                scheme.primary.copy(alpha = 0.14f)
                             },
-                            monoSubtitle = "Hardware ID ${hw.fingerprintHex} is blacklisted",
-                            leadingIcon = Icons.Default.Block,
-                            statusLabel = "Banned",
-                            statusColor = scheme.error,
-                            modifier = Modifier.padding(vertical = 0.dp)
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        SecondaryButton(
-                            text = "Admin Simulator: Unban & Reset",
-                            icon = Icons.Default.Restore,
-                            onClick = { viewModel.simulateAdminResetToUnregistered() },
-                            modifier = Modifier.testTag("btn_unban_reset")
-                        )
-                    }
-                }
-            }
-
-            LicenseAccountStatus.UNREGISTERED, LicenseAccountStatus.REVOKED -> {
-                item {
-                    ContentCard(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("card_registration_form")
-                    ) {
-                        ListRow(
-                            title = "Getting Started • Register Device",
-                            subtitle = "Register your account to bind this hardware fingerprint to /data/adb/.hollow_vault. Once submitted, your device enters Admin Approval Waiting Mode.",
-                            monoSubtitle = hw.fingerprintHex,
-                            leadingIcon = Icons.Default.PersonAdd,
-                            tintLeadingIcon = true,
-                            modifier = Modifier.padding(vertical = 0.dp)
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        OutlinedTextField(
-                            value = usernameInput,
-                            onValueChange = { usernameInput = it },
-                            label = { Text("Username", style = MaterialTheme.typography.bodySmall) },
-                            textStyle = MaterialTheme.typography.bodyMedium,
-                            shape = MaterialTheme.shapes.extraSmall,
-                            singleLine = true,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("input_register_username")
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = emailInput,
-                            onValueChange = { emailInput = it },
-                            label = { Text("Email Address", style = MaterialTheme.typography.bodySmall) },
-                            textStyle = MaterialTheme.typography.bodyMedium,
-                            shape = MaterialTheme.shapes.extraSmall,
-                            singleLine = true,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("input_register_email")
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = passwordInput,
-                            onValueChange = { passwordInput = it },
-                            label = { Text("Password", style = MaterialTheme.typography.bodySmall) },
-                            textStyle = MaterialTheme.typography.bodyMedium,
-                            shape = MaterialTheme.shapes.extraSmall,
-                            singleLine = true,
-                            visualTransformation = PasswordVisualTransformation(),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("input_register_password")
-                        )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        PrimaryButton(
-                            text = "Register & Enter Approval Waiting Mode",
-                            icon = Icons.Default.Lock,
-                            enabled = usernameInput.isNotBlank() && emailInput.isNotBlank() && passwordInput.isNotBlank(),
-                            onClick = {
-                                viewModel.registerAccountWithCloud(
-                                    username = usernameInput,
-                                    email = emailInput,
-                                    password = passwordInput
-                                )
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("btn_submit_registration")
-                        )
-                    }
-                }
-            }
-
-            LicenseAccountStatus.PENDING_APPROVAL -> {
-                item {
-                    ContentCard(
-                        borderColor = M3AmberAccent,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("card_waiting_approval")
-                    ) {
-                        ListRow(
-                            title = "Waiting for Admin Approval",
-                            subtitle = "Your registration and hardware fingerprint (${hw.fingerprintHex}) are stored in /data/adb/.hollow_vault/license.enc.",
-                            monoSubtitle = "${vaultRecord.username} (${vaultRecord.email})",
-                            leadingIcon = Icons.Default.HourglassTop,
-                            statusLabel = "Pending",
-                            statusColor = M3AmberAccent,
-                            modifier = Modifier.padding(vertical = 0.dp)
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.size(40.dp)
                         ) {
-                            PrimaryButton(
-                                text = "Check Approval Status",
-                                icon = Icons.Default.CloudSync,
-                                onClick = { viewModel.syncLicenseAndModulesFromServer() },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("btn_poll_approval_status")
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = if (isRootGranted) Icons.Default.CheckCircle else Icons.Default.Security,
+                                    contentDescription = "Root Status",
+                                    tint = if (isRootGranted) scheme.secondary else scheme.primary,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
+                        Column {
+                            Text(
+                                text = "Step 1 · Root Permission",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = scheme.onSurface
                             )
-                            SecondaryButton(
-                                text = "Edit Account",
-                                onClick = { viewModel.simulateAdminResetToUnregistered() },
-                                modifier = Modifier.testTag("btn_edit_registration")
+                            Text(
+                                text = if (isRootGranted) {
+                                    "Superuser access granted and verified"
+                                } else {
+                                    "Required to initialize the isolated privacy engine"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = scheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    StatusIndicator(
+                        label = if (isRootGranted) "Granted" else "Required",
+                        color = if (isRootGranted) scheme.secondary else M3AmberAccent
+                    )
+                }
+
+                if (!isRootGranted) {
+                    Spacer(Modifier.height(12.dp))
+                    FilledTonalButton(
+                        onClick = onRequestRoot,
+                        enabled = !isRequestingRoot,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .testTag("btn_request_root"),
+                        shape = MaterialTheme.shapes.medium
+                    ) {
+                        if (isRequestingRoot) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "Waiting for Superuser Prompt...",
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Key,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "Grant Root Permission",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
                     }
                 }
             }
+        }
 
-            LicenseAccountStatus.APPROVED -> {
-                item {
-                    ContentCard(
-                        borderColor = scheme.secondary,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("card_approved_license")
-                    ) {
-                        ListRow(
-                            title = "Authorized Operator • ${vaultRecord.username}",
-                            subtitle = "Active hardware-bound operator license",
-                            monoSubtitle = "/data/adb/.hollow_vault/license.enc",
-                            leadingIcon = Icons.Default.VerifiedUser,
-                            statusLabel = "Approved",
-                            statusColor = scheme.secondary,
-                            modifier = Modifier.padding(vertical = 0.dp),
-                            trailing = {
-                                IconButton(
-                                    onClick = { viewModel.syncLicenseAndModulesFromServer() }
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Refresh,
-                                        contentDescription = "Sync Heartbeat",
-                                        tint = scheme.primary
-                                    )
-                                }
-                            }
+        // 3. Step 2: Sign In or Create Account
+        item {
+            ContentCard(
+                modifier = Modifier.testTag("card_registration_form")
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "Step 2 · Account Verification",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = scheme.onSurface
                         )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        SecondaryButton(
-                            text = "Test 'Clear App Data' Survival",
-                            icon = Icons.Default.Restore,
-                            onClick = { viewModel.simulateClearAppDataAndRecoverFromRootVault() },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("btn_simulate_clear_data_recovery")
+                        Text(
+                            text = if (authTabIndex == 0) {
+                                "Register your device to request administrator approval and modular feature access."
+                            } else {
+                                "Already registered? Sign in to sync your approval status and install your modules."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = scheme.onSurfaceVariant
                         )
                     }
-                }
-            }
-        }
 
-        // Dynamic Modules List (Server -> /data/adb/.hollow_vault/modules/<id>.dex.enc)
-        item {
-            SectionHeader(
-                title = "Dynamic Server Modules",
-                subtitle = "/data/adb/.hollow_vault/modules"
-            )
-        }
+                    ProSegmentedTabRow(
+                        options = listOf(
+                            "Create Account" to Icons.Default.HowToReg,
+                            "Sign In" to Icons.AutoMirrored.Filled.Login
+                        ),
+                        selectedIndex = authTabIndex,
+                        onSelect = onTabChange
+                    )
 
-        items(moduleStates, key = { it.module.id }) { state ->
-            val mod = state.module
-            val isAccountApproved = vaultRecord.status == LicenseAccountStatus.APPROVED
-            val devFullBuild = settings.devFullBuildMode
+                    OutlinedTextField(
+                        value = username,
+                        onValueChange = onUsernameChange,
+                        label = {
+                            Text(if (authTabIndex == 0) "Username" else "Username or Email")
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Default.Person, contentDescription = null)
+                        },
+                        singleLine = true,
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("input_register_username")
+                    )
 
-            val monoDetail = when {
-                devFullBuild -> "v${mod.version} • ${mod.sizeKb} KB • Unlocked via Developer Full Build"
-                state.isDownloadedInRootVault -> "v${mod.version} • /data/adb/.hollow_vault/modules/${mod.id}.dex.enc"
-                state.isAuthorizedByAdmin -> "v${mod.version} • ${mod.sizeKb} KB • Authorized by Admin"
-                else -> "v${mod.version} • ${mod.sizeKb} KB • Requires Admin entitlement"
-            }
+                    AnimatedVisibility(visible = authTabIndex == 0) {
+                        OutlinedTextField(
+                            value = email,
+                            onValueChange = onEmailChange,
+                            label = { Text("Email Address") },
+                            leadingIcon = {
+                                Icon(Icons.Default.Email, contentDescription = null)
+                            },
+                            singleLine = true,
+                            shape = MaterialTheme.shapes.small,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("input_register_email")
+                        )
+                    }
 
-            ContentCard(
-                borderColor = if (state.isReadyToUse) scheme.secondary else scheme.outlineVariant,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("module_vault_row_${mod.id}")
-            ) {
-                ListRow(
-                    title = mod.displayName,
-                    subtitle = mod.summary,
-                    monoSubtitle = monoDetail,
-                    leadingIcon = mod.icon,
-                    modifier = Modifier.padding(vertical = 0.dp),
-                    trailing = {
-                        when {
-                            state.isDownloadedInRootVault || devFullBuild -> {
-                                StatusIndicator(
-                                    label = if (state.isDownloadedInRootVault && !devFullBuild) "Mounted" else "Dev Active",
-                                    color = scheme.secondary
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = onPasswordChange,
+                        label = { Text("Password") },
+                        leadingIcon = {
+                            Icon(Icons.Default.Lock, contentDescription = null)
+                        },
+                        trailingIcon = {
+                            IconButton(onClick = onTogglePasswordVisible) {
+                                Icon(
+                                    imageVector = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = "Toggle password visibility"
                                 )
                             }
-                            state.isAuthorizedByAdmin && isAccountApproved -> {
-                                PrimaryButton(
-                                    text = "Download",
-                                    icon = Icons.Default.CloudDownload,
-                                    onClick = { viewModel.downloadModuleIntoRootVault(mod.id) },
-                                    modifier = Modifier.testTag("btn_download_${mod.id}")
+                        },
+                        visualTransformation = if (passwordVisible) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        singleLine = true,
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("input_register_password")
+                    )
+
+                    if (!statusMessage.isNullOrBlank()) {
+                        Surface(
+                            shape = MaterialTheme.shapes.small,
+                            color = scheme.surfaceVariant,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = scheme.primary,
+                                    modifier = Modifier.size(18.dp)
                                 )
-                            }
-                            else -> {
-                                StatusIndicator(
-                                    label = "Locked",
+                                Text(
+                                    text = statusMessage,
+                                    style = MaterialTheme.typography.bodySmall,
                                     color = scheme.onSurfaceVariant
                                 )
                             }
                         }
                     }
-                )
+
+                    Button(
+                        onClick = {
+                            if (authTabIndex == 0) onSubmitRegister() else onSubmitSignIn()
+                        },
+                        enabled = !isAuthLoading && (username.isNotBlank() || email.isNotBlank()),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .testTag("btn_submit_registration"),
+                        shape = MaterialTheme.shapes.medium
+                    ) {
+                        if (isAuthLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = scheme.onPrimary
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = if (!isRootGranted) "Requesting Root & Connecting..." else "Connecting...",
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        } else {
+                            Icon(
+                                imageVector = if (authTabIndex == 0) {
+                                    Icons.Default.HowToReg
+                                } else {
+                                    Icons.AutoMirrored.Filled.Login
+                                },
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = if (authTabIndex == 0) {
+                                    if (isRootGranted) "Create Account & Request Approval" else "Grant Root & Create Account"
+                                } else {
+                                    if (isRootGranted) "Sign In & Sync Modules" else "Grant Root & Sign In"
+                                },
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
             }
         }
+    }
+}
 
-        // Built-in Web Admin Portal Simulator & Cloud Endpoint Config
+@Composable
+private fun WaitingForApprovalView(
+    username: String,
+    email: String,
+    hardwareId: String,
+    deviceModel: String,
+    isRootGranted: Boolean,
+    statusMessage: String?,
+    onCheckStatus: () -> Unit,
+    onRequestRoot: () -> Unit,
+    onCopyHardwareId: () -> Unit,
+    onSwitchAccount: () -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    val pulseTransition = rememberInfiniteTransition(label = "approval_pulse")
+    val pulseScale by pulseTransition.animateFloat(
+        initialValue = 0.94f,
+        targetValue = 1.06f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1400),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse_scale"
+    )
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .widthIn(max = 600.dp)
+            .testTag("card_waiting_approval"),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
         item {
-            ContentCard(modifier = Modifier.fillMaxWidth()) {
-                ListRow(
-                    title = "Cloud Admin Portal & Instant Simulator",
-                    subtitle = "Connect to the Node.js + MongoDB Atlas server (/web/server.js) or use the quick Admin controls below:",
-                    leadingIcon = Icons.Default.Key,
-                    modifier = Modifier.padding(vertical = 0.dp)
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
+            ContentCard(
+                shape = MaterialTheme.shapes.large,
+                containerColor = scheme.primaryContainer,
+                borderColor = scheme.primary.copy(alpha = 0.25f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    OutlinedTextField(
-                        value = serverUrlInput,
-                        onValueChange = { serverUrlInput = it },
-                        label = { Text("Cloud Admin Server URL", style = MaterialTheme.typography.bodySmall) },
-                        textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = JetBrainsMonoFontFamily),
-                        shape = MaterialTheme.shapes.extraSmall,
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                    SecondaryButton(
-                        text = "Save URL",
-                        onClick = { viewModel.setCloudServerUrl(serverUrlInput) }
-                    )
-                }
+                    Surface(
+                        shape = CircleShape,
+                        color = scheme.primary.copy(alpha = 0.16f),
+                        modifier = Modifier
+                            .size(72.dp)
+                            .scale(pulseScale)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.HourglassTop,
+                                contentDescription = "Waiting for Approval",
+                                tint = scheme.primary,
+                                modifier = Modifier.size(34.dp)
+                            )
+                        }
+                    }
 
-                if (BuildConfig.DEBUG) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    HorizontalDivider(color = scheme.outlineVariant)
-                    Spacer(modifier = Modifier.height(12.dp))
+                    StatusIndicator(
+                        label = "Pending Administrator Approval",
+                        color = M3AmberAccent
+                    )
 
                     Text(
-                        text = "Admin Module Entitlements to Grant (Dev Simulator):",
-                        style = MaterialTheme.typography.labelLarge,
+                        text = "Waiting for Approval",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontFamily = FrauncesFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        color = scheme.onPrimaryContainer,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Text(
+                        text = "Your registration has been sent. Once the administrator approves your device, Hollow will automatically install your authorized modules and unlock your dashboard.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = scheme.onPrimaryContainer.copy(alpha = 0.85f),
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+
+        item {
+            ContentCard(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Registration Summary",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
                         color = scheme.onSurface
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
 
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ApprovalDetailRow(
+                        label = "Account",
+                        value = username.ifBlank { "Registered User" } +
+                            if (email.isNotBlank()) " · $email" else ""
+                    )
+                    ApprovalDetailRow(
+                        label = "Device",
+                        value = deviceModel
+                    )
+                    ApprovalDetailRow(
+                        label = "Root Access",
+                        value = if (isRootGranted) "Granted" else "Not Granted"
+                    )
+
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = scheme.surfaceVariant,
+                        border = BorderStroke(1.dp, scheme.outlineVariant),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        FilterChip(
-                            selected = adminGrantHider,
-                            onClick = { adminGrantHider = !adminGrantHider },
-                            label = { Text("App Hider", style = MaterialTheme.typography.labelMedium) },
-                            shape = MaterialTheme.shapes.extraSmall,
-                            modifier = Modifier.weight(1f)
-                        )
-                        FilterChip(
-                            selected = adminGrantIsolation,
-                            onClick = { adminGrantIsolation = !adminGrantIsolation },
-                            label = { Text("Storage", style = MaterialTheme.typography.labelMedium) },
-                            shape = MaterialTheme.shapes.extraSmall,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        FilterChip(
-                            selected = adminGrantPrivacy,
-                            onClick = { adminGrantPrivacy = !adminGrantPrivacy },
-                            label = { Text("Privacy ID", style = MaterialTheme.typography.labelMedium) },
-                            shape = MaterialTheme.shapes.extraSmall,
-                            modifier = Modifier.weight(1f)
-                        )
-                        FilterChip(
-                            selected = adminGrantNetwork,
-                            onClick = { adminGrantNetwork = !adminGrantNetwork },
-                            label = { Text("Proxy/V2Ray", style = MaterialTheme.typography.labelMedium) },
-                            shape = MaterialTheme.shapes.extraSmall,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        FilterChip(
-                            selected = adminGrantSensorFirewall,
-                            onClick = { adminGrantSensorFirewall = !adminGrantSensorFirewall },
-                            label = {
-                                Text(
-                                    text = "Sensor Firewall (Zero-Touch /modules/ Plugin)",
-                                    style = MaterialTheme.typography.labelMedium
-                                )
-                            },
-                            shape = MaterialTheme.shapes.extraSmall,
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .testTag("chip_grant_sensor_firewall")
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Hardware Verification ID",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = scheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = hardwareId,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = scheme.primary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            IconButton(onClick = onCopyHardwareId) {
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = "Copy Device ID",
+                                    tint = scheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    if (!isRootGranted) {
+                        FilledTonalButton(
+                            onClick = onRequestRoot,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp),
+                            shape = MaterialTheme.shapes.medium
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Key,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "Grant Root Permission",
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
+                    }
+
+                    if (!statusMessage.isNullOrBlank()) {
+                        Text(
+                            text = statusMessage,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = scheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
-
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        PrimaryButton(
-                            text = "Admin: Approve Device",
-                            icon = Icons.Default.CheckCircle,
-                            onClick = {
-                                val granted = mutableSetOf<String>()
-                                if (adminGrantHider) granted.add("module_hider")
-                                if (adminGrantIsolation) granted.add("module_isolation")
-                                if (adminGrantPrivacy) granted.add("module_privacy")
-                                if (adminGrantNetwork) granted.add("module_network")
-                                if (adminGrantSensorFirewall) granted.add("module_sensor_firewall")
-                                viewModel.simulateAdminApproveAccount(allowedModules = granted)
-                            },
+                        Button(
+                            onClick = onCheckStatus,
                             modifier = Modifier
                                 .weight(1f)
-                                .testTag("btn_admin_approve_device")
-                        )
+                                .heightIn(min = 48.dp)
+                                .testTag("btn_poll_approval_status"),
+                            shape = MaterialTheme.shapes.medium
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "Check Status",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
 
-                        PrimaryButton(
-                            text = "Ban Device",
-                            icon = Icons.Default.Block,
-                            isDestructive = true,
-                            onClick = { viewModel.simulateAdminBanDevice() },
-                            modifier = Modifier.testTag("btn_admin_ban_device")
+                        OutlinedButton(
+                            onClick = onSwitchAccount,
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .testTag("btn_edit_registration"),
+                            shape = MaterialTheme.shapes.medium
+                        ) {
+                            Text(
+                                text = "Switch Account",
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ApprovedAccountHubView(
+    viewModel: IsoVaultViewModel,
+    username: String,
+    email: String,
+    hardwareId: String,
+    allowedCount: Int,
+    downloadedCount: Int,
+    moduleStates: List<com.example.isolation.core.module.DynamicModuleState>,
+    onContinueToDashboard: () -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .widthIn(max = 600.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            ContentCard(
+                shape = MaterialTheme.shapes.large,
+                containerColor = scheme.primaryContainer,
+                borderColor = scheme.primary.copy(alpha = 0.25f),
+                modifier = Modifier.testTag("card_approved_license")
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = scheme.secondary.copy(alpha = 0.16f),
+                                modifier = Modifier.size(44.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Verified,
+                                        contentDescription = "Approved",
+                                        tint = scheme.secondary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+                            Column {
+                                Text(
+                                    text = username.ifBlank { "Authorized Operator" },
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontFamily = FrauncesFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    color = scheme.onPrimaryContainer
+                                )
+                                Text(
+                                    text = "$downloadedCount of $allowedCount authorized modules active",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = scheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                )
+                            }
+                        }
+                        StatusIndicator(
+                            label = "Approved",
+                            color = scheme.secondary
+                        )
+                    }
+
+                    Text(
+                        text = "Device ID: $hardwareId" + if (email.isNotBlank()) " · $email" else "",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = JetBrainsMonoFontFamily,
+                        color = scheme.onPrimaryContainer.copy(alpha = 0.75f)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = onContinueToDashboard,
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp),
+                            shape = MaterialTheme.shapes.medium
+                        ) {
+                            Text(
+                                text = "Open Dashboard",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        FilledTonalButton(
+                            onClick = {
+                                viewModel.syncLicenseAndModulesFromServer()
+                                viewModel.downloadAllAuthorizedModules()
+                            },
+                            modifier = Modifier.heightIn(min = 48.dp),
+                            shape = MaterialTheme.shapes.medium
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Sync,
+                                contentDescription = "Sync Modules",
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "Sync",
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            SectionHeader(title = "Authorized Modules")
+        }
+
+        items(moduleStates, key = { it.module.id }) { modState ->
+            val mod = modState.module
+            ContentCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("module_vault_row_${mod.id}")
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Surface(
+                            shape = MaterialTheme.shapes.small,
+                            color = if (modState.isReadyToUse) {
+                                scheme.primaryContainer
+                            } else {
+                                scheme.surfaceVariant
+                            },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = mod.icon,
+                                    contentDescription = mod.cardTitle,
+                                    tint = if (modState.isReadyToUse) {
+                                        scheme.primary
+                                    } else {
+                                        scheme.onSurfaceVariant
+                                    },
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = mod.cardTitle,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = scheme.onSurface
+                            )
+                            Text(
+                                text = mod.summary,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = scheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    if (modState.isReadyToUse) {
+                        StatusIndicator(label = "Active", color = scheme.secondary)
+                    } else if (modState.isAuthorizedByAdmin) {
+                        FilledTonalButton(
+                            onClick = { viewModel.downloadModuleIntoRootVault(mod.id) },
+                            modifier = Modifier.testTag("btn_download_${mod.id}"),
+                            shape = MaterialTheme.shapes.small,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "Install",
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        }
+                    } else {
+                        StatusIndicator(
+                            label = "Not Assigned",
+                            color = scheme.onSurfaceVariant,
+                            showDot = false
                         )
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun BannedDeviceView(
+    banReason: String,
+    hardwareId: String,
+    onReset: () -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .widthIn(max = 600.dp)
+            .padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        ContentCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("card_device_banned")
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Block,
+                        contentDescription = "Restricted",
+                        tint = scheme.error,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Column {
+                        Text(
+                            text = "Device Access Restricted",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontFamily = FrauncesFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            color = scheme.error
+                        )
+                        Text(
+                            text = hardwareId,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = JetBrainsMonoFontFamily,
+                            color = scheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Text(
+                    text = banReason.ifBlank { "This device's access has been revoked by the administrator." },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = scheme.onSurfaceVariant
+                )
+                OutlinedButton(
+                    onClick = onReset,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag("btn_unban_reset"),
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Text(
+                        text = "Reset Registration",
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ApprovalDetailRow(label: String, value: String) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = scheme.onSurfaceVariant
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = scheme.onSurface
+        )
+    }
+}
+
+private fun copyToClipboard(context: Context, label: String, text: String) {
+    try {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        clipboard?.setPrimaryClip(ClipData.newPlainText(label, text))
+    } catch (_: Throwable) {
     }
 }

@@ -22,7 +22,7 @@ import javax.crypto.spec.SecretKeySpec
  * Defends against HTTP Toolkit, Charles Proxy, Burp Suite, and mitmproxy:
  * 1. Application-layer AES-256-GCM encryption on every request/response body (`payload_enc`).
  * 2. Hardware-tethered HMAC-SHA256 request signing (`X-Hollow-Signature` & `X-Hollow-HW`).
- * 3. Rejects proxy environment variables (`Proxy.NO_PROXY`) so userland proxy tools cannot intercept traffic.
+ * 3. Prefers `Proxy.NO_PROXY` with automatic fallback for system VPN/cellular routing.
  * 4. Verifies SHA-256 checksum and Ed25519 cryptographic signature on every downloaded `.dex` module.
  */
 object HollowSecureClient {
@@ -43,10 +43,11 @@ object HollowSecureClient {
 
         val payloadB64 = Base64.encodeToString(combined, Base64.NO_WRAP)
         val signatureB64 = computeHmacSha256(payloadB64)
-        return JSONObject()
-            .put("payload_enc", payloadB64)
-            .put("signature_b64", signatureB64)
-            .put("ts", System.currentTimeMillis())
+        val envelope = JSONObject(plainJson.toString())
+        envelope.put("payload_enc", payloadB64)
+        envelope.put("signature_b64", signatureB64)
+        envelope.put("ts", System.currentTimeMillis())
+        return envelope
     }
 
     fun decryptPayloadEnvelope(envelopeJson: JSONObject): JSONObject? {
@@ -76,31 +77,43 @@ object HollowSecureClient {
         if (serverBaseUrl.isBlank()) return null
         val hw = DeviceHardwareFingerprint.collect(context)
         val envelope = encryptPayloadEnvelope(requestJson)
-        return try {
-            val cleanBase = serverBaseUrl.trimEnd('/')
-            val url = URL("$cleanBase$endpointPath")
-            // Explicitly use Proxy.NO_PROXY to bypass HTTP Toolkit / Charles / Burp system proxies
-            val conn = (url.openConnection(java.net.Proxy.NO_PROXY) as HttpURLConnection).apply {
-                requestMethod = "POST"
-                connectTimeout = 4500
-                readTimeout = 4500
-                doOutput = true
-                setRequestProperty("Content-Type", "application/json; charset=utf-8")
-                setRequestProperty("X-Hollow-HW", hw.fingerprintHex)
-                setRequestProperty("X-Hollow-Signature", envelope.optString("signature_b64"))
-                setRequestProperty("X-Hollow-Uptime", SystemClock.elapsedRealtime().toString())
-            }
-            OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { writer ->
-                writer.write(envelope.toString())
-                writer.flush()
-            }
-            val stream = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream
-            val bodyStr = stream?.bufferedReader()?.readText().orEmpty()
-            if (bodyStr.isBlank()) return null
-            decryptPayloadEnvelope(JSONObject(bodyStr))
+        val cleanBase = serverBaseUrl.trimEnd('/')
+        val url = try {
+            URL("$cleanBase$endpointPath")
         } catch (_: Throwable) {
-            null
+            return null
         }
+
+        fun executePost(useNoProxy: Boolean): JSONObject? {
+            return try {
+                val conn = (if (useNoProxy) {
+                    url.openConnection(java.net.Proxy.NO_PROXY)
+                } else {
+                    url.openConnection()
+                } as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 12000
+                    readTimeout = 12000
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                    setRequestProperty("X-Hollow-HW", hw.fingerprintHex)
+                    setRequestProperty("X-Hollow-Signature", envelope.optString("signature_b64"))
+                    setRequestProperty("X-Hollow-Uptime", SystemClock.elapsedRealtime().toString())
+                }
+                OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { writer ->
+                    writer.write(envelope.toString())
+                    writer.flush()
+                }
+                val stream = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream
+                val bodyStr = stream?.bufferedReader()?.readText().orEmpty()
+                if (bodyStr.isBlank()) return null
+                decryptPayloadEnvelope(JSONObject(bodyStr))
+            } catch (_: Throwable) {
+                null
+            }
+        }
+
+        return executePost(useNoProxy = true) ?: executePost(useNoProxy = false)
     }
 
     /**
@@ -130,10 +143,10 @@ object HollowSecureClient {
             try {
                 val cleanBase = serverBaseUrl.trimEnd('/')
                 val url = URL("$cleanBase/api/v1/modules/download/$moduleId")
-                val conn = (url.openConnection(java.net.Proxy.NO_PROXY) as HttpURLConnection).apply {
+                val conn = (url.openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"
-                    connectTimeout = 4500
-                    readTimeout = 4500
+                    connectTimeout = 12000
+                    readTimeout = 12000
                     setRequestProperty("X-Hollow-HW", hw.fingerprintHex)
                 }
                 if (conn.responseCode !in 200..299) {

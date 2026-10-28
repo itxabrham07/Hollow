@@ -3,52 +3,52 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Hollow — Next-Gen Android Security & Storage Workspace</title>
+  <title>Hollow — The Privacy Layer Between Your Apps & You</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,500,1,0" rel="stylesheet" />
   <link rel="stylesheet" href="/admin.css" />
 </head>
 <body class="dark-theme">
-  <!-- Top Hollow Navigation Bar -->
+  <!-- Material 3 Expressive Top Bar -->
   <header class="m3-navbar">
     <div class="m3-navbar-inner">
-      <div class="m3-brand" id="brandHomeLink" style="cursor:pointer">
-        <div class="m3-brand-icon" style="background: linear-gradient(135deg, #10B981, #06B6D4);">
-          <span class="material-symbols-rounded" style="color:#fff">shield</span>
+      <div class="m3-brand" id="brandHomeLink">
+        <div class="m3-brand-icon">
+          <span class="material-symbols-rounded">shield</span>
         </div>
         <div>
-          <span class="m3-brand-name" style="letter-spacing:-0.5px">HOLLOW</span>
-          <span class="m3-brand-pill" style="background:rgba(16,185,129,0.15);color:#10B981">Kernel & Stealth Suite</span>
+          <span class="m3-brand-name">Hollow</span>
+          <span class="m3-brand-subtitle">Android Privacy Layer</span>
         </div>
       </div>
 
       <nav class="m3-nav-pills">
         <button class="m3-nav-tab active" data-tab="home" id="navTabHome">
-          <span class="material-symbols-rounded">home</span>
-          <span>Features</span>
+          <span class="material-symbols-rounded">layers</span>
+          <span>Privacy Layer</span>
         </button>
         <button class="m3-nav-tab" data-tab="modules" id="navTabModules">
           <span class="material-symbols-rounded">extension</span>
           <span>Modules</span>
         </button>
         <button class="m3-nav-tab" data-tab="register" id="navTabRegister">
-          <span class="material-symbols-rounded">phonelink_lock</span>
-          <span>Device Approval</span>
+          <span class="material-symbols-rounded">verified_user</span>
+          <span>Device Status</span>
         </button>
         <button class="m3-nav-tab" data-tab="admin" id="navTabAdmin">
           <span class="material-symbols-rounded">admin_panel_settings</span>
-          <span>Admin Portal</span>
+          <span>Admin Console</span>
         </button>
       </nav>
 
       <div class="m3-navbar-actions">
         <span class="m3-status-chip" id="mongoStatusBadge">
-          <span class="m3-dot" style="background:#10B981"></span>
-          <span id="mongoStatusText">Hollow Cloud Online</span>
+          <span class="m3-dot"></span>
+          <span id="mongoStatusText">Privacy Hub Active</span>
         </span>
-        <button class="m3-icon-btn" id="themeToggleBtn" title="Switch Theme">
+        <button class="m3-icon-btn" id="themeToggleBtn" title="Toggle Light / Dark Theme">
           <span class="material-symbols-rounded" id="themeToggleIcon">light_mode</span>
         </button>
       </div>
@@ -56,213 +56,184 @@
   </header>
 
   <main class="m3-container">
-    <!-- ==================== 1. PUBLIC FEATURES HOME PAGE ==================== -->
+    <!-- ==================== 1. PRIVACY LAYER ARCHITECTURE HOME ==================== -->
     <section id="viewHome" class="m3-view">
-      <!-- Executive Hero Banner -->
-      <div class="m3-hero-card" style="background: linear-gradient(135deg, #064E3B 0%, #0F172A 50%, #1E1B4B 100%); border: 1px solid rgba(16,185,129,0.25);">
-        <div class="m3-hero-content">
-          <div class="m3-hero-badge" style="background: rgba(16,185,129,0.18); color: #34D399; border-color: rgba(16,185,129,0.3);">
-            <span class="material-symbols-rounded">verified_user</span>
-            <span>LSPosed System Hook & Kernel-Grade Isolation</span>
+      <div class="m3-hero-card">
+        <div>
+          <div class="m3-eyebrow">
+            <span class="material-symbols-rounded" style="font-size:16px">verified_user</span>
+            <span>User-Controlled OS Privacy Boundary</span>
           </div>
-          <h1 style="color:#F9FAFB">Advanced Android Privacy & Storage Sandbox</h1>
-          <p style="color:#94A3B8">
-            Hollow intercepts intrusive apps at the deepest Android framework layer. Sandbox untrusted apps from personal photos, cloak your device hardware identity per-application, camouflage apps behind working calculators, and encrypt sensitive data inside a hardware-bound root vault.
+          <h1 class="m3-hero-title">The Privacy Layer Between Your Apps &amp; You.</h1>
+          <p class="m3-hero-lead">
+            Modern mobile applications routinely request broad access to your shared storage, hardware serials, network state, and installed app list. Hollow inserts a transparent, user-governed privacy boundary between third-party apps and your personal device data.
           </p>
           <div class="m3-hero-buttons">
-            <button class="m3-btn m3-btn-white" id="heroCheckDeviceBtn">
-              <span class="material-symbols-rounded">phonelink_lock</span>
-              <span>Check Device Status</span>
+            <button class="m3-btn m3-btn-primary" id="heroCheckDeviceBtn">
+              <span class="material-symbols-rounded">verified_user</span>
+              <span>Check Device Approval</span>
             </button>
-            <a href="#coreFeatures" class="m3-btn m3-btn-glass" style="text-decoration:none;display:inline-flex;align-items:center;gap:8px">
-              <span class="material-symbols-rounded">explore</span>
-              <span>Explore 6 Core Pillars</span>
-            </a>
+            <button class="m3-btn m3-btn-tonal" id="heroOpenAdminBtn">
+              <span class="material-symbols-rounded">admin_panel_settings</span>
+              <span>Open Admin Console</span>
+            </button>
           </div>
         </div>
 
-        <div class="m3-hero-stats-grid">
-          <div class="m3-hero-stat-tile" style="border: 1px solid rgba(16,185,129,0.2); background: rgba(15,23,42,0.6)">
-            <span class="material-symbols-rounded" style="color:#10B981">security</span>
-            <div>
-              <strong style="color:#34D399">LSPosed + Root</strong>
-              <span style="color:#94A3B8">Kernel Interception</span>
-            </div>
+        <!-- Architectural Privacy Boundary Diagram -->
+        <div class="m3-layer-diagram">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+            <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary)">Architecture Overview</span>
+            <span class="m3-badge m3-badge-active">Ed25519 Verified</span>
           </div>
-          <div class="m3-hero-stat-tile" style="border: 1px solid rgba(6,182,212,0.2); background: rgba(15,23,42,0.6)">
-            <span class="material-symbols-rounded" style="color:#06B6D4">fingerprint</span>
-            <div>
-              <strong style="color:#67E8F9">50+ Spoof Controls</strong>
-              <span style="color:#94A3B8">Hardware & Fingerprints</span>
+
+          <div class="m3-layer-tier">
+            <div style="display:flex;align-items:center;gap:12px">
+              <span class="material-symbols-rounded" style="color:var(--text-secondary)">apps</span>
+              <div>
+                <strong style="font-size:14px;display:block">Third-Party Android Apps</strong>
+                <span style="font-size:12px;color:var(--text-secondary)">Social, finance, utilities &amp; SDK trackers</span>
+              </div>
             </div>
+            <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">Untrusted Space</span>
           </div>
-          <div class="m3-hero-stat-tile" style="border: 1px solid rgba(139,92,246,0.2); background: rgba(15,23,42,0.6)">
-            <span class="material-symbols-rounded" style="color:#8B5CF6">lock</span>
-            <div>
-              <strong style="color:#A78BFA">AES-256-GCM</strong>
-              <span style="color:#94A3B8">Hardware-Bound Vault</span>
-            </div>
+
+          <div class="m3-layer-connector">
+            <span class="material-symbols-rounded" style="font-size:16px">swap_vert</span>
+            <span>Intercepted &amp; Scoped by Hollow Privacy Layer</span>
           </div>
-          <div class="m3-hero-stat-tile" style="border: 1px solid rgba(245,158,11,0.2); background: rgba(15,23,42,0.6)">
-            <span class="material-symbols-rounded" style="color:#F59E0B">extension</span>
-            <div>
-              <strong style="color:#FCD34D">Dynamic Modules</strong>
-              <span style="color:#94A3B8">Zero Core APK Changes</span>
+
+          <div class="m3-layer-tier m3-layer-shield">
+            <div style="display:flex;align-items:center;gap:12px">
+              <span class="material-symbols-rounded" style="color:var(--accent-primary)">shield_lock</span>
+              <div>
+                <strong style="font-size:14px;display:block">Hollow Privacy Layer</strong>
+                <span style="font-size:12px;opacity:0.85">Workspace Sandboxing · Identity Shield · Scoped Visibility</span>
+              </div>
             </div>
+            <span class="m3-badge m3-badge-active">Enforced</span>
+          </div>
+
+          <div class="m3-layer-connector">
+            <span class="material-symbols-rounded" style="font-size:16px">lock</span>
+            <span>Hardware-Bound AES-256-GCM Boundary</span>
+          </div>
+
+          <div class="m3-layer-tier">
+            <div style="display:flex;align-items:center;gap:12px">
+              <span class="material-symbols-rounded" style="color:var(--semantic-active)">person_shield</span>
+              <div>
+                <strong style="font-size:14px;display:block">Your Personal Data &amp; Hardware</strong>
+                <span style="font-size:12px;color:var(--text-secondary)">Private media, real identifiers &amp; local network</span>
+              </div>
+            </div>
+            <span style="font-family:var(--font-mono);font-size:11px;color:var(--semantic-active)">Protected</span>
           </div>
         </div>
       </div>
 
-      <!-- 6 Core Feature Pillars Section -->
-      <div id="coreFeatures" style="margin-top: 36px">
+      <!-- Core Privacy Pillars -->
+      <div id="coreFeatures" style="margin-top: 32px">
         <div class="m3-section-head">
           <div>
-            <h2>Core Security Pillars</h2>
-            <p>Built for Android power users who demand uncompromising privacy and isolation.</p>
+            <h2>Four Modular Privacy Layers</h2>
+            <p>Each capability is delivered as an independently signed module that mounts only when authorized for your device.</p>
           </div>
         </div>
 
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 16px">
-          <!-- Pillar 1: Storage Isolation -->
-          <div class="m3-card" style="border-top: 3px solid #0D9488">
-            <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-              <div style="width:40px;height:40px;border-radius:10px;background:rgba(13,148,136,0.15);display:flex;align-items:center;justify-content:center">
-                <span class="material-symbols-rounded" style="color:#0D9488">folder_special</span>
+        <div class="m3-grid-2">
+          <div class="m3-card">
+            <div class="m3-card-header">
+              <div class="m3-icon-box">
+                <span class="material-symbols-rounded">folder_supervised</span>
               </div>
               <div>
-                <h3 style="font-size:16px;font-weight:700">Storage Sandboxing & DCIM Shield</h3>
-                <span style="font-size:11px;color:#0D9488;font-weight:600">ZERO ROOT POLLUTION</span>
+                <h3>Storage Isolation Workspace</h3>
+                <span style="font-size:12px;color:var(--accent-primary);font-weight:600">Scoped File &amp; Media Boundary</span>
               </div>
             </div>
-            <p style="font-size:13px;color:var(--text-secondary);line-height:1.6">
-              Blocks social networks, banking apps, and scanners from accessing your private photos and downloads. Redirects all storage requests into a clean, isolated virtual volume while keeping host storage untouched.
+            <p>
+              Prevents applications from scanning your personal DCIM photos, documents, and root directories. Each isolated app operates inside a dedicated workspace volume while keeping your personal files private.
             </p>
           </div>
 
-          <!-- Pillar 2: Device Identity -->
-          <div class="m3-card" style="border-top: 3px solid #4F46E5">
-            <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-              <div style="width:40px;height:40px;border-radius:10px;background:rgba(79,70,229,0.15);display:flex;align-items:center;justify-content:center">
-                <span class="material-symbols-rounded" style="color:#4F46E5">smartphone</span>
+          <div class="m3-card">
+            <div class="m3-card-header">
+              <div class="m3-icon-box">
+                <span class="material-symbols-rounded">fingerprint_off</span>
               </div>
               <div>
-                <h3 style="font-size:16px;font-weight:700">Per-App Identity & Anti-Fingerprinting</h3>
-                <span style="font-size:11px;color:#4F46E5;font-weight:600">OVER 50 TELEMETRY CONTROLS</span>
+                <h3>Device Identity &amp; Telemetry Shield</h3>
+                <span style="font-size:12px;color:var(--accent-primary);font-weight:600">Anti-Tracking &amp; Identifier Hygiene</span>
               </div>
             </div>
-            <p style="font-size:13px;color:var(--text-secondary);line-height:1.6">
-              Spoof your phone brand, model (Pixel 9 Pro, Galaxy S24 Ultra, OnePlus 12), Android ID, IMEI, Wi-Fi MAC, GPU Renderer, AudioContext, Canvas noise, and DRM Widevine identifier per target application.
+            <p>
+              Protects against cross-app hardware fingerprinting by providing clean, per-application device profiles for Android ID, advertising identifiers, sensor telemetry, and WebView fingerprinting vectors.
             </p>
           </div>
 
-          <!-- Pillar 3: Stealth Disguise -->
-          <div class="m3-card" style="border-top: 3px solid #7C3AED">
-            <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-              <div style="width:40px;height:40px;border-radius:10px;background:rgba(124,58,237,0.15);display:flex;align-items:center;justify-content:center">
-                <span class="material-symbols-rounded" style="color:#7C3AED">visibility_off</span>
+          <div class="m3-card">
+            <div class="m3-card-header">
+              <div class="m3-icon-box">
+                <span class="material-symbols-rounded">visibility_lock</span>
               </div>
               <div>
-                <h3 style="font-size:16px;font-weight:700">Stealth Camouflage & SystemUI Tile</h3>
-                <span style="font-size:11px;color:#7C3AED;font-weight:600">WORKING CALCULATOR DECOY</span>
+                <h3>App Package Visibility Control</h3>
+                <span style="font-size:12px;color:var(--accent-primary);font-weight:600">Package Enumeration Protection</span>
               </div>
             </div>
-            <p style="font-size:13px;color:var(--text-secondary);line-height:1.6">
-              Hide apps completely from launcher, recents, and Android Settings. Camouflage Hollow behind a real functional Calculator or Notes app with secret dialer codes (*#465569) and Quick Settings stealth tiles.
+            <p>
+              Stops intrusive SDKs from inventorying the other applications installed on your phone. Manage which apps are visible in package queries and customize workspace launcher presentation.
             </p>
           </div>
 
-          <!-- Pillar 4: V2Ray & Per-App Proxy -->
-          <div class="m3-card" style="border-top: 3px solid #0284C7">
-            <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-              <div style="width:40px;height:40px;border-radius:10px;background:rgba(2,132,199,0.15);display:flex;align-items:center;justify-content:center">
-                <span class="material-symbols-rounded" style="color:#0284C7">public</span>
+          <div class="m3-card">
+            <div class="m3-card-header">
+              <div class="m3-icon-box">
+                <span class="material-symbols-rounded">vpn_lock</span>
               </div>
               <div>
-                <h3 style="font-size:16px;font-weight:700">Per-App V2Ray & SOCKS5 Tunneling</h3>
-                <span style="font-size:11px;color:#0284C7;font-weight:600">ISOLATED NETWORK ROUTING</span>
+                <h3>Per-App Encrypted Network Routing</h3>
+                <span style="font-size:12px;color:var(--accent-primary);font-weight:600">Scoped Proxy &amp; Tunneling</span>
               </div>
             </div>
-            <p style="font-size:13px;color:var(--text-secondary);line-height:1.6">
-              Route specific applications through individual VLESS, VMess, or SOCKS5 proxies while other apps use standard Wi-Fi. Features DNS leak protection, a kill switch, and automated IP-to-Timezone matching.
-            </p>
-          </div>
-
-          <!-- Pillar 5: Root Encrypted Vault -->
-          <div class="m3-card" style="border-top: 3px solid #E11D48">
-            <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-              <div style="width:40px;height:40px;border-radius:10px;background:rgba(225,29,72,0.15);display:flex;align-items:center;justify-content:center">
-                <span class="material-symbols-rounded" style="color:#E11D48">lock</span>
-              </div>
-              <div>
-                <h3 style="font-size:16px;font-weight:700">Root Hardware-Bound Vault</h3>
-                <span style="font-size:11px;color:#E11D48;font-weight:600">SURVIVES APP DATA CLEARS</span>
-              </div>
-            </div>
-            <p style="font-size:13px;color:var(--text-secondary);line-height:1.6">
-              Stored in <code>/data/adb/.hollow_vault</code> (chmod 700, root:root) outside standard app storage. Protected with AES-256-GCM encryption derived from the physical SoC serial, CID, and hardware binding.
-            </p>
-          </div>
-
-          <!-- Pillar 6: Dynamic Modules -->
-          <div class="m3-card" style="border-top: 3px solid #10B981">
-            <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-              <div style="width:40px;height:40px;border-radius:10px;background:rgba(16,185,129,0.15);display:flex;align-items:center;justify-content:center">
-                <span class="material-symbols-rounded" style="color:#10B981">extension</span>
-              </div>
-              <div>
-                <h3 style="font-size:16px;font-weight:700">Dynamic Server-Shipped Modules</h3>
-                <span style="font-size:11px;color:#10B981;font-weight:600">ZERO CORE REBUILDS</span>
-              </div>
-            </div>
-            <p style="font-size:13px;color:var(--text-secondary);line-height:1.6">
-              Deploy and update new privacy and isolation modules over-the-air. The Hollow app downloads cryptographically signed <code>.hmod</code> bundles and dynamically mounts them in memory.
+            <p>
+              Assign dedicated SOCKS5, HTTP, or V2Ray tunnels on a per-application basis with automatic timezone alignment and DNS leak prevention so your network metadata stays compartmentalized.
             </p>
           </div>
         </div>
       </div>
 
-      <!-- Download Builds Section -->
-      <div style="margin-top: 36px">
+      <!-- Onboarding Workflow Steps -->
+      <div style="margin-top: 32px">
         <div class="m3-section-head">
           <div>
-            <h2>Download Hollow APKs</h2>
-            <p>Choose the build type that fits your deployment workflow.</p>
+            <h2>How Device Onboarding Works</h2>
+            <p>A clean, three-step activation flow designed for zero clutter.</p>
           </div>
         </div>
 
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-top: 14px">
-          <div class="m3-card" style="background: rgba(15,23,42,0.6); border: 1px solid rgba(16,185,129,0.3)">
-            <div style="display:flex;align-items:center;justify-content:space-between">
-              <span class="m3-brand-pill" style="background:rgba(16,185,129,0.2);color:#34D399">Normal Release Build</span>
-              <span style="font-size:11px;color:#94A3B8;font-family:'JetBrains Mono'">~17 MB</span>
-            </div>
-            <h3 style="margin-top:12px;font-size:17px">Hollow-Release.apk</h3>
-            <p style="font-size:13px;color:var(--text-secondary);margin-top:6px;line-height:1.5">
-              Production manager shell for end users. Connects to this Hollow server, registers hardware fingerprint, and securely downloads granted modules upon admin approval.
+        <div class="m3-grid-3">
+          <div class="m3-card">
+            <span class="m3-badge m3-badge-active" style="margin-bottom:12px">Step 1</span>
+            <h3>Grant Root &amp; Register</h3>
+            <p style="margin-top:6px">
+              Install the lightweight Hollow Core APK, grant superuser permission when prompted, and create your account or sign in.
             </p>
-            <div style="margin-top:16px">
-              <a href="https://github.com/itxarshman/hollow/releases/latest" target="_blank" class="m3-btn" style="background:#10B981;color:#fff;text-decoration:none;display:inline-flex;align-items:center;gap:6px">
-                <span class="material-symbols-rounded">download</span>
-                <span>Get Release APK</span>
-              </a>
-            </div>
           </div>
-
-          <div class="m3-card" style="background: rgba(15,23,42,0.6); border: 1px solid rgba(79,70,229,0.3)">
-            <div style="display:flex;align-items:center;justify-content:space-between">
-              <span class="m3-brand-pill" style="background:rgba(79,70,229,0.2);color:#A78BFA">Developer Full Build</span>
-              <span style="font-size:11px;color:#94A3B8;font-family:'JetBrains Mono'">~17 MB</span>
-            </div>
-            <h3 style="margin-top:12px;font-size:17px">Hollow-Dev.apk</h3>
-            <p style="font-size:13px;color:var(--text-secondary);margin-top:6px;line-height:1.5">
-              Developer build pre-bundled with all modules active locally for offline development, local module development, and debugging.
+          <div class="m3-card">
+            <span class="m3-badge m3-badge-warning" style="margin-bottom:12px">Step 2</span>
+            <h3>Administrator Approval</h3>
+            <p style="margin-top:6px">
+              Your device enters the clean Waiting for Approval screen while the administrator verifies and approves your device in the Admin Console.
             </p>
-            <div style="margin-top:16px">
-              <a href="https://github.com/itxarshman/hollow/releases/latest" target="_blank" class="m3-btn" style="background:#4F46E5;color:#fff;text-decoration:none;display:inline-flex;align-items:center;gap:6px">
-                <span class="material-symbols-rounded">developer_mode</span>
-                <span>Get Dev APK</span>
-              </a>
-            </div>
+          </div>
+          <div class="m3-card">
+            <span class="m3-badge m3-badge-active" style="margin-bottom:12px">Step 3</span>
+            <h3>Automatic Module Sync</h3>
+            <p style="margin-top:6px">
+              Once approved, Hollow automatically downloads, verifies (Ed25519 + SHA-256), and mounts your authorized privacy modules onto your Dashboard.
+            </p>
           </div>
         </div>
       </div>
@@ -272,97 +243,121 @@
     <section id="viewModules" class="m3-view hidden">
       <div class="m3-section-head">
         <div>
-          <h2>Available Cloud Modules</h2>
-          <p>Modules stream dynamically from the server into Hollow's root encrypted vault.</p>
+          <h2>Signed Privacy Modules</h2>
+          <p>Independently compiled DEX modules verified with Ed25519 signatures and SHA-256 checksums before mounting.</p>
         </div>
       </div>
-      <div class="m3-module-grid" id="publicModuleGrid" style="margin-top: 18px"></div>
+      <div class="m3-grid-2" id="publicModuleGrid"></div>
     </section>
 
     <!-- ==================== 3. DEVICE STATUS & VERIFICATION VIEW ==================== -->
     <section id="viewRegister" class="m3-view hidden">
       <div class="m3-section-head">
         <div>
-          <h2>Check Device Approval Status</h2>
-          <p>Verify whether your physical device has been approved by the Hollow administrator.</p>
+          <h2>Verify Device Approval Status</h2>
+          <p>Enter the Hardware Verification ID shown on your phone's Waiting for Approval screen.</p>
         </div>
       </div>
 
-      <div class="m3-card" style="max-width: 640px; margin: 20px auto">
+      <div class="m3-card" style="max-width: 600px; margin: 16px auto">
         <div style="margin-bottom: 16px">
-          <label style="font-size: 13px; font-weight: 600; color: var(--text-secondary)">Your Hardware Fingerprint (from Hollow App)</label>
-          <input type="text" id="checkHwInput" placeholder="HLW-XXXXXXXX-XXXXXXXX-XXXXXXXX" class="m3-input" style="margin-top: 6px; font-family: 'JetBrains Mono'" />
+          <label style="font-size: 13px; font-weight: 600; color: var(--text-secondary); display:block; margin-bottom:6px">
+            Hardware Verification ID
+          </label>
+          <input
+            type="text"
+            id="checkHwInput"
+            placeholder="HLW-XXXXXXXX-XXXXXXXX-XXXXXXXX"
+            class="m3-input"
+            style="font-family: var(--font-mono)"
+          />
         </div>
         <button class="m3-btn m3-btn-primary" id="btnCheckDeviceStatus" style="width: 100%">
           <span class="material-symbols-rounded">search</span>
-          <span>Query Approval Status</span>
+          <span>Check Approval Status</span>
         </button>
 
-        <div id="checkDeviceResult" style="margin-top: 18px" class="hidden"></div>
+        <div id="checkDeviceResult" style="margin-top: 16px" class="hidden"></div>
       </div>
     </section>
 
     <!-- ==================== 4. ADMIN CONSOLE VIEW ==================== -->
     <section id="viewAdmin" class="m3-view hidden">
-      <!-- Admin Login Panel (shown when unauthenticated) -->
-      <div id="adminLoginCard" class="m3-card" style="max-width: 440px; margin: 40px auto; text-align: center">
-        <div style="width: 52px; height: 52px; border-radius: 14px; background: rgba(16,185,129,0.15); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 14px">
-          <span class="material-symbols-rounded" style="color: #10B981; font-size: 30px">admin_panel_settings</span>
+      <!-- Admin Sign-In Card -->
+      <div id="adminLoginCard" class="m3-card" style="max-width: 440px; margin: 32px auto">
+        <div class="m3-card-header">
+          <div class="m3-icon-box">
+            <span class="material-symbols-rounded">admin_panel_settings</span>
+          </div>
+          <div>
+            <h3>Administrator Sign In</h3>
+            <span style="font-size:12px;color:var(--text-secondary)">Approve devices &amp; assign privacy modules</span>
+          </div>
         </div>
-        <h3 style="font-size: 18px; font-weight: 700">Hollow Administrator Portal</h3>
-        <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px">Sign in to approve registered devices and assign modules.</p>
 
-        <div style="margin-top: 20px; text-align: left">
-          <label style="font-size: 12px; font-weight: 600; color: var(--text-secondary)">Username</label>
-          <input type="text" id="adminUser" class="m3-input" placeholder="admin" value="admin" style="margin-top: 4px" />
+        <div style="margin-top: 16px; display:flex; flex-direction:column; gap:12px">
+          <div>
+            <label style="font-size: 12px; font-weight: 600; color: var(--text-secondary); display:block; margin-bottom:4px">Username</label>
+            <input type="text" id="adminUser" class="m3-input" placeholder="admin" value="admin" />
+          </div>
 
-          <label style="font-size: 12px; font-weight: 600; color: var(--text-secondary); display: block; margin-top: 12px">Admin Password</label>
-          <input type="password" id="adminPass" class="m3-input" placeholder="Password" style="margin-top: 4px" />
+          <div>
+            <label style="font-size: 12px; font-weight: 600; color: var(--text-secondary); display:block; margin-bottom:4px">Password</label>
+            <input type="password" id="adminPass" class="m3-input" placeholder="Enter administrator password" />
+          </div>
 
-          <button id="btnAdminLogin" class="m3-btn m3-btn-primary" style="width: 100%; margin-top: 18px">
+          <button id="btnAdminLogin" class="m3-btn m3-btn-primary" style="width: 100%; margin-top: 4px">
             <span class="material-symbols-rounded">login</span>
-            <span>Authenticate</span>
+            <span>Sign In to Admin Console</span>
           </button>
-          <div id="adminLoginErr" style="color: #EF4444; font-size: 12px; margin-top: 8px; text-align: center" class="hidden"></div>
+          <div id="adminLoginErr" style="color: var(--semantic-error); font-size: 13px; text-align: center" class="hidden"></div>
         </div>
       </div>
 
       <!-- Authenticated Admin Dashboard -->
       <div id="adminDashboard" class="hidden">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px">
+        <div class="m3-section-head">
           <div>
-            <h2 style="font-size: 20px; font-weight: 700">Registered Devices Management</h2>
-            <p style="font-size: 13px; color: var(--text-secondary)">Real-time devices requesting access from Hollow Release APK.</p>
+            <h2>Device Approval &amp; Module Licensing</h2>
+            <p>Live auto-refreshing queue. Approve pending devices with one click to unlock their Dashboard.</p>
           </div>
-          <div style="display:flex;gap:10px;align-items:center">
-            <button class="m3-btn" id="btnAdminRefresh" style="background:var(--bg-surface-low);color:var(--text-primary);border:1px solid var(--border-subtle)">
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="m3-btn m3-btn-tonal" id="btnAdminRefresh">
               <span class="material-symbols-rounded">refresh</span>
-              <span>Refresh</span>
+              <span>Refresh Now</span>
             </button>
-            <button class="m3-btn" id="btnAdminLogout" style="background:rgba(239,68,68,0.15);color:#EF4444">
+            <button class="m3-btn m3-btn-tonal" id="btnAdminLogout" style="color:var(--semantic-error)">
               <span class="material-symbols-rounded">logout</span>
               <span>Sign Out</span>
             </button>
           </div>
         </div>
 
-        <!-- Devices Table -->
+        <!-- Summary Metrics -->
+        <div class="m3-grid-3" id="adminStatsGrid" style="margin-bottom: 24px"></div>
+
+        <!-- Registered Devices Table -->
         <div class="m3-card" style="padding: 0; overflow: hidden">
-          <div id="adminDevicesContainer">
+          <div class="m3-table-wrap" id="adminDevicesContainer">
             <div style="padding: 40px 20px; text-align: center; color: var(--text-muted)">
-              <span class="material-symbols-rounded" style="font-size: 36px; display: block; margin-bottom: 8px">devices_other</span>
-              <p style="font-weight: 600">No devices registered yet.</p>
-              <p style="font-size: 12px; margin-top: 4px">When a user installs Hollow Release APK and taps "Register", their device will appear here instantly for approval.</p>
+              <span class="material-symbols-rounded" style="font-size: 36px; display: block; margin-bottom: 8px">devices</span>
+              <p style="font-weight: 600">No registered devices yet.</p>
+              <p style="font-size: 13px; margin-top: 4px">Open the Hollow app on your phone and create an account. It will appear here automatically within seconds.</p>
             </div>
           </div>
         </div>
 
-        <!-- Real Audit Activity Logs -->
+        <!-- Audit Activity Logs -->
         <div style="margin-top: 32px">
-          <h3 style="font-size: 17px; font-weight: 700; margin-bottom: 12px">Real Access & Audit Activity Logs</h3>
+          <div class="m3-section-head">
+            <div>
+              <h2>Recent Security &amp; Licensing Activity</h2>
+              <p>Real-time log of registrations, approvals, and signed module deliveries.</p>
+            </div>
+          </div>
           <div class="m3-card" style="padding: 0; overflow: hidden">
-            <div id="adminLogsContainer">
-              <div style="padding: 30px; text-align: center; color: var(--text-muted)">No audit logs recorded yet.</div>
+            <div class="m3-table-wrap" id="adminLogsContainer">
+              <div style="padding: 24px; text-align: center; color: var(--text-muted)">No activity recorded yet.</div>
             </div>
           </div>
         </div>
@@ -370,8 +365,8 @@
     </section>
   </main>
 
-  <footer style="margin-top: 60px; padding: 24px; border-top: 1px solid var(--border-subtle); text-align: center; font-size: 12px; color: var(--text-muted)">
-    Hollow Security Systems • Built for Android LSPosed & Root Isolation • Protected by Ed25519 Cryptographic Signatures
+  <footer style="margin-top: 64px; padding: 24px; border-top: 1px solid var(--border-subtle); text-align: center; font-size: 13px; color: var(--text-muted)">
+    Hollow — The Privacy Layer Between Your Apps &amp; You · Material 3 Expressive Architecture
   </footer>
 
   <script src="/admin.js"></script>

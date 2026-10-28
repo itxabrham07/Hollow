@@ -588,8 +588,8 @@ enum class HollowIconTheme(
         aliasClassName = "com.example.MainActivityCyberAlias"
     ),
     CRIMSON_VOID(
-        label = "Crimson",
-        subtitle = "Carbon black & crimson ring",
+        label = "Violet Pulse",
+        subtitle = "Deep indigo & electric violet",
         aliasClassName = "com.example.MainActivityCrimsonAlias"
     ),
     OBSIDIAN_MINIMAL(

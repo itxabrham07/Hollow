@@ -137,8 +137,11 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
     if (!isLicenseApproved) {
         OnboardingAuthScreen(
             viewModel = viewModel,
-            isStandaloneGate = true,
-            onBack = {}
+            onContinueToDashboard = {
+                activeModuleId = null
+                currentScreen = NavDestination.DASHBOARD
+            },
+            onBack = null
         )
         return
     }
@@ -188,7 +191,7 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
                                 text = "Hollow",
-                                fontSize = 20.sp,
+                                style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = JakartaFontFamily,
                                 color = scheme.onBackground
@@ -277,7 +280,7 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                             label = {
                                 Text(
                                     text = NavDestination.DASHBOARD.label,
-                                    fontSize = 11.sp,
+                                    style = MaterialTheme.typography.labelSmall,
                                     fontFamily = JakartaFontFamily,
                                     fontWeight = if (isHomeSection) FontWeight.Bold else FontWeight.Medium
                                 )
@@ -302,7 +305,7 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                                 label = {
                                     Text(
                                         text = NavDestination.DEVICE_SPOOFER.label,
-                                        fontSize = 11.sp,
+                                        style = MaterialTheme.typography.labelSmall,
                                         fontFamily = JakartaFontFamily,
                                         fontWeight = if (isPrivacyActive) FontWeight.Bold else FontWeight.Medium
                                     )
@@ -329,7 +332,7 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                                 label = {
                                     Text(
                                         text = NavDestination.VAULT.label,
-                                        fontSize = 11.sp,
+                                        style = MaterialTheme.typography.labelSmall,
                                         fontFamily = JakartaFontFamily,
                                         fontWeight = if (activeModuleId == null && currentScreen == NavDestination.VAULT) FontWeight.Bold else FontWeight.Medium
                                     )
@@ -354,7 +357,7 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                             label = {
                                 Text(
                                     text = NavDestination.SETTINGS.label,
-                                    fontSize = 11.sp,
+                                    style = MaterialTheme.typography.labelSmall,
                                     fontFamily = JakartaFontFamily,
                                     fontWeight = if (activeModuleId == null && currentScreen == NavDestination.SETTINGS) FontWeight.Bold else FontWeight.Medium
                                 )
@@ -387,7 +390,10 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                 } else {
                     OnboardingAuthScreen(
                         viewModel = viewModel,
-                        isStandaloneGate = false,
+                        onContinueToDashboard = {
+                            activeModuleId = null
+                            currentScreen = NavDestination.DASHBOARD
+                        },
                         onBack = {
                             activeModuleId = null
                             currentScreen = NavDestination.DASHBOARD
@@ -438,7 +444,7 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                             } else {
                                 OnboardingAuthScreen(
                                     viewModel = viewModel,
-                                    isStandaloneGate = false,
+                                    onContinueToDashboard = { currentScreen = NavDestination.DASHBOARD },
                                     onBack = { currentScreen = NavDestination.DASHBOARD }
                                 )
                             }
@@ -459,7 +465,7 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                         )
                         NavDestination.LICENSE_HUB -> OnboardingAuthScreen(
                             viewModel = viewModel,
-                            isStandaloneGate = false,
+                            onContinueToDashboard = { currentScreen = NavDestination.DASHBOARD },
                             onBack = { currentScreen = NavDestination.DASHBOARD }
                         )
                     }

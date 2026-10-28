@@ -62,6 +62,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.isolation.data.entity.VaultFileItem
+import com.example.isolation.ui.components.ContentCard
 import com.example.isolation.ui.components.DecryptedPreviewDialog
 import com.example.isolation.ui.components.EmptyState
 import com.example.isolation.ui.components.ListRow
@@ -338,76 +339,82 @@ fun VaultFileCard(
 
     val fileName = fileItem.relativePath.substringAfterLast('/')
 
-    ListRow(
-        title = fileName,
-        subtitle = "${formatBytes(fileItem.originalSizeBytes)} • Locked",
-        leadingIcon = icon,
+    ContentCard(
         onClick = onPreview,
-        modifier = Modifier.testTag("vault_item_${fileItem.id}"),
-        trailing = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(
-                    onClick = onPreview,
-                    modifier = Modifier.testTag("btn_preview_${fileItem.id}")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Visibility,
-                        contentDescription = "View",
-                        tint = scheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                Box {
-                    IconButton(onClick = { showMenu = true }) {
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("vault_item_${fileItem.id}")
+    ) {
+        ListRow(
+            title = fileName,
+            subtitle = "${formatBytes(fileItem.originalSizeBytes)} • Locked",
+            leadingIcon = icon,
+            modifier = Modifier.padding(0.dp),
+            trailing = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = onPreview,
+                        modifier = Modifier.testTag("btn_preview_${fileItem.id}")
+                    ) {
                         Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "More options",
-                            tint = scheme.onSurfaceVariant,
+                            imageVector = Icons.Default.Visibility,
+                            contentDescription = "View",
+                            tint = scheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
                     }
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("View") },
-                            leadingIcon = { Icon(Icons.Default.Visibility, contentDescription = null) },
-                            onClick = {
-                                showMenu = false
-                                onPreview()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Move out of Safe Folder") },
-                            leadingIcon = { Icon(Icons.Default.LockOpen, contentDescription = null) },
-                            onClick = {
-                                showMenu = false
-                                onDecryptToWorkspace()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Save to phone") },
-                            leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
-                            onClick = {
-                                showMenu = false
-                                onExport()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Delete", color = scheme.error) },
-                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = scheme.error) },
-                            onClick = {
-                                showMenu = false
-                                onDelete()
-                            }
-                        )
+
+                    Box {
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "More options",
+                                tint = scheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("View") },
+                                leadingIcon = { Icon(Icons.Default.Visibility, contentDescription = null) },
+                                onClick = {
+                                    showMenu = false
+                                    onPreview()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Move out of Safe Folder") },
+                                leadingIcon = { Icon(Icons.Default.LockOpen, contentDescription = null) },
+                                onClick = {
+                                    showMenu = false
+                                    onDecryptToWorkspace()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Save to phone") },
+                                leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
+                                onClick = {
+                                    showMenu = false
+                                    onExport()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Delete", color = scheme.error) },
+                                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = scheme.error) },
+                                onClick = {
+                                    showMenu = false
+                                    onDelete()
+                                }
+                            )
+                        }
                     }
                 }
             }
-        }
-    )
+        )
+    }
 }
 
 @Composable
