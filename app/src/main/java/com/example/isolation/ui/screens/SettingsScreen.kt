@@ -1,5 +1,14 @@
 package com.example.isolation.ui.screens
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -17,22 +26,30 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.HelpOutline
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -44,6 +61,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -56,10 +75,15 @@ import com.example.isolation.ui.components.HollowDynamicEmblem
 import com.example.isolation.ui.components.ListRow
 import com.example.isolation.ui.components.PrimaryButton
 import com.example.isolation.ui.components.SecondaryButton
-import com.example.isolation.ui.components.SectionHeader
-import com.example.isolation.ui.components.StatusIndicator
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
 import com.example.ui.theme.FrauncesFontFamily
+import com.example.ui.theme.JakartaFontFamily
+
+// Onboarding-matched color tokens
+private val SettingsDarkOnyx = Color(0xFF111827)
+private val SettingsMuted = Color(0xFF64748B)
+private val SettingsCardBorder = Color(0xFFE2E8F0)
+private val SettingsLightGray = Color(0xFFF1F5F9)
 
 @Composable
 fun SettingsScreen(
@@ -72,277 +96,179 @@ fun SettingsScreen(
     val isLsposedActive by viewModel.isLsposedActive.collectAsState()
     val settings by viewModel.settings.collectAsState()
     val rootStatus by viewModel.rootStatus.collectAsState()
+    val vaultRecord by viewModel.vaultLicenseRecord.collectAsState()
     var showSetupGuideDialog by remember { mutableStateOf(false) }
     var showHollowStealthDialog by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = 20.dp)
             .testTag("settings_screen"),
-        verticalArrangement = Arrangement.spacedBy(24.dp),
-        contentPadding = PaddingValues(bottom = 32.dp)
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+        contentPadding = PaddingValues(top = 12.dp, bottom = 40.dp)
     ) {
-        item {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "Settings",
-                style = typography.headlineMedium,
-                fontFamily = FrauncesFontFamily,
-                fontWeight = FontWeight.Bold,
-                color = scheme.onBackground
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "Hollow stealth, system picker policy, appearance, and volume mounts.",
-                style = typography.bodySmall,
-                color = scheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
 
-        // 1. Hollow Self-Stealth & SystemUI Entry
+        // ── Section 0: Account Card ──────────────────────────────────────────
         item {
-            ContentCard(
-                shape = shapes.large,
-                borderColor = scheme.primary,
-                onClick = { showHollowStealthDialog = true },
-                modifier = Modifier.testTag("card_hollow_self_stealth")
+            SettingsSectionLabel("Account")
+            Spacer(modifier = Modifier.height(8.dp))
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = SettingsDarkOnyx,
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
+                    modifier = Modifier.padding(18.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
+                    // Avatar circle
+                    Surface(
+                        shape = CircleShape,
+                        color = Color.White.copy(alpha = 0.12f),
+                        modifier = Modifier.size(48.dp)
                     ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(shapes.small)
-                                .background(scheme.primaryContainer)
-                        ) {
+                        Box(contentAlignment = Alignment.Center) {
                             Icon(
-                                imageVector = presetIconVector(settings.hollowIconPreset),
+                                imageVector = Icons.Default.Person,
                                 contentDescription = null,
-                                tint = scheme.primary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Hide / Disguise Hollow",
-                                style = typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = scheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = when (settings.hollowVisibilityMode) {
-                                    LauncherVisibilityMode.VISIBLE ->
-                                        if (settings.systemUiTriggerEnabled) "Visible • SystemUI Clock/Date trigger on"
-                                        else "Visible in launcher • Tap to hide or disguise"
-                                    LauncherVisibilityMode.DISGUISED ->
-                                        "Disguised as \"${settings.hollowCustomName}\" • SystemUI ready"
-                                    LauncherVisibilityMode.HIDDEN ->
-                                        "Hidden • Open via SystemUI Clock or *#*#465569#*#*"
-                                },
-                                style = typography.bodySmall,
-                                color = scheme.onSurfaceVariant,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
+                                tint = Color.White,
+                                modifier = Modifier.size(26.dp)
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    SecondaryButton(
-                        text = when (settings.hollowVisibilityMode) {
-                            LauncherVisibilityMode.VISIBLE -> "Visible"
-                            LauncherVisibilityMode.DISGUISED -> "Disguised"
-                            LauncherVisibilityMode.HIDDEN -> "Hidden"
-                        },
-                        icon = Icons.Default.Edit,
-                        onClick = { showHollowStealthDialog = true }
-                    )
-                }
-            }
-        }
-
-        // 2. System Photo & File Picker Settings Card
-        item {
-            ContentCard {
-                SectionHeader(
-                    title = "System Photo & File Picker",
-                    subtitle = if (settings.pickerPolicy == PickerPolicy.ALLOW) {
-                        "Picked photos copy safely to app sandbox"
-                    } else {
-                        "System picker blocked for isolated apps"
-                    },
-                    trailing = {
-                        StatusIndicator(
-                            label = if (settings.pickerPolicy == PickerPolicy.ALLOW) "Sandbox Copy" else "Blocked",
-                            color = if (settings.pickerPolicy == PickerPolicy.ALLOW) scheme.secondary else scheme.error
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = vaultRecord.username.ifBlank { "Hollow User" },
+                            style = typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = JakartaFontFamily
+                            ),
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = vaultRecord.email.ifBlank { "Approved · Device Bound" },
+                            style = typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.6f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    val allowSelected = settings.pickerPolicy == PickerPolicy.ALLOW
-                    FilterChip(
-                        selected = allowSelected,
-                        onClick = { viewModel.setPickerPolicy(PickerPolicy.ALLOW) },
-                        leadingIcon = {
+                    // Status pill
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = Color(0xFF22C55E).copy(alpha = 0.18f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
                             Icon(
-                                imageVector = Icons.Default.Check,
+                                imageVector = Icons.Default.VerifiedUser,
                                 contentDescription = null,
-                                modifier = Modifier.size(16.dp)
+                                tint = Color(0xFF4ADE80),
+                                modifier = Modifier.size(12.dp)
                             )
-                        },
-                        label = {
                             Text(
-                                text = "Allow Picker",
-                                style = typography.labelMedium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                fontWeight = if (allowSelected) FontWeight.Bold else FontWeight.Medium
+                                text = "Active",
+                                style = typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF4ADE80)
                             )
-                        },
-                        shape = shapes.extraSmall,
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = scheme.primaryContainer,
-                            selectedLabelColor = scheme.onPrimaryContainer
-                        ),
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("picker_policy_allow")
-                    )
-
-                    val blockSelected = settings.pickerPolicy == PickerPolicy.BLOCK
-                    FilterChip(
-                        selected = blockSelected,
-                        onClick = { viewModel.setPickerPolicy(PickerPolicy.BLOCK) },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Block,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        },
-                        label = {
-                            Text(
-                                text = "Block Picker",
-                                style = typography.labelMedium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                fontWeight = if (blockSelected) FontWeight.Bold else FontWeight.Medium
-                            )
-                        },
-                        shape = shapes.extraSmall,
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = scheme.primaryContainer,
-                            selectedLabelColor = scheme.onPrimaryContainer
-                        ),
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("picker_policy_block")
-                    )
+                        }
+                    }
                 }
             }
         }
 
-        // 3. Appearance Card
+        // ── Section 1: Appearance ───────────────────────────────────────────
         item {
-            ContentCard {
-                SectionHeader(
-                    title = "Appearance",
-                    subtitle = "Theme mode, Material You dynamic colors, and launcher emblem"
+            SettingsSectionLabel("Appearance")
+            Spacer(modifier = Modifier.height(8.dp))
+            SettingsGroupCard {
+                // Dark theme toggle
+                SettingsToggleRow(
+                    icon = Icons.Default.Palette,
+                    title = "Dark Theme",
+                    subtitle = "Switch between light and dark appearance",
+                    checked = settings.darkTheme,
+                    onToggle = { viewModel.setDarkTheme(it) }
                 )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ToggleRow(
-                        title = "Dark theme",
-                        description = "Default dark appearance",
-                        checked = settings.darkTheme,
-                        enabled = true,
-                        onChange = { viewModel.setDarkTheme(it) }
-                    )
-                    ToggleRow(
-                        title = "Wallpaper colors (Material You)",
-                        description = "Match your phone's wallpaper on Android 12+",
-                        checked = settings.dynamicColor,
-                        enabled = true,
-                        onChange = { viewModel.setDynamicColor(it) }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-                HorizontalDivider(color = scheme.outlineVariant)
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Text(
-                    text = "Hollow Launcher Icon Style",
-                    style = typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = scheme.onSurface
+                SettingsDivider()
+                SettingsToggleRow(
+                    icon = Icons.Default.Palette,
+                    title = "Wallpaper Colors (Material You)",
+                    subtitle = "Match your wallpaper palette on Android 12+",
+                    checked = settings.dynamicColor,
+                    onToggle = { viewModel.setDynamicColor(it) }
                 )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Switch between Dynamic Material You (adapts to wallpaper & themed icons) or signature Hollow styles",
-                    style = typography.bodySmall,
-                    color = scheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    HollowIconTheme.entries.forEach { themeOption ->
-                        val isSelected = settings.hollowIconTheme == themeOption
-                        ContentCard(
-                            onClick = { viewModel.setHollowIconTheme(themeOption) },
-                            containerColor = if (isSelected) {
-                                scheme.primaryContainer.copy(alpha = 0.4f)
-                            } else {
-                                scheme.surfaceContainerLow
-                            },
-                            borderColor = if (isSelected) scheme.primary else scheme.outlineVariant,
-                            shape = shapes.small,
-                            contentPadding = PaddingValues(vertical = 8.dp, horizontal = 4.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("icon_theme_${themeOption.name.lowercase()}")
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.fillMaxWidth()
+                SettingsDivider()
+
+                // Icon theme picker
+                Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.padding(vertical = 6.dp)
+                    ) {
+                        SettingsIconBox(Icons.Default.Palette)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Launcher Icon Style",
+                                style = typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = SettingsDarkOnyx
+                            )
+                            Text(
+                                text = "Choose signature Hollow or dynamic icon",
+                                style = typography.bodySmall,
+                                color = SettingsMuted
+                            )
+                        }
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        HollowIconTheme.entries.forEach { themeOption ->
+                            val isSelected = settings.hollowIconTheme == themeOption
+                            val borderColor by animateColorAsState(
+                                targetValue = if (isSelected) SettingsDarkOnyx else SettingsCardBorder,
+                                animationSpec = tween(200),
+                                label = "icon_border"
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = if (isSelected) SettingsDarkOnyx.copy(alpha = 0.06f) else Color.Transparent,
+                                border = BorderStroke(1.5.dp, borderColor),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { viewModel.setHollowIconTheme(themeOption) }
+                                    .testTag("icon_theme_${themeOption.name.lowercase()}")
                             ) {
-                                HollowDynamicEmblem(
-                                    iconTheme = themeOption,
-                                    size = 32.dp
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = themeOption.label,
-                                    style = typography.labelMedium,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected) scheme.primary else scheme.onSurface,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp)
+                                ) {
+                                    HollowDynamicEmblem(
+                                        iconTheme = themeOption,
+                                        size = 30.dp
+                                    )
+                                    Spacer(modifier = Modifier.height(5.dp))
+                                    Text(
+                                        text = themeOption.label,
+                                        style = typography.labelSmall,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) SettingsDarkOnyx else SettingsMuted,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             }
                         }
                     }
@@ -350,78 +276,240 @@ fun SettingsScreen(
             }
         }
 
-        // 4. Volume Isolation & Root Settings
+        // ── Section 2: Security & Disguise ──────────────────────────────────
         item {
-            ContentCard {
-                SectionHeader(
-                    title = "Volume Isolation",
-                    subtitle = "Root storage mounts and at-rest encryption"
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ToggleRow(
-                        title = "Private volumes (Root)",
-                        description = "Mount a separate storage folder per app when rooted",
-                        checked = settings.rootVolumesEnabled,
-                        enabled = true,
-                        onChange = { viewModel.setRootVolumesEnabled(it) }
-                    )
-                    ToggleRow(
-                        title = "Lock volumes when unmounted",
-                        description = "Automatically encrypt app volumes when closed",
-                        checked = settings.encryptVolumesAtRest,
-                        enabled = settings.rootVolumesEnabled,
-                        onChange = { viewModel.setEncryptVolumesAtRest(it) }
-                    )
+            SettingsSectionLabel("Security & Disguise")
+            Spacer(modifier = Modifier.height(8.dp))
+            SettingsGroupCard {
+                // Hide / Disguise row
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier
+                        .clickable { showHollowStealthDialog = true }
+                        .padding(vertical = 6.dp)
+                        .testTag("card_hollow_self_stealth")
+                ) {
+                    SettingsIconBox(presetIconVector(settings.hollowIconPreset))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Hide / Disguise Hollow",
+                            style = typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = SettingsDarkOnyx
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = when (settings.hollowVisibilityMode) {
+                                LauncherVisibilityMode.VISIBLE ->
+                                    if (settings.systemUiTriggerEnabled) "Visible · SystemUI trigger on"
+                                    else "Visible in launcher"
+                                LauncherVisibilityMode.DISGUISED ->
+                                    "Disguised as \"${settings.hollowCustomName}\""
+                                LauncherVisibilityMode.HIDDEN ->
+                                    "Hidden · Open via clock trigger"
+                            },
+                            style = typography.bodySmall,
+                            color = SettingsMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = SettingsDarkOnyx,
+                        modifier = Modifier
+                            .clickable { showHollowStealthDialog = true }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Text(
+                                text = when (settings.hollowVisibilityMode) {
+                                    LauncherVisibilityMode.VISIBLE -> "Visible"
+                                    LauncherVisibilityMode.DISGUISED -> "Disguised"
+                                    LauncherVisibilityMode.HIDDEN -> "Hidden"
+                                },
+                                style = typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+                SettingsDivider()
+
+                // System photo picker
+                Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.padding(vertical = 6.dp)
+                    ) {
+                        SettingsIconBox(Icons.Default.Security)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "System Photo & File Picker",
+                                style = typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = SettingsDarkOnyx
+                            )
+                            Text(
+                                text = if (settings.pickerPolicy == PickerPolicy.ALLOW)
+                                    "Picked photos copy safely to sandbox"
+                                else
+                                    "System picker blocked for isolated apps",
+                                style = typography.bodySmall,
+                                color = SettingsMuted
+                            )
+                        }
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        val allowSelected = settings.pickerPolicy == PickerPolicy.ALLOW
+                        FilterChip(
+                            selected = allowSelected,
+                            onClick = { viewModel.setPickerPolicy(PickerPolicy.ALLOW) },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            },
+                            label = {
+                                Text(
+                                    "Allow Picker",
+                                    style = typography.labelMedium,
+                                    fontWeight = if (allowSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            },
+                            shape = RoundedCornerShape(50),
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = SettingsDarkOnyx,
+                                selectedLabelColor = Color.White,
+                                selectedLeadingIconColor = Color.White
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = allowSelected,
+                                selectedBorderColor = SettingsDarkOnyx,
+                                borderColor = SettingsCardBorder,
+                                borderWidth = 1.dp,
+                                selectedBorderWidth = 0.dp
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("picker_policy_allow")
+                        )
+                        val blockSelected = settings.pickerPolicy == PickerPolicy.BLOCK
+                        FilterChip(
+                            selected = blockSelected,
+                            onClick = { viewModel.setPickerPolicy(PickerPolicy.BLOCK) },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.Block,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            },
+                            label = {
+                                Text(
+                                    "Block Picker",
+                                    style = typography.labelMedium,
+                                    fontWeight = if (blockSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            },
+                            shape = RoundedCornerShape(50),
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = SettingsDarkOnyx,
+                                selectedLabelColor = Color.White,
+                                selectedLeadingIconColor = Color.White
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = blockSelected,
+                                selectedBorderColor = SettingsDarkOnyx,
+                                borderColor = SettingsCardBorder,
+                                borderWidth = 1.dp,
+                                selectedBorderWidth = 0.dp
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("picker_policy_block")
+                        )
+                    }
                 }
             }
         }
 
-        // 5. Setup Guide + System Diagnostics
+        // ── Section 3: Storage ──────────────────────────────────────────────
         item {
-            ContentCard {
-                SectionHeader(
-                    title = "System & Diagnostics",
-                    subtitle = "LSPosed setup guide, root status, and mount terminal"
+            SettingsSectionLabel("Storage")
+            Spacer(modifier = Modifier.height(8.dp))
+            SettingsGroupCard {
+                SettingsToggleRow(
+                    icon = Icons.Default.Storage,
+                    title = "Private Volumes (Root)",
+                    subtitle = "Mount a separate storage folder per app",
+                    checked = settings.rootVolumesEnabled,
+                    onToggle = { viewModel.setRootVolumesEnabled(it) }
                 )
-                Spacer(modifier = Modifier.height(12.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ListRow(
-                        title = "Setup & Xposed Guide",
-                        subtitle = if (isLsposedActive) "Module active in LSPosed" else "How to activate in 3 steps",
-                        leadingIcon = Icons.Default.HelpOutline,
-                        trailing = {
-                            SecondaryButton(
-                                text = "View Guide",
-                                onClick = { showSetupGuideDialog = true },
-                                modifier = Modifier.testTag("btn_open_setup_guide")
-                            )
-                        }
-                    )
+                SettingsDivider()
+                SettingsToggleRow(
+                    icon = Icons.Default.Lock,
+                    title = "Lock Volumes When Unmounted",
+                    subtitle = "Encrypt app volumes when closed",
+                    checked = settings.encryptVolumesAtRest,
+                    enabled = settings.rootVolumesEnabled,
+                    onToggle = { viewModel.setEncryptVolumesAtRest(it) }
+                )
+            }
+        }
 
-                    ListRow(
-                        title = "Root access",
-                        subtitle = rootStatus,
-                        trailing = {
-                            SecondaryButton(
-                                text = "Check",
-                                onClick = { viewModel.checkRoot() }
-                            )
-                        }
-                    )
-
-                    ListRow(
-                        title = "Advanced System Details",
-                        subtitle = "Namespace diagnostics, boot script & active mounts",
-                        leadingIcon = Icons.Default.Tune,
-                        showNavigationChevron = true,
-                        onClick = onOpenDiagnostics,
-                        modifier = Modifier.testTag("nav_mounts")
-                    )
-                }
+        // ── Section 4: System ───────────────────────────────────────────────
+        item {
+            SettingsSectionLabel("System")
+            Spacer(modifier = Modifier.height(8.dp))
+            SettingsGroupCard {
+                SettingsNavRow(
+                    icon = Icons.Default.HelpOutline,
+                    title = "Setup & Xposed Guide",
+                    subtitle = if (isLsposedActive) "Module active in LSPosed" else "How to activate in 3 steps",
+                    onClick = { showSetupGuideDialog = true },
+                    modifier = Modifier.testTag("btn_open_setup_guide")
+                )
+                SettingsDivider()
+                SettingsNavRow(
+                    icon = Icons.Default.Shield,
+                    title = "Root Access",
+                    subtitle = rootStatus,
+                    trailingLabel = "Check",
+                    onClick = { viewModel.checkRoot() }
+                )
+                SettingsDivider()
+                SettingsNavRow(
+                    icon = Icons.Default.Tune,
+                    title = "Advanced System Details",
+                    subtitle = "Namespace diagnostics, boot script & mounts",
+                    onClick = onOpenDiagnostics,
+                    modifier = Modifier.testTag("nav_mounts")
+                )
             }
         }
     }
+
+    // ── Dialogs ─────────────────────────────────────────────────────────────
 
     if (showHollowStealthDialog) {
         HollowSelfStealthDialog(
@@ -449,68 +537,238 @@ fun SettingsScreen(
         )
     }
 
-    // Setup Guide Modal Dialog
     if (showSetupGuideDialog) {
         AlertDialog(
             onDismissRequest = { showSetupGuideDialog = false },
-            shape = shapes.extraLarge,
-            containerColor = scheme.surface,
+            shape = RoundedCornerShape(24.dp),
+            containerColor = Color.White,
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(CircleShape)
-                            .background(scheme.primaryContainer)
+                    Surface(
+                        shape = CircleShape,
+                        color = SettingsDarkOnyx,
+                        modifier = Modifier.size(32.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Shield,
-                            contentDescription = null,
-                            tint = scheme.onPrimaryContainer,
-                            modifier = Modifier.size(16.dp)
-                        )
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Shield,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
                         text = "How to Enable Protection",
-                        style = typography.titleMedium,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = scheme.onSurface
+                        color = SettingsDarkOnyx
                     )
                 }
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    SetupStep(
-                        step = "1",
-                        title = "Enable Hollow in LSPosed / Vector",
-                        desc = "Open your Xposed manager, enable the Hollow module, and select the target apps in its scope."
-                    )
-                    SetupStep(
-                        step = "2",
-                        title = "Add apps in Storage Isolate",
-                        desc = "Open 'Storage Isolate' on the Home screen, tap '+ Add Apps', and switch on WhatsApp, Snapchat, or any app you want isolated."
-                    )
-                    SetupStep(
-                        step = "3",
-                        title = "Force-stop & reopen the app",
-                        desc = "The app will now run inside its own private storage sandbox while still allowing you to share single photos via the System Picker."
-                    )
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    SetupStep("1", "Enable in LSPosed / Vector",
+                        "Open your Xposed manager, enable Hollow, and select target apps in its scope.")
+                    SetupStep("2", "Add apps in Storage Isolate",
+                        "Open Storage Isolate, tap + Add Apps, and switch on apps you want isolated.")
+                    SetupStep("3", "Force-stop & reopen the app",
+                        "The app will now run inside its own private sandbox.")
                 }
             },
             confirmButton = {
-                PrimaryButton(
-                    text = "Got it",
-                    onClick = { showSetupGuideDialog = false }
-                )
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = SettingsDarkOnyx
+                ) {
+                    Text(
+                        text = "Got it",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White,
+                        modifier = Modifier
+                            .clickable { showSetupGuideDialog = false }
+                            .padding(horizontal = 20.dp, vertical = 10.dp)
+                    )
+                }
             },
             dismissButton = {
                 TextButton(onClick = { showSetupGuideDialog = false }) {
-                    Text("Close")
+                    Text("Close", color = SettingsMuted)
                 }
             }
         )
+    }
+}
+
+// ── Reusable setting sub-components ──────────────────────────────────────────
+
+@Composable
+private fun SettingsSectionLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.Bold,
+        color = SettingsMuted,
+        modifier = Modifier.padding(horizontal = 4.dp)
+    )
+}
+
+@Composable
+private fun SettingsGroupCard(content: @Composable () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = Color.White,
+        border = BorderStroke(1.dp, SettingsCardBorder),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp)
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun SettingsDivider() {
+    HorizontalDivider(
+        color = SettingsCardBorder,
+        thickness = 1.dp,
+        modifier = Modifier.padding(start = 52.dp)
+    )
+}
+
+@Composable
+private fun SettingsIconBox(icon: ImageVector) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = SettingsLightGray,
+        modifier = Modifier.size(36.dp)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = SettingsDarkOnyx,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsToggleRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    enabled: Boolean = true,
+    onToggle: (Boolean) -> Unit
+) {
+    val contentAlpha = if (enabled) 1f else 0.4f
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled) { onToggle(!checked) }
+            .padding(vertical = 12.dp)
+    ) {
+        SettingsIconBox(icon)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = SettingsDarkOnyx.copy(alpha = contentAlpha),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = SettingsMuted.copy(alpha = contentAlpha),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        // Animated switch using Material3's Switch with onyx thumb/track when ON
+        Switch(
+            checked = checked,
+            onCheckedChange = onToggle,
+            enabled = enabled,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = SettingsDarkOnyx,
+                uncheckedThumbColor = SettingsMuted,
+                uncheckedTrackColor = SettingsLightGray,
+                uncheckedBorderColor = SettingsCardBorder
+            )
+        )
+    }
+}
+
+@Composable
+private fun SettingsNavRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    trailingLabel: String? = null,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp)
+    ) {
+        SettingsIconBox(icon)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = SettingsDarkOnyx,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = SettingsMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (trailingLabel != null) {
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = SettingsLightGray
+            ) {
+                Text(
+                    text = trailingLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = SettingsDarkOnyx,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                )
+            }
+        } else {
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = SettingsMuted,
+                modifier = Modifier.size(20.dp)
+            )
+        }
     }
 }
 
@@ -530,7 +788,13 @@ fun ToggleRow(
             Switch(
                 checked = checked,
                 onCheckedChange = onChange,
-                enabled = enabled
+                enabled = enabled,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Color.White,
+                    checkedTrackColor = SettingsDarkOnyx,
+                    uncheckedThumbColor = SettingsMuted,
+                    uncheckedTrackColor = SettingsLightGray
+                )
             )
         }
     )
@@ -538,38 +802,36 @@ fun ToggleRow(
 
 @Composable
 fun SetupStep(step: String, title: String, desc: String) {
-    val scheme = MaterialTheme.colorScheme
-    val typography = MaterialTheme.typography
     Row(
         verticalAlignment = Alignment.Top,
-        modifier = Modifier.padding(vertical = 4.dp)
+        modifier = Modifier.padding(vertical = 2.dp)
     ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .size(24.dp)
-                .clip(CircleShape)
-                .background(scheme.primaryContainer)
+        Surface(
+            shape = CircleShape,
+            color = SettingsDarkOnyx,
+            modifier = Modifier.size(24.dp)
         ) {
-            Text(
-                text = step,
-                color = scheme.onPrimaryContainer,
-                style = typography.labelMedium,
-                fontWeight = FontWeight.Bold
-            )
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    text = step,
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
         Spacer(modifier = Modifier.width(12.dp))
         Column {
             Text(
                 text = title,
-                style = typography.titleSmall,
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
-                color = scheme.onSurface
+                color = SettingsDarkOnyx
             )
             Text(
                 text = desc,
-                style = typography.bodySmall,
-                color = scheme.onSurfaceVariant
+                style = MaterialTheme.typography.bodySmall,
+                color = SettingsMuted
             )
         }
     }

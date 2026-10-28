@@ -23,7 +23,6 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
@@ -187,26 +186,14 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
         topBar = {
             if (showMainTopBar) {
                 TopAppBar(
-                    navigationIcon = {
-                        IconButton(
-                            onClick = {
-                                activeModuleId = null
-                                currentScreen = NavDestination.SETTINGS
-                            },
-                            modifier = Modifier.testTag("top_bar_menu_icon")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Menu,
-                                contentDescription = "Menu",
-                                tint = scheme.onBackground
-                            )
-                        }
-                    },
+                    navigationIcon = {},
                     title = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            HollowDynamicEmblem(
-                                iconTheme = settings.hollowIconTheme,
-                                size = 32.dp
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(start = 4.dp)
+                        ) {
+                            com.example.isolation.ui.screens.HollowSplashEmblem(
+                                modifier = Modifier.size(26.dp)
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
@@ -219,18 +206,6 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                         }
                     },
                     actions = {
-                        IconButton(
-                            onClick = {
-                                showSystemAlertsDialog = true
-                            },
-                            modifier = Modifier.testTag("top_bar_notifications")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Notifications,
-                                contentDescription = "System Alerts",
-                                tint = scheme.onBackground
-                            )
-                        }
                         IconButton(
                             onClick = { viewModel.setDarkTheme(!settings.darkTheme) }
                         ) {
