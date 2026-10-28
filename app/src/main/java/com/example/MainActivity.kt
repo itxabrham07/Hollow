@@ -132,6 +132,17 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
     val isPrivacyMounted = "module_privacy" in mountedIds
     val isIsolationMounted = "module_isolation" in mountedIds
 
+    val isLicenseApproved = settings.devFullBuildMode || vaultRecord.status == LicenseAccountStatus.APPROVED
+
+    if (!isLicenseApproved) {
+        OnboardingAuthScreen(
+            viewModel = viewModel,
+            isStandaloneGate = true,
+            onBack = {}
+        )
+        return
+    }
+
     LaunchedEffect(statusMessage) {
         statusMessage?.let { msg ->
             snackbarHostState.showSnackbar(msg)

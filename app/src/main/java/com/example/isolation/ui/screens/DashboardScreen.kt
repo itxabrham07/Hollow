@@ -119,35 +119,156 @@ fun DashboardScreen(
             .testTag("dashboard_screen"),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Colorful Material 3 Expressive Home Hero Card
+        // Compact Executive Hollow Security Card
         item {
-            Spacer(modifier = Modifier.height(4.dp))
-            ColorfulHomeHeroCard(
-                isLsposedActive = isLsposedActive,
-                isolatedCount = isolatedCount,
-                spoofedCount = spoofedCount,
-                hiddenCount = hiddenCount,
-                mountedCount = mountedIds.size,
-                totalModules = totalCatalogSize,
-                onRefresh = { viewModel.refreshDiagnostics() },
-                onOpenPrivacy = { onOpenModule("module_privacy") },
-                onOpenStorage = { onOpenModule("module_isolation") }
-            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Card(
+                colors = CardDefaults.cardColors(containerColor = scheme.surface),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.6f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("lsposed_status_banner")
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(scheme.primaryContainer)
+                            ) {
+                                Icon(
+                                    imageVector = if (isLsposedActive) Icons.Default.VerifiedUser else Icons.Default.Shield,
+                                    contentDescription = null,
+                                    tint = scheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Hollow Security Suite",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = scheme.onSurface,
+                                    fontFamily = JakartaFontFamily
+                                )
+                                Text(
+                                    text = if (isLsposedActive) "LSPosed Kernel Hooks Active" else "Framework Ready • Standard Sandbox",
+                                    fontSize = 11.sp,
+                                    color = if (isLsposedActive) Color(0xFF10B981) else scheme.onSurfaceVariant,
+                                    fontWeight = FontWeight.Medium,
+                                    fontFamily = JakartaFontFamily
+                                )
+                            }
+                        }
+
+                        IconButton(
+                            onClick = { viewModel.refreshDiagnostics() },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Refresh Status",
+                                tint = scheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Surface(
+                            color = scheme.surfaceContainerHigh.copy(alpha = 0.6f),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onOpenModule("module_isolation") }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Folder,
+                                    contentDescription = null,
+                                    tint = M3TealAccent,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Column {
+                                    Text(text = "$isolatedCount", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = scheme.onSurface)
+                                    Text(text = "Isolated", fontSize = 10.sp, color = scheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+
+                        Surface(
+                            color = scheme.surfaceContainerHigh.copy(alpha = 0.6f),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onOpenModule("module_privacy") }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Shield,
+                                    contentDescription = null,
+                                    tint = M3IndigoAccent,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Column {
+                                    Text(text = "$spoofedCount", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = scheme.onSurface)
+                                    Text(text = "Spoofed", fontSize = 10.sp, color = scheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+
+                        Surface(
+                            color = scheme.surfaceContainerHigh.copy(alpha = 0.6f),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onOpenModule("module_hider") }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = M3VioletAccent,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Column {
+                                    Text(text = "$hiddenCount", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = scheme.onSurface)
+                                    Text(text = "Hidden", fontSize = 10.sp, color = scheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
-        // Cloud Account & Module Hub Card
-        item {
-            RootVaultStatusCard(
-                devFullBuild = settings.devFullBuildMode,
-                hardwareFingerprint = viewModel.hardwareBinding.fingerprintHex,
-                activeModulesCount = mountedIds.size,
-                totalModulesCount = totalCatalogSize,
-                remainingDays = clockCheck.remainingDays,
-                onOpenLicenseHub = onNavigateToLicenseHub
-            )
-        }
-
-        // Dynamic Module Download Notification Banner
+        // Dynamic Module Download Notification Banner (if any pending)
         if (pendingDownloadTitles.isNotEmpty()) {
             item {
                 ModuleDownloadNotificationBanner(
@@ -156,95 +277,6 @@ fun DashboardScreen(
                     onDownloadAllClick = { viewModel.downloadAllAuthorizedModules() },
                     onOpenModuleHubClick = onNavigateToLicenseHub
                 )
-            }
-        }
-
-        // If running in Release mode and 0 modules are active yet, show a friendly 1-tap Unlock card
-        // AND still show the colorful module cards below so the Home Dashboard is always rich and complete.
-        if (mountedModules.isEmpty()) {
-            item {
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = scheme.primaryContainer.copy(alpha = 0.55f)
-                    ),
-                    shape = RoundedCornerShape(22.dp),
-                    border = BorderStroke(1.dp, scheme.primary.copy(alpha = 0.25f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("card_zero_modules_shell")
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(scheme.primary)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.AutoAwesome,
-                                    contentDescription = null,
-                                    tint = scheme.onPrimary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Activate Your Feature Modules",
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = scheme.onSurface,
-                                    fontFamily = JakartaFontFamily
-                                )
-                                Text(
-                                    text = "Sign in to sync your cloud modules or activate all modules immediately.",
-                                    fontSize = 12.sp,
-                                    color = scheme.onSurfaceVariant,
-                                    fontFamily = JakartaFontFamily
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Button(
-                                onClick = onNavigateToLicenseHub,
-                                shape = RoundedCornerShape(50),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("btn_open_module_downloader")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.CloudDownload,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Account & Cloud", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                            FilledTonalButton(
-                                onClick = {
-                                    viewModel.simulateAdminApproveAccount()
-                                    viewModel.downloadAllAuthorizedModules()
-                                },
-                                shape = RoundedCornerShape(50),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.VerifiedUser,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Quick Unlock All", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
             }
         }
 
