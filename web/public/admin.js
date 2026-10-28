@@ -583,10 +583,8 @@
 
             const moduleChecksHtml = cachedModules.map((m) => {
                 const modId = m.moduleId || m.id;
-                // Default check all modules for pending devices so one-click Approve grants them seamlessly
-                const isChecked = st === 'PENDING_APPROVAL'
-                    ? true
-                    : allowed.includes(modId);
+                // Only pre-check if explicitly entitled in allowedModules (not pre-checked by default)
+                const isChecked = allowed.includes(modId);
                 return `
                     <label class="module-check-label">
                         <input type="checkbox" class="mod-check" data-hw="${hwAttr}" value="${esc(modId)}" ${isChecked ? 'checked' : ''} />
@@ -594,6 +592,8 @@
                     </label>
                 `;
             }).join('');
+
+            const initialSelectedCount = allowed.filter((id) => cachedModules.some((m) => (m.moduleId || m.id) === id)).length;
 
             return `
                 <div class="device-row-card ${st === 'PENDING_APPROVAL' ? 'is-pending' : ''}">
@@ -611,9 +611,15 @@
                         <span class="status-pill ${pillClass}">${esc(pillLabel)}</span>
                     </div>
 
-                    <div>
-                        <div style="font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:#64748B; margin-bottom:8px;">
-                            Entitled Signed Modules
+                    <div style="background:var(--bg-subtle); border:1px solid var(--border-hairline); border-radius:14px; padding:14px 16px;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                            <div style="font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:#475569;">
+                                Privacy Modules to Grant: <span class="mod-count-badge" data-hw="${hwAttr}">${initialSelectedCount} selected</span>
+                            </div>
+                            <div style="display:flex; gap:6px;">
+                                <button type="button" class="btn btn-outline btn-sm btn-select-all" data-hw="${hwAttr}" style="padding:4px 10px; min-height:28px; font-size:11px;">Select All</button>
+                                <button type="button" class="btn btn-outline btn-sm btn-clear-all" data-hw="${hwAttr}" style="padding:4px 10px; min-height:28px; font-size:11px;">Clear All</button>
+                            </div>
                         </div>
                         <div class="module-checkbox-row">
                             ${moduleChecksHtml}
@@ -623,7 +629,7 @@
                     <div class="device-actions-row">
                         <button type="button" class="btn-black btn-sm btn-approve-device" data-hw="${hwAttr}">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><polyline points="20 6 9 17 4 12"/></svg>
-                            <span>${st === 'APPROVED' ? 'Save Module Entitlements' : 'Approve & Grant Selected'}</span>
+                            <span class="btn-approve-label" data-hw="${hwAttr}">${st === 'APPROVED' ? `Save Entitlements (${initialSelectedCount})` : `Approve Device (${initialSelectedCount} Modules)`}</span>
                         </button>
                         ${st !== 'BANNED' ? `
                             <button type="button" class="btn-danger-outline btn-ban-device" data-hw="${hwAttr}" data-ban="true">
@@ -638,6 +644,42 @@
                 </div>
             `;
         }).join('');
+
+        function updateDeviceModuleCount(hw) {
+            const checks = Array.from(container.querySelectorAll(`.mod-check[data-hw="${CSS.escape(hw)}"]`));
+            const count = checks.filter((c) => c.checked).length;
+            const badge = container.querySelector(`.mod-count-badge[data-hw="${CSS.escape(hw)}"]`);
+            if (badge) badge.textContent = `${count} selected`;
+            const label = container.querySelector(`.btn-approve-label[data-hw="${CSS.escape(hw)}"]`);
+            if (label) {
+                const dev = cachedDevices.find((d) => d.hardwareFingerprint === hw);
+                const isApproved = dev && normalizeStatus(dev.status) === 'APPROVED';
+                label.textContent = isApproved ? `Save Entitlements (${count})` : `Approve Device (${count} Modules)`;
+            }
+        }
+
+        container.querySelectorAll('.mod-check').forEach((chk) => {
+            chk.addEventListener('change', () => {
+                const hw = chk.getAttribute('data-hw');
+                if (hw) updateDeviceModuleCount(hw);
+            });
+        });
+
+        container.querySelectorAll('.btn-select-all').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const hw = btn.getAttribute('data-hw');
+                container.querySelectorAll(`.mod-check[data-hw="${CSS.escape(hw)}"]`).forEach((c) => { c.checked = true; });
+                updateDeviceModuleCount(hw);
+            });
+        });
+
+        container.querySelectorAll('.btn-clear-all').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const hw = btn.getAttribute('data-hw');
+                container.querySelectorAll(`.mod-check[data-hw="${CSS.escape(hw)}"]`).forEach((c) => { c.checked = false; });
+                updateDeviceModuleCount(hw);
+            });
+        });
 
         container.querySelectorAll('.btn-approve-device').forEach((btn) => {
             btn.addEventListener('click', async () => {

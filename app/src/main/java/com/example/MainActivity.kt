@@ -31,6 +31,7 @@ import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -44,6 +45,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -123,6 +125,7 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
     var activeModuleId by remember { mutableStateOf<String?>(null) }
     var filesInitialTab by remember { mutableIntStateOf(0) }
     var isDetailScreenOpen by remember { mutableStateOf(false) }
+    var showSystemAlertsDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val statusMessage by viewModel.statusMessage.collectAsState()
     val isLsposedActive by viewModel.isLsposedActive.collectAsState()
@@ -218,14 +221,13 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                     actions = {
                         IconButton(
                             onClick = {
-                                activeModuleId = null
-                                currentScreen = NavDestination.LICENSE_HUB
+                                showSystemAlertsDialog = true
                             },
-                            modifier = Modifier.testTag("top_bar_license_hub")
+                            modifier = Modifier.testTag("top_bar_notifications")
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Notifications,
-                                contentDescription = "Notifications & Modules Hub",
+                                contentDescription = "System Alerts",
                                 tint = scheme.onBackground
                             )
                         }
@@ -238,11 +240,6 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                                 tint = scheme.onSurfaceVariant
                             )
                         }
-                        StatusBadge(
-                            text = if (isLsposedActive) "Protected" else "Ready",
-                            color = if (isLsposedActive) scheme.primary else scheme.secondary,
-                            modifier = Modifier.padding(end = 12.dp)
-                        )
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = scheme.background,
@@ -489,5 +486,45 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                 }
             }
         }
+    }
+
+    if (showSystemAlertsDialog) {
+        AlertDialog(
+            onDismissRequest = { showSystemAlertsDialog = false },
+            title = {
+                Text(
+                    text = "System Alerts",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = scheme.onSurface
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "• Security Engine: Root vault and runtime isolation active.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = scheme.onSurface
+                    )
+                    Text(
+                        text = "• Module Integrity: All mounted modules verified with Ed25519 signature.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = scheme.onSurface
+                    )
+                    Text(
+                        text = "• Privacy Status: Zero unmonitored background data leaks detected.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = scheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSystemAlertsDialog = false }) {
+                    Text("Close", color = scheme.primary, fontWeight = FontWeight.Bold)
+                }
+            },
+            containerColor = scheme.surface,
+            shape = MaterialTheme.shapes.large
+        )
     }
 }

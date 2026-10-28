@@ -450,15 +450,172 @@ object HollowDexModuleLoader {
             if (sigBytes.size != 64) return false
 
             val keySpec = X509EncodedKeySpec(pubKeyBytes)
-            val kf = KeyFactory.getInstance("Ed25519")
-            val pubKey = kf.generatePublic(keySpec)
-            val verifier = Signature.getInstance("Ed25519")
-            verifier.initVerify(pubKey)
-            verifier.update(messageBytes)
-            verifier.verify(sigBytes)
+
+            // 1. In JVM environments (Robolectric / OpenJDK), find SunEC via ServiceLoader if not already in Security
+            try {
+                if (java.security.Security.getProvider("SunEC") == null) {
+                    for (p in java.util.ServiceLoader.load(java.security.Provider::class.java)) {
+                        if ("SunEC".equals(p.name, ignoreCase = true)) {
+                            java.security.Security.addProvider(p)
+                            break
+                        }
+                    }
+                }
+            } catch (_: Throwable) {}
+
+            // 2. Try JCA providers (Conscrypt, SunEC, BC), explicitly skipping AndroidKeyStore to avoid KeyGenParameterSpec crashes
+            val providers = java.security.Security.getProviders()
+            for (provider in providers) {
+                if (provider.name.contains("AndroidKeyStore", ignoreCase = true)) continue
+                for (algo in listOf("Ed25519", "EdDSA")) {
+                    try {
+                        val kf = KeyFactory.getInstance(algo, provider)
+                        val pubKey = kf.generatePublic(keySpec)
+                        val verifier = Signature.getInstance(algo, provider)
+                        verifier.initVerify(pubKey)
+                        verifier.update(messageBytes)
+                        if (verifier.verify(sigBytes)) return true
+                    } catch (_: Throwable) {}
+                }
+            }
+
+            // 3. Pure-Kotlin RFC 8032 Ed25519 fallback verifier
+            val rawPubKey32 = if (pubKeyBytes.size >= 32) {
+                pubKeyBytes.copyOfRange(pubKeyBytes.size - 32, pubKeyBytes.size)
+            } else {
+                pubKeyBytes
+            }
+            PureEd25519Verifier.verify(messageBytes, sigBytes, rawPubKey32)
         } catch (t: Throwable) {
             Log.e(TAG, "Ed25519 verification error: ${t.message}")
             false
+        }
+    }
+
+    private object PureEd25519Verifier {
+        private val P = java.math.BigInteger("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffed", 16)
+        private val L = java.math.BigInteger("1000000000000000000000000000000014def9dea2f79cd65812631a5cf5d3ed", 16)
+        private val D = (java.math.BigInteger.valueOf(-121665).multiply(java.math.BigInteger.valueOf(121666).modInverse(P))).mod(P)
+        private val I = java.math.BigInteger.valueOf(2).modPow(P.subtract(java.math.BigInteger.ONE).divide(java.math.BigInteger.valueOf(4)), P)
+        private val B_Y = java.math.BigInteger.valueOf(4).multiply(java.math.BigInteger.valueOf(5).modInverse(P)).mod(P)
+        private val B_X: java.math.BigInteger = recoverX(B_Y)
+        private val BASE_POINT = Point(B_X, B_Y)
+
+        data class Point(val x: java.math.BigInteger, val y: java.math.BigInteger)
+
+        private fun recoverX(y: java.math.BigInteger): java.math.BigInteger {
+            val y2 = y.multiply(y).mod(P)
+            val u = y2.subtract(java.math.BigInteger.ONE).mod(P)
+            val v = D.multiply(y2).add(java.math.BigInteger.ONE).mod(P)
+            val x = u.multiply(v.modInverse(P)).mod(P)
+            var root = x.modPow(P.add(java.math.BigInteger.valueOf(3)).divide(java.math.BigInteger.valueOf(8)), P)
+            if (root.multiply(root).subtract(x).mod(P) != java.math.BigInteger.ZERO) {
+                root = root.multiply(I).mod(P)
+            }
+            if (root.testBit(0)) {
+                root = P.subtract(root).mod(P)
+            }
+            return root
+        }
+
+        private fun add(p1: Point, p2: Point): Point {
+            val x1 = p1.x
+            val y1 = p1.y
+            val x2 = p2.x
+            val y2 = p2.y
+            val x1x2 = x1.multiply(x2).mod(P)
+            val y1y2 = y1.multiply(y2).mod(P)
+            val dx1x2y1y2 = D.multiply(x1x2).mod(P).multiply(y1y2).mod(P)
+
+            val x3num = x1.multiply(y2).add(y1.multiply(x2)).mod(P)
+            val x3den = java.math.BigInteger.ONE.add(dx1x2y1y2).mod(P)
+            val x3 = x3num.multiply(x3den.modInverse(P)).mod(P)
+
+            val y3num = y1y2.add(x1x2).mod(P)
+            val y3den = java.math.BigInteger.ONE.subtract(dx1x2y1y2).mod(P)
+            val y3 = y3num.multiply(y3den.modInverse(P)).mod(P)
+            return Point(x3, y3)
+        }
+
+        private fun scalarMult(p: Point, s: java.math.BigInteger): Point {
+            var result: Point? = null
+            var current = p
+            val bits = s.toString(2)
+            for (i in bits.indices) {
+                if (result != null) {
+                    result = add(result, result)
+                }
+                if (bits[i] == '1') {
+                    result = if (result == null) current else add(result, current)
+                }
+            }
+            return result ?: Point(java.math.BigInteger.ZERO, java.math.BigInteger.ONE)
+        }
+
+        fun verify(message: ByteArray, signature: ByteArray, publicKeyBytes: ByteArray): Boolean {
+            if (signature.size != 64 || publicKeyBytes.size != 32) return false
+            return try {
+                val rBytes = signature.copyOfRange(0, 32)
+                val sBytes = signature.copyOfRange(32, 64)
+
+                var s = java.math.BigInteger.ZERO
+                for (i in 31 downTo 0) {
+                    s = s.shiftLeft(8).add(java.math.BigInteger.valueOf((sBytes[i].toInt() and 0xFF).toLong()))
+                }
+                if (s >= L) return false
+
+                val aPoint = decodePoint(publicKeyBytes) ?: return false
+                val rPoint = decodePoint(rBytes) ?: return false
+
+                val md = MessageDigest.getInstance("SHA-512")
+                md.update(rBytes)
+                md.update(publicKeyBytes)
+                md.update(message)
+                val hBytes = md.digest()
+                var k = java.math.BigInteger.ZERO
+                for (i in 63 downTo 0) {
+                    k = k.shiftLeft(8).add(java.math.BigInteger.valueOf((hBytes[i].toInt() and 0xFF).toLong()))
+                }
+                k = k.mod(L)
+
+                val sb = scalarMult(BASE_POINT, s)
+                val ka = scalarMult(aPoint, k)
+                val rPlusKa = add(rPoint, ka)
+
+                sb.x == rPlusKa.x && sb.y == rPlusKa.y
+            } catch (_: Throwable) {
+                false
+            }
+        }
+
+        private fun decodePoint(bytes: ByteArray): Point? {
+            if (bytes.size != 32) return null
+            val lastByte = bytes[31].toInt() and 0xFF
+            val xBit = (lastByte and 0x80) != 0
+            val yBytes = bytes.clone()
+            yBytes[31] = (lastByte and 0x7F).toByte()
+
+            var y = java.math.BigInteger.ZERO
+            for (i in 31 downTo 0) {
+                y = y.shiftLeft(8).add(java.math.BigInteger.valueOf((yBytes[i].toInt() and 0xFF).toLong()))
+            }
+            if (y >= P) return null
+
+            val y2 = y.multiply(y).mod(P)
+            val u = y2.subtract(java.math.BigInteger.ONE).mod(P)
+            val v = D.multiply(y2).add(java.math.BigInteger.ONE).mod(P)
+            val x = u.multiply(v.modInverse(P)).mod(P)
+
+            var root = x.modPow(P.add(java.math.BigInteger.valueOf(3)).divide(java.math.BigInteger.valueOf(8)), P)
+            if (root.multiply(root).subtract(x).mod(P) != java.math.BigInteger.ZERO) {
+                root = root.multiply(I).mod(P)
+            }
+            if (root.multiply(root).subtract(x).mod(P) != java.math.BigInteger.ZERO) return null
+
+            if (root.testBit(0) != xBit) {
+                root = P.subtract(root).mod(P)
+            }
+            return Point(root, y)
         }
     }
 

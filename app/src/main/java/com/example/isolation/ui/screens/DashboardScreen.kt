@@ -130,7 +130,7 @@ fun DashboardScreen(
                 .testTag("dashboard_screen"),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp)
+            contentPadding = PaddingValues(top = 24.dp, bottom = 32.dp)
         ) {
             item {
                 Column(
@@ -140,7 +140,7 @@ fun DashboardScreen(
                         .testTag("card_zero_modules_shell"),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(24.dp))
 
                     // 3D Isometric Cube Graphic (Screen 07 from storyboard)
                     IsometricCubeGraphic(modifier = Modifier.size(130.dp))
@@ -153,7 +153,7 @@ fun DashboardScreen(
                             fontWeight = FontWeight.Bold,
                             fontFamily = JakartaFontFamily
                         ),
-                        color = Color(0xFF111827),
+                        color = scheme.onSurface,
                         textAlign = TextAlign.Center
                     )
 
@@ -162,75 +162,40 @@ fun DashboardScreen(
                     Text(
                         text = "Your dashboard is ready. Modules will appear here when approved by admin.",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Color(0xFF64748B),
+                        color = scheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(horizontal = 16.dp)
                     )
 
-                    Spacer(modifier = Modifier.height(28.dp))
+                    Spacer(modifier = Modifier.height(24.dp))
 
-                    // 3 Rounded Feature Cards
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        EmptyHomeFeatureRow(
-                            icon = Icons.Default.AutoAwesome,
-                            title = "Stay tuned for new modules"
-                        )
-                        EmptyHomeFeatureRow(
-                            icon = Icons.Default.Notifications,
-                            title = "You'll get a notification"
-                        )
-                        EmptyHomeFeatureRow(
-                            icon = Icons.Default.Layers,
-                            title = "Install with one tap"
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(28.dp))
-
-                    // Solid Black Capsule Button: Sync & Install Modules
-                    Button(
-                        onClick = {
-                            viewModel.syncLicenseAndModulesFromServer()
-                            viewModel.downloadAllAuthorizedModules()
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF111827),
-                            contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(50),
+                    Surface(
+                        shape = MaterialTheme.shapes.medium,
+                        color = scheme.surfaceVariant.copy(alpha = 0.5f),
+                        border = BorderStroke(1.dp, scheme.outlineVariant),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(54.dp)
-                            .testTag("btn_open_module_downloader")
+                            .padding(horizontal = 8.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.CloudDownload,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "Sync & Install Modules",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    TextButton(
-                        onClick = onNavigateToLicenseHub,
-                        modifier = Modifier.testTag("btn_open_license_hub")
-                    ) {
-                        Text(
-                            text = "View Account & Vault Status",
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                color = Color(0xFF64748B),
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.VerifiedUser,
+                                contentDescription = null,
+                                tint = scheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Awaiting module assignment by admin",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = scheme.onSurfaceVariant,
                                 fontWeight = FontWeight.Medium
                             )
-                        )
+                        }
                     }
                 }
             }
@@ -729,47 +694,6 @@ fun IsometricCubeGraphic(modifier: Modifier = Modifier) {
             close()
         }
         drawPath(rightFace, color = Color(0xFF6366F1))
-    }
-}
-
-@Composable
-private fun EmptyHomeFeatureRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String
-) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = Color.White,
-        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = Color(0xFFF1F5F9),
-                modifier = Modifier.size(40.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = Color(0xFF111827),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    fontWeight = FontWeight.Medium,
-                    color = Color(0xFF111827)
-                )
-            )
-        }
     }
 }
 

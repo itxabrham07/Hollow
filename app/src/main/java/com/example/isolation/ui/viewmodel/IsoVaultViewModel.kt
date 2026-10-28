@@ -2083,7 +2083,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
 
             if (bundleJson.isBlank()) {
                 withContext(Dispatchers.Main) {
-                    _statusMessage.value = "Rejected $moduleId: missing or invalid Ed25519 module signature."
+                    _statusMessage.value = "Unable to install $moduleId: could not reach server or verify signature."
                 }
                 return@launch
             }

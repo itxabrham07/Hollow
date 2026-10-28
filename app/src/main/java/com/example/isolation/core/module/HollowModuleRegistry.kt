@@ -161,8 +161,14 @@ private class UnmountedModuleDescriptor(
         "module_sensor_firewall" -> "Sensor Firewall"
         else -> displayName.take(18)
     }
-    override val summary: String =
-        "Encrypted server module ($id.dex.enc) — download required to verify Ed25519 signature and mount DEX."
+    override val summary: String = when (id) {
+        "module_isolation" -> "Redirects file and media queries into encrypted per-app workspaces so personal photos and files stay protected."
+        "module_privacy" -> "Provides isolated per-application hardware profiles for Android ID, serial numbers, and sensor streams."
+        "module_hider" -> "Hides sensitive apps from system package queries, app launchers, and recent tasks."
+        "module_network" -> "Routes selected application traffic through dedicated encrypted proxies with kill switch protection."
+        "module_sensor_firewall" -> "Monitors and intercepts unauthorized microphone, camera, and sensor access."
+        else -> "System privacy module for app sandboxing and device protection."
+    }
     override val version: Int = 1
     override val requiredMinCoreVersion: Int = 1
     override val icon: ImageVector = when (id) {

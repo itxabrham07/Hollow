@@ -1003,12 +1003,10 @@ app.post('/api/v1/admin/devices/approve', requireAdminAuth, async (req, res) => 
   try {
     const { hardwareFingerprint, allowedModules, validityDays } = req.body || {};
     const catalog = loadModulesFromRepo();
-    const defaultMods = Object.keys(catalog);
     const days = Number(validityDays || 365);
     const nowMs = Date.now();
     const validUntilMs = nowMs + days * 86400000;
-    const mods =
-      Array.isArray(allowedModules) && allowedModules.length > 0 ? allowedModules : defaultMods;
+    const mods = Array.isArray(allowedModules) ? allowedModules : defaultMods;
 
     const existing = await findDeviceRecord(hardwareFingerprint);
     if (!existing) {
