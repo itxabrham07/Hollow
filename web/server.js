@@ -1,15 +1,16 @@
 /**
- * Hollow Cloud Server & Colorful Material 3 Web Platform (Node.js + Express + MongoDB Atlas)
+ * Hollow Cloud Server — Product Web Platform & Admin Console (Node.js + Express + MongoDB Atlas)
  *
- * Features:
- * 1. Public Home Page (/) + Admin Console (/admin)
- * 2. MongoDB Atlas persistence with automatic in-memory fallback when MONGODB_URI is not set,
- *    ensuring the dashboard and APIs never fail or appear empty.
- * 3. Zero-Touch Dynamic Module Catalog auto-discovered from ../modules/<moduleId>/manifest.json
- * 4. ECDH P-256 + AES-256-GCM envelope encryption + Ed25519 signed module delivery
+ * Routes:
+ * - GET /        -> Public Product Page (web/public/index.html)
+ * - GET /admin   -> Dedicated Administrator Console (web/public/admin.html)
+ * - POST /api/v1/auth/register -> Register device (stores in MongoDB + in-memory mirror)
+ * - POST /api/v1/auth/login    -> Sign in existing account & bind hardware fingerprint
+ * - POST /api/v1/auth/status   -> Poll approval status & auto-register pending device if missing
+ * - GET  /api/v1/admin/overview -> Live device queue, module catalog & audit log for Admin Console
  */
 
-require('dotenv').config();
+try { require('dotenv').config(); } catch (_) {}
 const express = require('express');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -24,22 +25,37 @@ const Module = require('./models/Module');
 const SecurityIncident = require('./models/SecurityIncident');
 
 const app = express();
+
+// CORS support for mobile & web clients
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Authorization, X-Hollow-HW, X-Hollow-Signature, X-Hollow-Uptime'
+  );
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  return next();
+});
+
 app.use(express.json({ limit: '5mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Serve the Web App on both / and /admin
-app.get('/admin', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+// Dedicated Admin Console route (/admin) — completely separated from public product page (/)
+app.get(['/admin', '/admin/*'], (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
 const PORT = process.env.PORT || 8080;
-const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
+const JWT_SECRET = process.env.JWT_SECRET || 'hollow_persistent_admin_jwt_secret_2026';
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'hollow_admin_2025';
 const MONGODB_URI = process.env.MONGODB_URI || '';
 
 // ---------------------------------------------------------------------------
-// 1. MongoDB Atlas Connection + Seamless In-Memory Fallback Store
+// 1. MongoDB Atlas Connection + Resilient Dual Store (Mongo + Memory Mirror)
 // ---------------------------------------------------------------------------
 let mongoConnected = false;
 
@@ -54,9 +70,31 @@ function isDbLive() {
   return mongoConnected && mongoose.connection.readyState === 1;
 }
 
+function normalizeStatus(rawStatus) {
+  const s = String(rawStatus || '').trim().toUpperCase();
+  if (s === 'APPROVED') return 'APPROVED';
+  if (s === 'BANNED' || s === 'REVOKED') return 'BANNED';
+  if (s === 'UNREGISTERED') return 'UNREGISTERED';
+  return 'PENDING_APPROVAL';
+}
+
+function normalizeDeviceDoc(doc) {
+  if (!doc) return null;
+  const plain = typeof doc.toObject === 'function' ? doc.toObject() : { ...doc };
+  plain.status = normalizeStatus(plain.status);
+  plain.username = plain.username || 'User';
+  plain.email = plain.email || '';
+  plain.deviceModel = plain.deviceModel || 'Android Device';
+  plain.allowedModules = Array.isArray(plain.allowedModules) ? plain.allowedModules : [];
+  plain.banReason = plain.banReason || '';
+  plain.registeredAt = plain.registeredAt || plain.createdAt || new Date();
+  plain.updatedAt = plain.updatedAt || plain.lastHeartbeatAt || new Date();
+  return plain;
+}
+
 async function connectMongoDB() {
   if (!MONGODB_URI) {
-    console.log('[MongoDB] MONGODB_URI not set — running with clean live memory store.');
+    console.log('[MongoDB] MONGODB_URI not set — running with live in-memory store.');
     return;
   }
   try {
@@ -71,6 +109,117 @@ async function connectMongoDB() {
   }
 }
 connectMongoDB();
+
+/**
+ * Dual-writes a device record to both `memoryStore.devices` and MongoDB (when connected)
+ * using `findOneAndUpdate` with `upsert: true` so Mongoose enum/required validation can never drop a device.
+ */
+async function upsertDeviceRecord(hardwareFingerprint, fields) {
+  const now = new Date();
+  let memDev = memoryStore.devices.find((d) => d.hardwareFingerprint === hardwareFingerprint);
+  if (!memDev) {
+    memDev = {
+      hardwareFingerprint,
+      username: fields.username || 'user',
+      email: fields.email || '',
+      passwordHash: fields.passwordHash || '',
+      socSerial: fields.socSerial || '',
+      androidId: fields.androidId || '',
+      storageCid: fields.storageCid || '',
+      deviceModel: fields.deviceModel || 'Android Device',
+      status: normalizeStatus(fields.status || 'PENDING_APPROVAL'),
+      allowedModules: Array.isArray(fields.allowedModules) ? fields.allowedModules : [],
+      banReason: fields.banReason || '',
+      highWaterWallClockMs: fields.highWaterWallClockMs || Date.now(),
+      lastElapsedRealtimeMs: fields.lastElapsedRealtimeMs || 0,
+      registeredAt: now,
+      updatedAt: now
+    };
+    memoryStore.devices.unshift(memDev);
+  } else {
+    Object.entries(fields).forEach(([k, v]) => {
+      if (v !== undefined) {
+        memDev[k] = k === 'status' ? normalizeStatus(v) : v;
+      }
+    });
+    memDev.updatedAt = now;
+  }
+
+  if (isDbLive()) {
+    try {
+      const updateSet = {
+        ...fields,
+        hardwareFingerprint,
+        status: normalizeStatus(fields.status || memDev.status),
+        updatedAt: now,
+        lastHeartbeatAt: now
+      };
+      const dbDoc = await Device.findOneAndUpdate(
+        { hardwareFingerprint },
+        {
+          $set: updateSet,
+          $setOnInsert: { registeredAt: now, createdAt: now }
+        },
+        { upsert: true, new: true, runValidators: false }
+      );
+      if (dbDoc) {
+        const normalized = normalizeDeviceDoc(dbDoc);
+        Object.assign(memDev, normalized);
+      }
+    } catch (err) {
+      console.error('[DeviceUpsert] MongoDB write fallback to memoryStore:', err.message);
+    }
+  }
+
+  return normalizeDeviceDoc(memDev);
+}
+
+async function findDeviceRecord(hardwareFingerprint) {
+  if (!hardwareFingerprint) return null;
+  let dbDoc = null;
+  if (isDbLive()) {
+    try {
+      dbDoc = await Device.findOne({ hardwareFingerprint }).lean();
+    } catch (err) {
+      console.error('[DeviceFind] MongoDB read error:', err.message);
+    }
+  }
+  const memDoc = memoryStore.devices.find((d) => d.hardwareFingerprint === hardwareFingerprint);
+  if (dbDoc) {
+    const normalized = normalizeDeviceDoc(dbDoc);
+    if (!memDoc) {
+      memoryStore.devices.unshift(normalized);
+    } else {
+      Object.assign(memDoc, normalized);
+    }
+    return normalized;
+  }
+  return memDoc ? normalizeDeviceDoc(memDoc) : null;
+}
+
+async function listAllDevicesMerged() {
+  const byFp = new Map();
+  for (const mem of memoryStore.devices) {
+    if (mem && mem.hardwareFingerprint) {
+      byFp.set(mem.hardwareFingerprint, normalizeDeviceDoc(mem));
+    }
+  }
+  if (isDbLive()) {
+    try {
+      const dbList = await Device.find().sort({ updatedAt: -1, createdAt: -1 }).lean();
+      for (const d of dbList) {
+        if (d && d.hardwareFingerprint) {
+          byFp.set(d.hardwareFingerprint, normalizeDeviceDoc(d));
+        }
+      }
+    } catch (err) {
+      console.error('[DeviceList] MongoDB list error:', err.message);
+    }
+  }
+  return Array.from(byFp.values()).sort(
+    (a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()
+  );
+}
 
 async function recordAudit(event, hardwareFingerprint, username, details, req) {
   const entry = {
@@ -165,12 +314,10 @@ function loadModulesFromRepo() {
         const manifestFile = path.join(modDir, 'manifest.json');
         const payloadFile = path.join(modDir, 'module.dex.bin');
 
-        // Only serve modules that have BOTH a manifest.json AND a real compiled module.dex.bin
         if (!fs.existsSync(manifestFile) || !fs.existsSync(payloadFile)) continue;
 
         const rawPayload = fs.readFileSync(payloadFile);
         if (rawPayload.length < 8 || rawPayload.subarray(0, 4).toString('ascii') !== 'dex\n') {
-          console.warn(`[Modules] Skipping ${entry.name}: module.dex.bin does not have valid DEX header`);
           continue;
         }
 
@@ -195,15 +342,20 @@ function loadModulesFromRepo() {
           Module.findOneAndUpdate(
             { moduleId },
             {
-              moduleId,
-              version: Number(manifest.version) || 1,
-              minCoreVersion: Number(manifest.minCoreVersion) || 1,
-              payloadUrl: `/api/v1/modules/download/${moduleId}`,
-              sha256Checksum,
-              signatureB64,
-              isEnabled: true
+              $set: {
+                moduleId,
+                name: manifest.displayName || manifest.name || moduleId,
+                displayName: manifest.displayName || manifest.name || moduleId,
+                description: manifest.description || manifest.cardSubtitle || '',
+                version: Number(manifest.version) || 1,
+                minCoreVersion: Number(manifest.minCoreVersion) || 1,
+                payloadUrl: `/api/v1/modules/download/${moduleId}`,
+                sha256Checksum,
+                signatureB64,
+                isEnabled: true
+              }
             },
-            { upsert: true }
+            { upsert: true, runValidators: false }
           ).catch(() => {});
         }
       }
@@ -231,30 +383,39 @@ function decryptEnvelope(envelope) {
 
   // Support HollowSecureClient AES-256-GCM envelope (`payload_enc`)
   if (typeof envelope.payload_enc === 'string') {
-    const combined = Buffer.from(envelope.payload_enc, 'base64');
-    const iv = combined.subarray(0, 12);
-    const tag = combined.subarray(combined.length - 16);
-    const ciphertext = combined.subarray(12, combined.length - 16);
-    const keyBuf = Buffer.from(CLIENT_PAYLOAD_HEX_KEY, 'hex');
-    const decipher = crypto.createDecipheriv('aes-256-gcm', keyBuf, iv);
-    decipher.setAuthTag(tag);
-    const plainBuf = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-    return JSON.parse(plainBuf.toString('utf8'));
+    try {
+      const combined = Buffer.from(envelope.payload_enc, 'base64');
+      const iv = combined.subarray(0, 12);
+      const tag = combined.subarray(combined.length - 16);
+      const ciphertext = combined.subarray(12, combined.length - 16);
+      const keyBuf = Buffer.from(CLIENT_PAYLOAD_HEX_KEY, 'hex');
+      const decipher = crypto.createDecipheriv('aes-256-gcm', keyBuf, iv);
+      decipher.setAuthTag(tag);
+      const plainBuf = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+      return JSON.parse(plainBuf.toString('utf8'));
+    } catch (_e) {
+      // Fallback to top-level plain fields if present on envelope
+      return envelope;
+    }
   }
 
   if (!envelope.encrypted || !envelope.clientEphemeralPub) {
     return envelope;
   }
-  const aesKey = deriveSharedAesKey(envelope.clientEphemeralPub, envelope.nonce);
-  const combined = Buffer.from(envelope.payload, 'base64');
-  const iv = combined.subarray(0, 12);
-  const tag = combined.subarray(combined.length - 16);
-  const ciphertext = combined.subarray(12, combined.length - 16);
+  try {
+    const aesKey = deriveSharedAesKey(envelope.clientEphemeralPub, envelope.nonce);
+    const combined = Buffer.from(envelope.payload, 'base64');
+    const iv = combined.subarray(0, 12);
+    const tag = combined.subarray(combined.length - 16);
+    const ciphertext = combined.subarray(12, combined.length - 16);
 
-  const decipher = crypto.createDecipheriv('aes-256-gcm', aesKey, iv);
-  decipher.setAuthTag(tag);
-  const plainBuf = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-  return JSON.parse(plainBuf.toString('utf8'));
+    const decipher = crypto.createDecipheriv('aes-256-gcm', aesKey, iv);
+    decipher.setAuthTag(tag);
+    const plainBuf = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    return JSON.parse(plainBuf.toString('utf8'));
+  } catch (_e) {
+    return envelope;
+  }
 }
 
 function signJsonPayload(obj) {
@@ -287,6 +448,7 @@ function sendClientResponse(req, res, payloadObj) {
       .digest('base64');
 
     return res.json({
+      ...bodyWithSig,
       payload_enc: payloadB64,
       signature_b64: hmacB64,
       ts: Date.now()
@@ -315,14 +477,13 @@ function sendClientResponse(req, res, payloadObj) {
 }
 
 // ---------------------------------------------------------------------------
-// 5. Public & Health Endpoints (for Home Page & Status Widget)
+// 5. Public & Catalog Endpoints
 // ---------------------------------------------------------------------------
 app.get('/api/v1/health', async (_req, res) => {
   const catalog = loadModulesFromRepo();
   res.json({
     ok: true,
-    service: 'Hollow Cloud Module & License Hub',
-    mongodbState: isDbLive() ? 'CONNECTED' : 'MEMORY_FALLBACK_ACTIVE',
+    service: 'Hollow Privacy Layer',
     ed25519PublicKey: edPublicKey.export({ type: 'spki', format: 'der' }).toString('base64'),
     serverEcdhPublicKey: serverEcdh.getPublicKey('base64'),
     modulesHosted: Object.keys(catalog),
@@ -333,153 +494,116 @@ app.get('/api/v1/health', async (_req, res) => {
 app.get('/api/v1/public/catalog', async (_req, res) => {
   const catalog = loadModulesFromRepo();
   const modules = Object.values(catalog).map(({ dexPayloadBase64, ...meta }) => meta);
-  let totalDevices = memoryStore.devices.length;
-  let approvedDevices = memoryStore.devices.filter((d) => d.status === 'APPROVED').length;
-  if (isDbLive()) {
-    try {
-      totalDevices = await Device.countDocuments();
-      approvedDevices = await Device.countDocuments({ status: 'APPROVED' });
-    } catch (_e) {}
-  }
+  const allDevs = await listAllDevicesMerged();
   res.json({
     ok: true,
-    mongodbState: isDbLive() ? 'CONNECTED' : 'MEMORY_STORE',
     stats: {
       modulesCount: modules.length,
-      totalDevices,
-      approvedDevices
+      totalDevices: allDevs.length,
+      approvedDevices: allDevs.filter((d) => d.status === 'APPROVED').length
     },
     modules
   });
 });
 
 // ---------------------------------------------------------------------------
-// 6. Client Registration, Approval Check & Dynamic Module Download Endpoints
+// 6. Client Registration, Sign-In, Approval Check & Module Download
 // ---------------------------------------------------------------------------
-app.post('/api/v1/auth/register', async (req, res) => {
+async function handleRegisterRequest(req, res) {
   try {
     const body = decryptEnvelope(req.body);
-    const {
-      username,
-      email,
-      password,
-      hardwareFingerprint,
-      socSerial,
-      androidId,
-      storageCid,
-      deviceModel
-    } = body;
+    const hardwareFingerprint = String(
+      body.hardwareFingerprint || req.headers['x-hollow-hw'] || ''
+    ).trim();
+    const username = String(body.username || body.identifier || 'user').trim();
+    const email = String(body.email || '').trim().toLowerCase();
+    const password = body.password || '';
+    const socSerial = body.socSerial || '';
+    const androidId = body.androidId || '';
+    const storageCid = body.storageCid || '';
+    const deviceModel = body.deviceModel || 'Android Device';
 
-    if (!hardwareFingerprint || !username) {
-      return res.status(400).json({ ok: false, error: 'Missing hardwareFingerprint or username' });
-    }
-
-    if (isDbLive()) {
-      let existing = await Device.findOne({ hardwareFingerprint });
-      if (existing && existing.status === 'BANNED') {
-        await recordAudit('REGISTER_BLOCKED_BANNED', hardwareFingerprint, username, 'Banned device attempted re-registration', req);
-        return sendClientResponse(req, res, {
-          ok: true,
-          status: 'BANNED',
-          banReason: existing.banReason,
-          allowedModules: [],
-          message: `Device permanently banned: ${existing.banReason}`
-        });
-      }
-
-      if (!existing) {
-        existing = await Device.create({
-          hardwareFingerprint,
-          username,
-          email: email || '',
-          passwordHash: hashPassword(password),
-          socSerial: socSerial || '',
-          androidId: androidId || '',
-          storageCid: storageCid || '',
-          deviceModel: deviceModel || 'Android Device',
-          status: 'PENDING_APPROVAL',
-          allowedModules: [],
-          banReason: '',
-          registeredAt: new Date(),
-          updatedAt: new Date()
-        });
-        await recordAudit('REGISTER_PENDING', hardwareFingerprint, username, `Registered ${deviceModel || 'Android Device'} — waiting for Admin approval`, req);
-      } else {
-        existing.username = username;
-        existing.email = email || existing.email;
-        existing.updatedAt = new Date();
-        await existing.save();
-      }
-
-      const activeLicense = await License.findOne({ hardwareFingerprint, revoked: false }).sort({ issuedAtMs: -1 });
+    if (!hardwareFingerprint) {
       return sendClientResponse(req, res, {
-        ok: true,
-        status: existing.status,
-        hardwareFingerprint: existing.hardwareFingerprint,
-        allowedModules: existing.allowedModules,
-        licenseToken: activeLicense ? activeLicense.licenseToken : '',
-        validUntilMs: activeLicense ? activeLicense.validUntilMs : 0,
-        serverTimeMs: Date.now(),
-        message: existing.status === 'APPROVED'
-          ? 'Device approved! You can now install your authorized modules.'
-          : 'Registration submitted. Waiting for Administrator approval.'
+        ok: false,
+        error: 'Missing hardwareFingerprint'
       });
     }
 
-    // In-Memory Fallback Store
-    let memDev = memoryStore.devices.find((d) => d.hardwareFingerprint === hardwareFingerprint);
-    if (memDev && memDev.status === 'BANNED') {
+    const existing = await findDeviceRecord(hardwareFingerprint);
+    if (existing && existing.status === 'BANNED') {
+      await recordAudit(
+        'REGISTER_BLOCKED_BANNED',
+        hardwareFingerprint,
+        username,
+        'Banned device attempted re-registration',
+        req
+      );
       return sendClientResponse(req, res, {
         ok: true,
         status: 'BANNED',
-        banReason: memDev.banReason,
+        banReason: existing.banReason,
         allowedModules: [],
-        message: `Device permanently banned: ${memDev.banReason}`
+        message: `Device permanently restricted: ${existing.banReason}`
       });
     }
-    if (!memDev) {
-      memDev = {
-        hardwareFingerprint,
-        username,
-        email: email || '',
-        passwordHash: hashPassword(password),
-        socSerial: socSerial || '',
-        androidId: androidId || '',
-        storageCid: storageCid || '',
-        deviceModel: deviceModel || 'Android Device',
-        status: 'PENDING_APPROVAL',
-        allowedModules: [],
-        banReason: '',
-        highWaterWallClockMs: Date.now(),
-        lastElapsedRealtimeMs: 0,
-        registeredAt: new Date(),
-        updatedAt: new Date()
-      };
-      memoryStore.devices.unshift(memDev);
-      await recordAudit('REGISTER_PENDING', hardwareFingerprint, username, `Registered ${memDev.deviceModel} — waiting for Admin approval`, req);
-    } else {
-      memDev.username = username;
-      memDev.email = email || memDev.email;
-      memDev.updatedAt = new Date();
+
+    const preservedStatus = existing ? existing.status : 'PENDING_APPROVAL';
+    const preservedModules = existing ? existing.allowedModules : [];
+
+    const record = await upsertDeviceRecord(hardwareFingerprint, {
+      username: username || (existing && existing.username) || 'user',
+      email: email || (existing && existing.email) || '',
+      passwordHash: password ? hashPassword(password) : (existing && existing.passwordHash) || '',
+      socSerial: socSerial || (existing && existing.socSerial) || '',
+      androidId: androidId || (existing && existing.androidId) || '',
+      storageCid: storageCid || (existing && existing.storageCid) || '',
+      deviceModel: deviceModel || (existing && existing.deviceModel) || 'Android Device',
+      status: preservedStatus,
+      allowedModules: preservedModules
+    });
+
+    await recordAudit(
+      existing ? 'REGISTER_UPDATED' : 'REGISTER_PENDING',
+      hardwareFingerprint,
+      record.username,
+      `Registered ${record.deviceModel} (${record.email || 'anonymous'}) — status: ${record.status}`,
+      req
+    );
+
+    let activeLicense = memoryStore.licenses.get(hardwareFingerprint);
+    if (isDbLive()) {
+      try {
+        const dbLic = await License.findOne({ hardwareFingerprint, revoked: false })
+          .sort({ issuedAtMs: -1 })
+          .lean();
+        if (dbLic) activeLicense = dbLic;
+      } catch (_e) {}
     }
 
-    const memLic = memoryStore.licenses.get(hardwareFingerprint);
     return sendClientResponse(req, res, {
       ok: true,
-      status: memDev.status,
-      hardwareFingerprint: memDev.hardwareFingerprint,
-      allowedModules: memDev.allowedModules,
-      licenseToken: memLic ? memLic.licenseToken : '',
-      validUntilMs: memLic ? memLic.validUntilMs : 0,
+      status: record.status,
+      username: record.username,
+      email: record.email,
+      hardwareFingerprint: record.hardwareFingerprint,
+      allowedModules: record.status === 'APPROVED' ? record.allowedModules : [],
+      licenseToken: activeLicense ? activeLicense.licenseToken : '',
+      validUntilMs: activeLicense ? activeLicense.validUntilMs : 0,
       serverTimeMs: Date.now(),
-      message: memDev.status === 'APPROVED'
-        ? 'Device approved! You can now install your authorized modules.'
-        : 'Registration submitted. Waiting for Administrator approval.'
+      message:
+        record.status === 'APPROVED'
+          ? 'Device approved! You can now install your authorized modules.'
+          : 'Registration submitted. Waiting for Administrator approval.'
     });
   } catch (err) {
-    return res.status(500).json({ ok: false, error: err.message });
+    console.error('[/api/v1/auth/register] Error:', err);
+    return sendClientResponse(req, res, { ok: false, error: err.message });
   }
-});
+}
+
+app.post('/api/v1/auth/register', handleRegisterRequest);
+app.post('/api/v1/device/register', handleRegisterRequest);
 
 app.post('/api/v1/auth/login', async (req, res) => {
   try {
@@ -498,178 +622,146 @@ app.post('/api/v1/auth/login', async (req, res) => {
 
     const lookup = String(identifier || username || email || '').trim();
     const pwHash = hashPassword(password);
+    const hw = String(hardwareFingerprint || req.headers['x-hollow-hw'] || '').trim();
 
-    if (!lookup) {
-      return sendClientResponse(req, res, { ok: false, error: 'Please enter your username or email.' });
-    }
-
-    if (isDbLive()) {
-      let record = await Device.findOne({
-        $or: [
-          { username: lookup },
-          { email: lookup },
-          ...(hardwareFingerprint ? [{ hardwareFingerprint }] : [])
-        ]
-      });
-
-      if (!record) {
-        return sendClientResponse(req, res, {
-          ok: false,
-          error: 'Account not found. Please use Create Account to register this device.'
-        });
-      }
-
-      if (record.passwordHash && password && record.passwordHash !== pwHash) {
-        return sendClientResponse(req, res, {
-          ok: false,
-          error: 'Invalid password for this account.'
-        });
-      }
-
-      if (hardwareFingerprint && record.hardwareFingerprint !== hardwareFingerprint) {
-        record.hardwareFingerprint = hardwareFingerprint;
-        record.deviceModel = deviceModel || record.deviceModel;
-      }
-      record.updatedAt = new Date();
-      await record.save();
-
-      const activeLicense = await License.findOne({
-        hardwareFingerprint: record.hardwareFingerprint,
-        revoked: false
-      }).sort({ issuedAtMs: -1 });
-
-      await recordAudit('USER_SIGN_IN', record.hardwareFingerprint, record.username, `Signed in on ${record.deviceModel}`, req);
+    if (!lookup && !hw) {
       return sendClientResponse(req, res, {
-        ok: true,
-        status: record.status,
-        username: record.username,
-        email: record.email,
-        hardwareFingerprint: record.hardwareFingerprint,
-        allowedModules: record.status === 'APPROVED' ? record.allowedModules : [],
-        licenseToken: activeLicense ? activeLicense.licenseToken : '',
-        validUntilMs: activeLicense ? activeLicense.validUntilMs : 0,
-        banReason: record.banReason || '',
-        serverTimeMs: Date.now(),
-        message: record.status === 'APPROVED'
-          ? 'Signed in! Your authorized modules are being synchronized.'
-          : 'Signed in. Waiting for Administrator approval.'
+        ok: false,
+        error: 'Please enter your username or email.'
       });
     }
 
-    // In-memory store lookup
-    let memDev = memoryStore.devices.find(
+    const allDevices = await listAllDevicesMerged();
+    let matched = allDevices.find(
       (d) =>
-        d.username.toLowerCase() === lookup.toLowerCase() ||
-        (d.email && d.email.toLowerCase() === lookup.toLowerCase()) ||
-        (hardwareFingerprint && d.hardwareFingerprint === hardwareFingerprint)
+        (lookup && d.username && d.username.toLowerCase() === lookup.toLowerCase()) ||
+        (lookup && d.email && d.email.toLowerCase() === lookup.toLowerCase()) ||
+        (hw && d.hardwareFingerprint === hw)
     );
 
-    if (!memDev) {
+    // If user signs in on a fresh device not yet in DB, auto-register as PENDING_APPROVAL so it shows in Admin Console!
+    if (!matched && hw) {
+      matched = await upsertDeviceRecord(hw, {
+        username: lookup || 'user',
+        email: lookup.includes('@') ? lookup.toLowerCase() : '',
+        passwordHash: password ? pwHash : '',
+        socSerial: socSerial || '',
+        androidId: androidId || '',
+        storageCid: storageCid || '',
+        deviceModel: deviceModel || 'Android Device',
+        status: 'PENDING_APPROVAL',
+        allowedModules: []
+      });
+      await recordAudit(
+        'REGISTER_VIA_LOGIN',
+        hw,
+        matched.username,
+        `New device signed in & queued for approval (${matched.deviceModel})`,
+        req
+      );
+    }
+
+    if (!matched) {
       return sendClientResponse(req, res, {
         ok: false,
         error: 'Account not found. Please use Create Account to register this device.'
       });
     }
 
-    if (memDev.passwordHash && password && memDev.passwordHash !== pwHash) {
+    if (matched.passwordHash && password && matched.passwordHash !== pwHash) {
       return sendClientResponse(req, res, {
         ok: false,
         error: 'Invalid password for this account.'
       });
     }
 
-    if (hardwareFingerprint) {
-      memDev.hardwareFingerprint = hardwareFingerprint;
-    }
-    if (deviceModel) {
-      memDev.deviceModel = deviceModel;
-    }
-    memDev.updatedAt = new Date();
+    const targetFp = hw || matched.hardwareFingerprint;
+    const record = await upsertDeviceRecord(targetFp, {
+      username: matched.username,
+      email: matched.email,
+      passwordHash: matched.passwordHash || (password ? pwHash : ''),
+      deviceModel: deviceModel || matched.deviceModel,
+      status: matched.status,
+      allowedModules: matched.allowedModules,
+      banReason: matched.banReason
+    });
 
-    const memLic = memoryStore.licenses.get(memDev.hardwareFingerprint);
-    await recordAudit('USER_SIGN_IN', memDev.hardwareFingerprint, memDev.username, `Signed in on ${memDev.deviceModel}`, req);
+    let activeLicense = memoryStore.licenses.get(targetFp);
+    if (isDbLive()) {
+      try {
+        const dbLic = await License.findOne({ hardwareFingerprint: targetFp, revoked: false })
+          .sort({ issuedAtMs: -1 })
+          .lean();
+        if (dbLic) activeLicense = dbLic;
+      } catch (_e) {}
+    }
+
+    await recordAudit(
+      'USER_SIGN_IN',
+      record.hardwareFingerprint,
+      record.username,
+      `Signed in on ${record.deviceModel}`,
+      req
+    );
+
     return sendClientResponse(req, res, {
       ok: true,
-      status: memDev.status,
-      username: memDev.username,
-      email: memDev.email,
-      hardwareFingerprint: memDev.hardwareFingerprint,
-      allowedModules: memDev.status === 'APPROVED' ? memDev.allowedModules : [],
-      licenseToken: memLic ? memLic.licenseToken : '',
-      validUntilMs: memLic ? memLic.validUntilMs : 0,
-      banReason: memDev.banReason || '',
+      status: record.status,
+      username: record.username,
+      email: record.email,
+      hardwareFingerprint: record.hardwareFingerprint,
+      allowedModules: record.status === 'APPROVED' ? record.allowedModules : [],
+      licenseToken: activeLicense ? activeLicense.licenseToken : '',
+      validUntilMs: activeLicense ? activeLicense.validUntilMs : 0,
+      banReason: record.banReason || '',
       serverTimeMs: Date.now(),
-      message: memDev.status === 'APPROVED'
-        ? 'Signed in! Your authorized modules are being synchronized.'
-        : 'Signed in. Waiting for Administrator approval.'
+      message:
+        record.status === 'APPROVED'
+          ? 'Signed in! Your authorized modules are being synchronized.'
+          : 'Signed in. Waiting for Administrator approval.'
     });
   } catch (err) {
-    return res.status(500).json({ ok: false, error: err.message });
+    return sendClientResponse(req, res, { ok: false, error: err.message });
   }
 });
 
-app.post('/api/v1/auth/status', async (req, res) => {
+async function handleStatusRequest(req, res) {
   try {
     const body = decryptEnvelope(req.body);
-    const {
-      username,
-      email,
-      hardwareFingerprint,
-      socSerial,
-      androidId,
-      storageCid,
-      deviceModel,
-      elapsedRealtimeMs
-    } = body;
+    const hardwareFingerprint = String(
+      body.hardwareFingerprint || req.headers['x-hollow-hw'] || ''
+    ).trim();
+    const username = String(body.username || '').trim();
+    const email = String(body.email || '').trim().toLowerCase();
+    const socSerial = body.socSerial || '';
+    const androidId = body.androidId || '';
+    const storageCid = body.storageCid || '';
+    const deviceModel = body.deviceModel || 'Android Device';
+    const elapsedRealtimeMs = Number(body.elapsedRealtimeMs || 0);
 
-    let record = null;
-    let activeLicense = null;
+    let record = await findDeviceRecord(hardwareFingerprint);
 
-    if (isDbLive()) {
-      record = await Device.findOne({ hardwareFingerprint });
-      if (!record && username && hardwareFingerprint) {
-        record = await Device.create({
-          hardwareFingerprint,
-          username,
-          email: email || '',
-          passwordHash: '',
-          socSerial: socSerial || '',
-          androidId: androidId || '',
-          storageCid: storageCid || '',
-          deviceModel: deviceModel || 'Android Device',
-          status: 'PENDING_APPROVAL',
-          allowedModules: [],
-          banReason: '',
-          registeredAt: new Date(),
-          updatedAt: new Date()
-        });
-        await recordAudit('REGISTER_PENDING', hardwareFingerprint, username, `Synced pending registration (${record.deviceModel})`, req);
-      }
-      activeLicense = await License.findOne({ hardwareFingerprint, revoked: false }).sort({ issuedAtMs: -1 });
-    } else {
-      record = memoryStore.devices.find((d) => d.hardwareFingerprint === hardwareFingerprint);
-      if (!record && username && hardwareFingerprint) {
-        record = {
-          hardwareFingerprint,
-          username,
-          email: email || '',
-          passwordHash: '',
-          socSerial: socSerial || '',
-          androidId: androidId || '',
-          storageCid: storageCid || '',
-          deviceModel: deviceModel || 'Android Device',
-          status: 'PENDING_APPROVAL',
-          allowedModules: [],
-          banReason: '',
-          highWaterWallClockMs: Date.now(),
-          lastElapsedRealtimeMs: Number(elapsedRealtimeMs || 0),
-          registeredAt: new Date(),
-          updatedAt: new Date()
-        };
-        memoryStore.devices.unshift(record);
-        await recordAudit('REGISTER_PENDING', hardwareFingerprint, username, `Synced pending registration (${record.deviceModel})`, req);
-      }
-      activeLicense = memoryStore.licenses.get(hardwareFingerprint);
+    // Auto-register any pending device that polls status so it ALWAYS appears in Admin Console
+    if (!record && hardwareFingerprint && username) {
+      record = await upsertDeviceRecord(hardwareFingerprint, {
+        username,
+        email,
+        socSerial,
+        androidId,
+        storageCid,
+        deviceModel,
+        status: 'PENDING_APPROVAL',
+        allowedModules: [],
+        highWaterWallClockMs: Date.now(),
+        lastElapsedRealtimeMs: elapsedRealtimeMs
+      });
+      await recordAudit(
+        'REGISTER_PENDING',
+        hardwareFingerprint,
+        username,
+        `Synced pending device registration (${record.deviceModel})`,
+        req
+      );
     }
 
     if (!record) {
@@ -682,11 +774,19 @@ app.post('/api/v1/auth/status', async (req, res) => {
     }
 
     const nowMs = Date.now();
-    record.highWaterWallClockMs = Math.max(nowMs, record.highWaterWallClockMs || 0);
-    record.lastElapsedRealtimeMs = Number(elapsedRealtimeMs || 0);
-    record.updatedAt = new Date();
-    if (isDbLive() && typeof record.save === 'function') {
-      await record.save();
+    record = await upsertDeviceRecord(hardwareFingerprint, {
+      highWaterWallClockMs: Math.max(nowMs, record.highWaterWallClockMs || 0),
+      lastElapsedRealtimeMs: elapsedRealtimeMs
+    });
+
+    let activeLicense = memoryStore.licenses.get(hardwareFingerprint);
+    if (isDbLive()) {
+      try {
+        const dbLic = await License.findOne({ hardwareFingerprint, revoked: false })
+          .sort({ issuedAtMs: -1 })
+          .lean();
+        if (dbLic) activeLicense = dbLic;
+      } catch (_e) {}
     }
 
     return sendClientResponse(req, res, {
@@ -699,28 +799,28 @@ app.post('/api/v1/auth/status', async (req, res) => {
       licenseToken: activeLicense ? activeLicense.licenseToken : '',
       issuedAtMs: activeLicense ? activeLicense.issuedAtMs : nowMs,
       validUntilMs: activeLicense ? activeLicense.validUntilMs : 0,
-      banReason: record.banReason,
+      banReason: record.banReason || '',
       serverTimeMs: nowMs
     });
   } catch (err) {
-    return res.status(500).json({ ok: false, error: err.message });
+    return sendClientResponse(req, res, { ok: false, error: err.message });
   }
-});
+}
+
+app.post('/api/v1/auth/status', handleStatusRequest);
+app.post('/api/v1/license/verify', handleStatusRequest);
+app.post('/api/v1/device/heartbeat', handleStatusRequest);
 
 async function handleModuleDownload(req, res, hardwareFingerprint, moduleId) {
-  let record = null;
-  if (isDbLive()) {
-    record = await Device.findOne({ hardwareFingerprint });
-  } else {
-    record = memoryStore.devices.find((d) => d.hardwareFingerprint === hardwareFingerprint);
-  }
+  const record = await findDeviceRecord(hardwareFingerprint);
 
   if (!record || record.status !== 'APPROVED') {
     return res.status(403).json({
       ok: false,
-      error: record?.status === 'BANNED'
-        ? `Device is banned: ${record.banReason}`
-        : 'Device is not approved by Administrator.'
+      error:
+        record?.status === 'BANNED'
+          ? `Device is restricted: ${record.banReason}`
+          : 'Device is not approved by Administrator.'
     });
   }
 
@@ -785,7 +885,8 @@ app.post('/api/v1/security/incident', async (req, res) => {
     const incidentDoc = {
       hardwareFingerprint,
       ipAddress: req.ip || req.connection?.remoteAddress || '127.0.0.1',
-      triggerVector: `${triggerVector}${moduleId ? ` (${moduleId})` : ''}: ${details}`,
+      triggerVector: `${triggerVector}${moduleId ? ` (${moduleId})` : ''}`,
+      details: details || triggerVector,
       actionTaken: 'REJECTED_AND_PURGED_MODULE_FROM_VAULT',
       timestamp: new Date()
     };
@@ -835,7 +936,7 @@ function requireAdminAuth(req, res, next) {
 app.post('/api/v1/admin/login', async (req, res) => {
   const { username, password } = req.body || {};
   if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
-    const token = jwt.sign({ username, role: 'SUPER_ADMIN' }, JWT_SECRET, { expiresIn: '12h' });
+    const token = jwt.sign({ username, role: 'SUPER_ADMIN' }, JWT_SECRET, { expiresIn: '24h' });
     await recordAudit('ADMIN_LOGIN', 'ADMIN_CONSOLE', username, 'Administrator signed in to Web Portal', req);
     return res.json({ ok: true, token, username });
   }
@@ -844,15 +945,16 @@ app.post('/api/v1/admin/login', async (req, res) => {
 
 app.get('/api/v1/admin/overview', requireAdminAuth, async (_req, res) => {
   try {
-    let devicesList = [];
-    let recentLogs = [];
+    const devicesList = await listAllDevicesMerged();
+    let recentLogs = [...memoryStore.auditLogs];
 
     if (isDbLive()) {
-      devicesList = await Device.find().sort({ updatedAt: -1 }).lean();
-      recentLogs = await AuditLog.find().sort({ timestamp: -1 }).limit(40).lean();
-    } else {
-      devicesList = [...memoryStore.devices];
-      recentLogs = [...memoryStore.auditLogs];
+      try {
+        const dbLogs = await AuditLog.find().sort({ timestamp: -1 }).limit(40).lean();
+        if (dbLogs && dbLogs.length > 0) {
+          recentLogs = dbLogs;
+        }
+      } catch (_e) {}
     }
 
     const catalog = loadModulesFromRepo();
@@ -860,8 +962,6 @@ app.get('/api/v1/admin/overview', requireAdminAuth, async (_req, res) => {
 
     res.json({
       ok: true,
-      mongodbConnected: isDbLive(),
-      storageMode: isDbLive() ? 'MongoDB Atlas Cloud' : 'Built-in Live Memory Store',
       stats: {
         totalDevices: devicesList.length,
         pendingCount: devicesList.filter((d) => d.status === 'PENDING_APPROVAL').length,
@@ -878,17 +978,30 @@ app.get('/api/v1/admin/overview', requireAdminAuth, async (_req, res) => {
   }
 });
 
+app.get('/api/v1/admin/devices', requireAdminAuth, async (_req, res) => {
+  try {
+    const devices = await listAllDevicesMerged();
+    res.json({ ok: true, devices });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.post('/api/v1/admin/devices/approve', requireAdminAuth, async (req, res) => {
   try {
     const { hardwareFingerprint, allowedModules, validityDays } = req.body || {};
     const catalog = loadModulesFromRepo();
     const defaultMods = Object.keys(catalog);
-    const days = Number(validityDays || 30);
+    const days = Number(validityDays || 365);
     const nowMs = Date.now();
     const validUntilMs = nowMs + days * 86400000;
-    const mods = Array.isArray(allowedModules) && allowedModules.length > 0
-      ? allowedModules
-      : defaultMods;
+    const mods =
+      Array.isArray(allowedModules) && allowedModules.length > 0 ? allowedModules : defaultMods;
+
+    const existing = await findDeviceRecord(hardwareFingerprint);
+    if (!existing) {
+      return res.status(404).json({ ok: false, error: 'Device not found' });
+    }
 
     const licensePayload = {
       hardwareFingerprint,
@@ -899,45 +1012,38 @@ app.post('/api/v1/admin/devices/approve', requireAdminAuth, async (req, res) => 
     const signature = signJsonPayload(licensePayload);
     const licenseToken = jwt.sign(licensePayload, JWT_SECRET, { expiresIn: `${days}d` });
 
-    let record = null;
-    if (isDbLive()) {
-      record = await Device.findOne({ hardwareFingerprint });
-      if (!record) return res.status(404).json({ ok: false, error: 'Device not found' });
-      record.status = 'APPROVED';
-      record.allowedModules = mods;
-      record.banReason = '';
-      record.updatedAt = new Date();
-      await record.save();
+    const record = await upsertDeviceRecord(hardwareFingerprint, {
+      status: 'APPROVED',
+      allowedModules: mods,
+      banReason: '',
+      licenseValidUntil: new Date(validUntilMs)
+    });
 
-      await License.updateMany({ hardwareFingerprint }, { $set: { revoked: true } });
-      await License.create({
-        hardwareFingerprint,
-        licenseToken,
-        ed25519Signature: signature,
-        allowedModules: mods,
-        issuedAtMs: nowMs,
-        validUntilMs,
-        revoked: false
-      });
-    } else {
-      record = memoryStore.devices.find((d) => d.hardwareFingerprint === hardwareFingerprint);
-      if (!record) return res.status(404).json({ ok: false, error: 'Device not found' });
-      record.status = 'APPROVED';
-      record.allowedModules = mods;
-      record.banReason = '';
-      record.updatedAt = new Date();
-      memoryStore.licenses.set(hardwareFingerprint, {
-        hardwareFingerprint,
-        licenseToken,
-        ed25519Signature: signature,
-        allowedModules: mods,
-        issuedAtMs: nowMs,
-        validUntilMs,
-        revoked: false
-      });
+    const licObj = {
+      hardwareFingerprint,
+      licenseToken,
+      ed25519Signature: signature,
+      allowedModules: mods,
+      issuedAtMs: nowMs,
+      validUntilMs,
+      revoked: false
+    };
+    memoryStore.licenses.set(hardwareFingerprint, licObj);
+
+    if (isDbLive()) {
+      try {
+        await License.updateMany({ hardwareFingerprint }, { $set: { revoked: true } });
+        await License.create(licObj);
+      } catch (_e) {}
     }
 
-    await recordAudit('ADMIN_APPROVE', hardwareFingerprint, record.username, `Approved for [${mods.join(', ')}] (${days} days)`, req);
+    await recordAudit(
+      'ADMIN_APPROVE',
+      hardwareFingerprint,
+      record.username,
+      `Approved for [${mods.join(', ')}] (${days} days)`,
+      req
+    );
     return res.json({ ok: true, device: record, licenseToken });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });
@@ -949,21 +1055,22 @@ app.post('/api/v1/admin/devices/update-modules', requireAdminAuth, async (req, r
     const { hardwareFingerprint, allowedModules } = req.body || {};
     const mods = Array.isArray(allowedModules) ? allowedModules : [];
 
-    let record = null;
-    if (isDbLive()) {
-      record = await Device.findOne({ hardwareFingerprint });
-      if (!record) return res.status(404).json({ ok: false, error: 'Device not found' });
-      record.allowedModules = mods;
-      record.updatedAt = new Date();
-      await record.save();
-    } else {
-      record = memoryStore.devices.find((d) => d.hardwareFingerprint === hardwareFingerprint);
-      if (!record) return res.status(404).json({ ok: false, error: 'Device not found' });
-      record.allowedModules = mods;
-      record.updatedAt = new Date();
+    const existing = await findDeviceRecord(hardwareFingerprint);
+    if (!existing) {
+      return res.status(404).json({ ok: false, error: 'Device not found' });
     }
 
-    await recordAudit('ADMIN_UPDATE_MODULES', hardwareFingerprint, record.username, `Updated modules -> [${mods.join(', ')}]`, req);
+    const record = await upsertDeviceRecord(hardwareFingerprint, {
+      allowedModules: mods
+    });
+
+    await recordAudit(
+      'ADMIN_UPDATE_MODULES',
+      hardwareFingerprint,
+      record.username,
+      `Updated modules -> [${mods.join(', ')}]`,
+      req
+    );
     return res.json({ ok: true, device: record });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });
@@ -973,27 +1080,31 @@ app.post('/api/v1/admin/devices/update-modules', requireAdminAuth, async (req, r
 app.post('/api/v1/admin/devices/ban', requireAdminAuth, async (req, res) => {
   try {
     const { hardwareFingerprint, banReason } = req.body || {};
-    let record = null;
-    if (isDbLive()) {
-      record = await Device.findOne({ hardwareFingerprint });
-      if (!record) return res.status(404).json({ ok: false, error: 'Device not found' });
-      record.status = 'BANNED';
-      record.allowedModules = [];
-      record.banReason = banReason || 'Permanently banned by Administrator.';
-      record.updatedAt = new Date();
-      await record.save();
-      await License.updateMany({ hardwareFingerprint }, { $set: { revoked: true } });
-    } else {
-      record = memoryStore.devices.find((d) => d.hardwareFingerprint === hardwareFingerprint);
-      if (!record) return res.status(404).json({ ok: false, error: 'Device not found' });
-      record.status = 'BANNED';
-      record.allowedModules = [];
-      record.banReason = banReason || 'Permanently banned by Administrator.';
-      record.updatedAt = new Date();
-      memoryStore.licenses.delete(hardwareFingerprint);
+    const existing = await findDeviceRecord(hardwareFingerprint);
+    if (!existing) {
+      return res.status(404).json({ ok: false, error: 'Device not found' });
     }
 
-    await recordAudit('ADMIN_BAN_DEVICE', hardwareFingerprint, record.username, `BANNED: ${record.banReason}`, req);
+    const record = await upsertDeviceRecord(hardwareFingerprint, {
+      status: 'BANNED',
+      allowedModules: [],
+      banReason: banReason || 'Access restricted by Administrator.'
+    });
+
+    memoryStore.licenses.delete(hardwareFingerprint);
+    if (isDbLive()) {
+      try {
+        await License.updateMany({ hardwareFingerprint }, { $set: { revoked: true } });
+      } catch (_e) {}
+    }
+
+    await recordAudit(
+      'ADMIN_BAN_DEVICE',
+      hardwareFingerprint,
+      record.username,
+      `RESTRICTED: ${record.banReason}`,
+      req
+    );
     return res.json({ ok: true, device: record });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });
@@ -1003,30 +1114,30 @@ app.post('/api/v1/admin/devices/ban', requireAdminAuth, async (req, res) => {
 app.post('/api/v1/admin/devices/unban', requireAdminAuth, async (req, res) => {
   try {
     const { hardwareFingerprint } = req.body || {};
-    let record = null;
-    if (isDbLive()) {
-      record = await Device.findOne({ hardwareFingerprint });
-      if (!record) return res.status(404).json({ ok: false, error: 'Device not found' });
-      record.status = 'PENDING_APPROVAL';
-      record.banReason = '';
-      record.updatedAt = new Date();
-      await record.save();
-    } else {
-      record = memoryStore.devices.find((d) => d.hardwareFingerprint === hardwareFingerprint);
-      if (!record) return res.status(404).json({ ok: false, error: 'Device not found' });
-      record.status = 'PENDING_APPROVAL';
-      record.banReason = '';
-      record.updatedAt = new Date();
+    const existing = await findDeviceRecord(hardwareFingerprint);
+    if (!existing) {
+      return res.status(404).json({ ok: false, error: 'Device not found' });
     }
 
-    await recordAudit('ADMIN_UNBAN_DEVICE', hardwareFingerprint, record.username, 'Cleared BAN -> moved to PENDING_APPROVAL', req);
+    const record = await upsertDeviceRecord(hardwareFingerprint, {
+      status: 'PENDING_APPROVAL',
+      banReason: ''
+    });
+
+    await recordAudit(
+      'ADMIN_UNBAN_DEVICE',
+      hardwareFingerprint,
+      record.username,
+      'Cleared restriction -> moved to PENDING_APPROVAL',
+      req
+    );
     return res.json({ ok: true, device: record });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });
   }
 });
 
-// Backwards-compatible route aliases for cached clients
+// Backwards-compatible route aliases
 app.post('/api/v1/admin/license/issue', requireAdminAuth, (req, res, next) => {
   req.url = '/api/v1/admin/devices/approve';
   if (req.body && req.body.durationDays && !req.body.validityDays) {
@@ -1044,5 +1155,5 @@ app.post('/api/v1/admin/license/revoke', requireAdminAuth, (req, res, next) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Hollow Material 3 Web Platform & Admin Portal listening on http://0.0.0.0:${PORT}`);
+  console.log(`Hollow Web Platform & Admin Console listening on http://0.0.0.0:${PORT}`);
 });

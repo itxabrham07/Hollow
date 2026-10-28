@@ -1,5 +1,7 @@
 package com.example.isolation.ui.screens
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -14,7 +16,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
@@ -22,25 +27,38 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.ui.theme.JakartaFontFamily
 import com.example.isolation.ui.components.AuditActionBadge
 import com.example.isolation.ui.components.ContentCard
 import com.example.isolation.ui.components.CyberStatCard
@@ -102,6 +120,122 @@ fun DashboardScreen(
         if (pendingDownloadTitles.isNotEmpty()) {
             viewModel.downloadAllAuthorizedModules()
         }
+    }
+
+    if (mountedModules.isEmpty()) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp)
+                .testTag("dashboard_screen"),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp)
+        ) {
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 480.dp)
+                        .testTag("card_zero_modules_shell"),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // 3D Isometric Cube Graphic (Screen 07 from storyboard)
+                    IsometricCubeGraphic(modifier = Modifier.size(130.dp))
+
+                    Spacer(modifier = Modifier.height(28.dp))
+
+                    Text(
+                        text = "No Modules Yet",
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = JakartaFontFamily
+                        ),
+                        color = Color(0xFF111827),
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "Your dashboard is ready. Modules will appear here when approved by admin.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFF64748B),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(28.dp))
+
+                    // 3 Rounded Feature Cards
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        EmptyHomeFeatureRow(
+                            icon = Icons.Default.AutoAwesome,
+                            title = "Stay tuned for new modules"
+                        )
+                        EmptyHomeFeatureRow(
+                            icon = Icons.Default.Notifications,
+                            title = "You'll get a notification"
+                        )
+                        EmptyHomeFeatureRow(
+                            icon = Icons.Default.Layers,
+                            title = "Install with one tap"
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(28.dp))
+
+                    // Solid Black Capsule Button: Sync & Install Modules
+                    Button(
+                        onClick = {
+                            viewModel.syncLicenseAndModulesFromServer()
+                            viewModel.downloadAllAuthorizedModules()
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF111827),
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(50),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(54.dp)
+                            .testTag("btn_open_module_downloader")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudDownload,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "Sync & Install Modules",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    TextButton(
+                        onClick = onNavigateToLicenseHub,
+                        modifier = Modifier.testTag("btn_open_license_hub")
+                    ) {
+                        Text(
+                            text = "View Account & Vault Status",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                color = Color(0xFF64748B),
+                                fontWeight = FontWeight.Medium
+                            )
+                        )
+                    }
+                }
+            }
+        }
+        return
     }
 
     LazyColumn(
@@ -278,48 +412,7 @@ fun DashboardScreen(
             }
         }
 
-        // 4. Sync / Install Modules Prompt (when 0 modules active)
-        if (mountedModules.isEmpty()) {
-            item {
-                ContentCard(
-                    borderColor = scheme.primary,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("card_zero_modules_shell")
-                ) {
-                    ListRow(
-                        title = "Sync Your Authorized Modules",
-                        subtitle = "Fetch and install your approved privacy modules from your account.",
-                        leadingIcon = Icons.Default.AutoAwesome,
-                        tintLeadingIcon = true,
-                        modifier = Modifier.padding(vertical = 0.dp)
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        PrimaryButton(
-                            text = "Sync & Install",
-                            icon = Icons.Default.CloudDownload,
-                            onClick = {
-                                viewModel.syncLicenseAndModulesFromServer()
-                                viewModel.downloadAllAuthorizedModules()
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("btn_open_module_downloader")
-                        )
-                        SecondaryButton(
-                            text = "Account Status",
-                            icon = Icons.Default.VerifiedUser,
-                            onClick = onNavigateToLicenseHub,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-            }
-        }
+
 
         // 5. Privacy & Protection Feature Modules (Single Indigo Accent + Semantic Status)
         val activeOrAuthorizedStates = moduleStates.filter { it.isReadyToUse || it.isAuthorizedByAdmin }
@@ -575,3 +668,108 @@ fun formatBytes(bytes: Long): String {
     val value = bytes / Math.pow(1024.0, digitGroups.toDouble())
     return "%.1f %s".format(value, units[digitGroups])
 }
+
+/**
+ * 3D Isometric Cube Graphic for Screen 07: Home (No Modules Yet)
+ * Rendered using Canvas with 3 distinct isometric facets and soft shadow.
+ */
+@Composable
+fun IsometricCubeGraphic(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val cubeRadius = (size.minDimension / 2.2f)
+
+        val cx = w / 2f
+        val cy = h / 2f - 4.dp.toPx()
+
+        // Elliptical soft shadow underneath the cube
+        drawOval(
+            color = Color(0x18000000),
+            topLeft = Offset(cx - cubeRadius * 0.9f, cy + cubeRadius * 0.7f),
+            size = Size(cubeRadius * 1.8f, cubeRadius * 0.45f)
+        )
+
+        // Points for isometric cube vertices
+        val topVertex = Offset(cx, cy - cubeRadius * 0.75f)
+        val centerVertex = Offset(cx, cy)
+        val bottomVertex = Offset(cx, cy + cubeRadius * 0.75f)
+
+        val leftVertex = Offset(cx - cubeRadius * 0.866f, cy - cubeRadius * 0.25f)
+        val rightVertex = Offset(cx + cubeRadius * 0.866f, cy - cubeRadius * 0.25f)
+        val leftBottomVertex = Offset(cx - cubeRadius * 0.866f, cy + cubeRadius * 0.5f)
+        val rightBottomVertex = Offset(cx + cubeRadius * 0.866f, cy + cubeRadius * 0.5f)
+
+        // 1. Top Face (Diamond - soft lavender/periwinkle)
+        val topFace = Path().apply {
+            moveTo(topVertex.x, topVertex.y)
+            lineTo(rightVertex.x, rightVertex.y)
+            lineTo(centerVertex.x, centerVertex.y)
+            lineTo(leftVertex.x, leftVertex.y)
+            close()
+        }
+        drawPath(topFace, color = Color(0xFFC7D2FE))
+
+        // 2. Left Face (Side - medium indigo)
+        val leftFace = Path().apply {
+            moveTo(leftVertex.x, leftVertex.y)
+            lineTo(centerVertex.x, centerVertex.y)
+            lineTo(bottomVertex.x, bottomVertex.y)
+            lineTo(leftBottomVertex.x, leftBottomVertex.y)
+            close()
+        }
+        drawPath(leftFace, color = Color(0xFF818CF8))
+
+        // 3. Right Face (Side - deep indigo)
+        val rightFace = Path().apply {
+            moveTo(rightVertex.x, rightVertex.y)
+            lineTo(centerVertex.x, centerVertex.y)
+            lineTo(bottomVertex.x, bottomVertex.y)
+            lineTo(rightBottomVertex.x, rightBottomVertex.y)
+            close()
+        }
+        drawPath(rightFace, color = Color(0xFF6366F1))
+    }
+}
+
+@Composable
+private fun EmptyHomeFeatureRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String
+) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = Color.White,
+        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = Color(0xFFF1F5F9),
+                modifier = Modifier.size(40.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = Color(0xFF111827),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontWeight = FontWeight.Medium,
+                    color = Color(0xFF111827)
+                )
+            )
+        }
+    }
+}
+

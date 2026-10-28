@@ -1984,18 +1984,35 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 .put("licenseToken", current.licenseToken)
                 .put("elapsedRealtimeMs", android.os.SystemClock.elapsedRealtime())
 
-            val resp = HollowSecureClient.postEncrypted(
+            var resp = HollowSecureClient.postEncrypted(
                 context = app,
                 serverBaseUrl = _settings.value.cloudServerUrl,
                 endpointPath = "/api/v1/auth/status",
                 requestJson = req
             )
+            // If device is waiting for approval locally but server returned UNREGISTERED, push registration immediately
+            if (current.status == LicenseAccountStatus.PENDING_APPROVAL &&
+                current.username.isNotBlank() &&
+                (resp == null || resp.optString("status", "").equals("UNREGISTERED", ignoreCase = true))
+            ) {
+                val regResp = HollowSecureClient.postEncrypted(
+                    context = app,
+                    serverBaseUrl = _settings.value.cloudServerUrl,
+                    endpointPath = "/api/v1/auth/register",
+                    requestJson = req
+                )
+                if (regResp != null) {
+                    resp = regResp
+                }
+            }
             if (resp != null && resp.optBoolean("ok", true)) {
-                val statusStr = resp.optString("status", current.status.name)
-                val parsedStatus = try {
-                    LicenseAccountStatus.valueOf(statusStr.uppercase())
-                } catch (_: Throwable) {
-                    current.status
+                val statusStr = resp.optString("status", current.status.name).uppercase()
+                val parsedStatus = when (statusStr) {
+                    "APPROVED" -> LicenseAccountStatus.APPROVED
+                    "BANNED", "REVOKED" -> LicenseAccountStatus.BANNED
+                    "PENDING", "PENDING_APPROVAL" -> LicenseAccountStatus.PENDING_APPROVAL
+                    "UNREGISTERED" -> LicenseAccountStatus.UNREGISTERED
+                    else -> current.status
                 }
                 // Preserve local PENDING_APPROVAL if server returned UNREGISTERED before re-sync
                 val status = if (parsedStatus == LicenseAccountStatus.UNREGISTERED &&

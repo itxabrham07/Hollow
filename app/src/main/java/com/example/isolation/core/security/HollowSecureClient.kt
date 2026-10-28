@@ -68,16 +68,20 @@ object HollowSecureClient {
         }
     }
 
-    fun postEncrypted(
-        context: Context,
-        serverBaseUrl: String,
-        endpointPath: String,
-        requestJson: JSONObject
+    private val MIRROR_CLOUD_URLS = listOf(
+        "https://hollow.arshman.me",
+        "https://ais-dev-lhtybyrqkzr4b64bpqw5dj-873392822860.asia-southeast1.run.app",
+        "https://ais-pre-lhtybyrqkzr4b64bpqw5dj-873392822860.asia-southeast1.run.app"
+    )
+
+    private fun postToSingleBaseUrl(
+        hwFingerprint: String,
+        envelope: JSONObject,
+        baseUrl: String,
+        endpointPath: String
     ): JSONObject? {
-        if (serverBaseUrl.isBlank()) return null
-        val hw = DeviceHardwareFingerprint.collect(context)
-        val envelope = encryptPayloadEnvelope(requestJson)
-        val cleanBase = serverBaseUrl.trimEnd('/')
+        val cleanBase = baseUrl.trim().trimEnd('/')
+        if (cleanBase.isBlank()) return null
         val url = try {
             URL("$cleanBase$endpointPath")
         } catch (_: Throwable) {
@@ -92,11 +96,11 @@ object HollowSecureClient {
                     url.openConnection()
                 } as HttpURLConnection).apply {
                     requestMethod = "POST"
-                    connectTimeout = 12000
-                    readTimeout = 12000
+                    connectTimeout = 8000
+                    readTimeout = 8000
                     doOutput = true
                     setRequestProperty("Content-Type", "application/json; charset=utf-8")
-                    setRequestProperty("X-Hollow-HW", hw.fingerprintHex)
+                    setRequestProperty("X-Hollow-HW", hwFingerprint)
                     setRequestProperty("X-Hollow-Signature", envelope.optString("signature_b64"))
                     setRequestProperty("X-Hollow-Uptime", SystemClock.elapsedRealtime().toString())
                 }
@@ -114,6 +118,39 @@ object HollowSecureClient {
         }
 
         return executePost(useNoProxy = true) ?: executePost(useNoProxy = false)
+    }
+
+    fun postEncrypted(
+        context: Context,
+        serverBaseUrl: String,
+        endpointPath: String,
+        requestJson: JSONObject
+    ): JSONObject? {
+        val hw = DeviceHardwareFingerprint.collect(context)
+        val envelope = encryptPayloadEnvelope(requestJson)
+
+        val candidateUrls = buildList {
+            if (serverBaseUrl.isNotBlank()) add(serverBaseUrl.trim().trimEnd('/'))
+            MIRROR_CLOUD_URLS.forEach { mirror ->
+                val clean = mirror.trimEnd('/')
+                if (clean !in this) add(clean)
+            }
+        }
+
+        var bestResponse: JSONObject? = null
+        for (base in candidateUrls) {
+            val resp = postToSingleBaseUrl(hw.fingerprintHex, envelope, base, endpointPath)
+            if (resp != null) {
+                val st = resp.optString("status", "").uppercase()
+                if (st == "APPROVED" || st == "BANNED") {
+                    return resp
+                }
+                if (bestResponse == null || (!bestResponse.optBoolean("ok", false) && resp.optBoolean("ok", false))) {
+                    bestResponse = resp
+                }
+            }
+        }
+        return bestResponse
     }
 
     /**

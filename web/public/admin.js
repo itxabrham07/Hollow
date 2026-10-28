@@ -1,503 +1,705 @@
-/**
- * Hollow — Material 3 Expressive Web & Admin Console Controller
- */
+(function () {
+    'use strict';
 
-let adminToken = localStorage.getItem('hollow_admin_jwt') || '';
-let cachedOverview = { modules: [], devices: [], auditLogs: [], stats: {} };
-let adminPollTimer = null;
-
-const MODULE_LABELS = {
-  module_isolation: { label: 'Storage Isolation', icon: 'folder_supervised' },
-  module_privacy: { label: 'Identity & Privacy Shield', icon: 'fingerprint_off' },
-  module_hider: { label: 'App Visibility Control', icon: 'visibility_lock' },
-  module_network: { label: 'Per-App Network Routing', icon: 'vpn_lock' },
-  module_sensor_firewall: { label: 'Sensor Firewall', icon: 'sensors' }
-};
-
-const ALL_DEFAULT_MODULES = [
-  'module_isolation',
-  'module_privacy',
-  'module_hider',
-  'module_network'
-];
-
-// ---------------------------------------------------------------------------
-// 1. Navigation & Theme Setup
-// ---------------------------------------------------------------------------
-const views = {
-  home: document.getElementById('viewHome'),
-  modules: document.getElementById('viewModules'),
-  register: document.getElementById('viewRegister'),
-  admin: document.getElementById('viewAdmin')
-};
-
-function switchTab(tabName) {
-  Object.entries(views).forEach(([key, el]) => {
-    if (el) el.classList.toggle('hidden', key !== tabName);
-  });
-  document.querySelectorAll('.m3-nav-tab').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.tab === tabName);
-  });
-  if (tabName === 'admin') {
-    updateAdminAuthView();
-    startAdminAutoRefresh();
-  } else {
-    stopAdminAutoRefresh();
-  }
-}
-
-document.querySelectorAll('.m3-nav-tab').forEach((btn) => {
-  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
-});
-
-document.getElementById('brandHomeLink')?.addEventListener('click', () => switchTab('home'));
-document.getElementById('heroCheckDeviceBtn')?.addEventListener('click', () => switchTab('register'));
-document.getElementById('heroOpenAdminBtn')?.addEventListener('click', () => switchTab('admin'));
-
-// Theme Toggle
-const themeBtn = document.getElementById('themeToggleBtn');
-const themeIcon = document.getElementById('themeToggleIcon');
-if (localStorage.getItem('hollow_web_theme') === 'light') {
-  document.body.classList.remove('dark-theme');
-  if (themeIcon) themeIcon.textContent = 'dark_mode';
-}
-themeBtn?.addEventListener('click', () => {
-  const isDark = document.body.classList.toggle('dark-theme');
-  localStorage.setItem('hollow_web_theme', isDark ? 'dark' : 'light');
-  if (themeIcon) themeIcon.textContent = isDark ? 'light_mode' : 'dark_mode';
-});
-
-if (window.location.pathname.startsWith('/admin')) {
-  switchTab('admin');
-}
-
-// ---------------------------------------------------------------------------
-// 2. Public Modules Catalog
-// ---------------------------------------------------------------------------
-async function loadPublicCatalog() {
-  try {
-    const res = await fetch('/api/v1/public/catalog');
-    const data = await res.json();
-    if (!data.ok) return;
-
-    const mongoText = document.getElementById('mongoStatusText');
-    if (mongoText) {
-      mongoText.textContent = data.mongodbState === 'CONNECTED'
-        ? 'Cloud DB Connected'
-        : 'Privacy Hub Online';
+    // =========================================================================
+    // SHARED UTILITIES
+    // =========================================================================
+    function esc(str) {
+        return String(str == null ? '' : str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
     }
 
-    const container = document.getElementById('publicModuleGrid');
-    if (container) {
-      container.innerHTML = (data.modules || []).map((mod) => {
-        const meta = MODULE_LABELS[mod.moduleId] || { label: mod.displayName, icon: 'extension' };
-        const features = (mod.features || [])
-          .map((f) => `<span class="m3-feature-chip">${f.title || f}</span>`)
-          .join('');
-        const shortHash = (mod.sha256Checksum || '').slice(0, 16);
-        return `
-          <div class="m3-card">
-            <div class="m3-card-header" style="justify-content:space-between">
-              <div style="display:flex;align-items:center;gap:12px">
-                <div class="m3-icon-box">
-                  <span class="material-symbols-rounded">${meta.icon}</span>
+    function normalizeStatus(rawStatus) {
+        const s = String(rawStatus || '').toUpperCase().trim();
+        if (s === 'APPROVED') return 'APPROVED';
+        if (s === 'BANNED' || s === 'REVOKED') return 'BANNED';
+        return 'PENDING_APPROVAL';
+    }
+
+    function formatTimeAgo(dateStr) {
+        if (!dateStr) return 'Just now';
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime())) return 'Recently';
+        const diffSec = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+        if (diffSec < 60) return 'Just now';
+        if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+        if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+        return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+
+    // =========================================================================
+    // 1. PUBLIC PRODUCT PAGE LOGIC (/)
+    // =========================================================================
+    const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+    const mobileNavDrawer = document.getElementById('mobileNavDrawer');
+    if (mobileMenuBtn && mobileNavDrawer) {
+        mobileMenuBtn.addEventListener('click', () => {
+            mobileNavDrawer.classList.toggle('open');
+        });
+        document.querySelectorAll('.mobile-nav-item').forEach((link) => {
+            link.addEventListener('click', () => {
+                mobileNavDrawer.classList.remove('open');
+            });
+        });
+    }
+
+    // Interactive Phone Storyboard Preview
+    const phoneScreenContent = document.getElementById('phoneScreenContent');
+    const phonePills = document.querySelectorAll('#phoneProgressPills .phone-pill');
+    const phoneStageBtns = document.querySelectorAll('.phone-stage-btn');
+
+    const phoneStages = [
+        // Stage 0: Welcome / Get Started
+        () => `
+            <div style="text-align:left; width:100%;">
+                <div class="phone-screen-title">Take control<br>of your digital life</div>
+                <div class="phone-screen-sub">Modular. Secure. Always evolving.</div>
+                <div class="phone-feature-list">
+                    <div class="phone-feature-card">
+                        <div class="phone-feature-icon">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        </div>
+                        <span>Hide, isolate and protect apps</span>
+                    </div>
+                    <div class="phone-feature-card">
+                        <div class="phone-feature-icon">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                        </div>
+                        <span>Advanced privacy modules</span>
+                    </div>
+                    <div class="phone-feature-card">
+                        <div class="phone-feature-icon">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9"/></svg>
+                        </div>
+                        <span>Install only what you need</span>
+                    </div>
                 </div>
-                <div>
-                  <h3>${mod.displayName || meta.label}</h3>
-                  <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">
-                    v${mod.version || 1} · ${mod.moduleId} · ${mod.sizeKb || 12} KB
-                  </span>
+                <div class="phone-cta-black">
+                    <span>Create Account</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
                 </div>
-              </div>
-              <span class="m3-badge m3-badge-active">Ed25519 Signed</span>
+                <div class="phone-cta-muted">Login</div>
             </div>
-            <p style="margin-bottom:12px">${mod.description || mod.cardSubtitle || ''}</p>
-            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${features}</div>
-            <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">
-              SHA-256: ${shortHash}…
+        `,
+        // Stage 1: Root Access Required (with Solid Black Ticks)
+        () => `
+            <div style="text-align:center; width:100%;">
+                <div style="width:68px; height:68px; border-radius:20px; background:#F1F5F9; border:1.5px solid #111827; margin:0 auto 12px; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:1.55rem; color:#111827;">#</div>
+                <div class="phone-screen-title" style="font-size:1.18rem;">Root Access Required</div>
+                <div class="phone-screen-sub" style="margin-bottom:12px;">Hollow needs root access to install and run privacy modules securely.</div>
+                <div class="phone-check-box">
+                    <div class="phone-check-item">
+                        <span class="black-tick-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"/></svg></span>
+                        <span>Install approved modules</span>
+                    </div>
+                    <div class="phone-check-item">
+                        <span class="black-tick-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"/></svg></span>
+                        <span>Enable system-level privacy</span>
+                    </div>
+                    <div class="phone-check-item">
+                        <span class="black-tick-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"/></svg></span>
+                        <span>Hide and isolate apps</span>
+                    </div>
+                    <div class="phone-check-item">
+                        <span class="black-tick-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"/></svg></span>
+                        <span>Manage device identifiers</span>
+                    </div>
+                </div>
+                <div class="phone-cta-black">Grant Root Access</div>
             </div>
-          </div>
-        `;
-      }).join('');
+        `,
+        // Stage 2: Account Under Review (with Solid Black Tick on Submitted)
+        () => `
+            <div style="text-align:center; width:100%;">
+                <div style="width:64px; height:64px; border-radius:50%; background:#EEF2FF; margin:0 auto 12px; display:flex; align-items:center; justify-content:center; position:relative;">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#111827" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                </div>
+                <div class="phone-screen-title" style="font-size:1.18rem;">Account Under Review</div>
+                <div class="phone-screen-sub" style="margin-bottom:14px;">Your account is being reviewed by our team to maintain a trusted community.</div>
+                <div style="background:#F8FAFC; border:1px solid #E2E8F0; border-radius:16px; padding:12px 14px; text-align:left; margin-bottom:14px; display:flex; flex-direction:column; gap:10px;">
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <span class="black-tick-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"/></svg></span>
+                        <div>
+                            <div style="font-size:0.8rem; font-weight:700; color:#111827;">Submitted</div>
+                            <div style="font-size:0.7rem; color:#64748B;">Hardware identity registered</div>
+                        </div>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <span style="width:20px; height:20px; border-radius:50%; background:#111827; display:inline-flex; align-items:center; justify-content:center;">
+                            <span style="width:6px; height:6px; border-radius:50%; background:#FFFFFF;"></span>
+                        </span>
+                        <div>
+                            <div style="font-size:0.8rem; font-weight:700; color:#111827;">Under Review</div>
+                            <div style="font-size:0.7rem; color:#64748B;">Usually takes a few minutes</div>
+                        </div>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <span style="width:20px; height:20px; border-radius:50%; border:2px solid #CBD5E1; display:inline-block;"></span>
+                        <div>
+                            <div style="font-size:0.8rem; font-weight:600; color:#64748B;">Approved</div>
+                        </div>
+                    </div>
+                </div>
+                <div style="background:#EEF2F6; border-radius:12px; padding:10px 12px; font-size:0.73rem; color:#334155; font-weight:600;">
+                    You'll get instant access once approved.
+                </div>
+            </div>
+        `
+    ];
+
+    function renderPhoneStage(stageIdx) {
+        if (!phoneScreenContent) return;
+        const idx = Math.max(0, Math.min(phoneStages.length - 1, Number(stageIdx) || 0));
+        phoneScreenContent.innerHTML = phoneStages[idx]();
+        phonePills.forEach((pill, i) => pill.classList.toggle('active', i === idx));
+        phoneStageBtns.forEach((btn, i) => btn.classList.toggle('active', i === idx));
     }
-  } catch (err) {
-    console.error('Failed to load public catalog:', err);
-  }
-}
-loadPublicCatalog();
 
-// ---------------------------------------------------------------------------
-// 3. Public Device Status Check
-// ---------------------------------------------------------------------------
-document.getElementById('btnCheckDeviceStatus')?.addEventListener('click', async () => {
-  const fp = document.getElementById('checkHwInput').value.trim();
-  const resultBox = document.getElementById('checkDeviceResult');
-  if (!fp) {
-    return;
-  }
-
-  resultBox.classList.remove('hidden');
-  resultBox.innerHTML = '<p style="color:var(--text-muted)">Checking device status...</p>';
-
-  try {
-    const res = await fetch('/api/v1/auth/status', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ hardwareFingerprint: fp, elapsedRealtimeMs: 1000 })
-    });
-    const data = await res.json();
-    if (!res.ok || data.status === 'UNREGISTERED') {
-      resultBox.innerHTML = `
-        <div style="padding:16px;border-radius:12px;background:var(--semantic-warning-bg);color:var(--semantic-warning)">
-          <strong>No Registration Found</strong>
-          <p style="font-size:13px;margin-top:4px">
-            Device <code>${fp}</code> is not registered yet. Open the Hollow app on your phone and create an account first.
-          </p>
-        </div>
-      `;
-      return;
+    if (phoneScreenContent) {
+        renderPhoneStage(0);
+        phoneStageBtns.forEach((btn) => {
+            btn.addEventListener('click', () => {
+                renderPhoneStage(Number(btn.getAttribute('data-stage') || 0));
+            });
+        });
+        phonePills.forEach((pill) => {
+            pill.addEventListener('click', () => {
+                renderPhoneStage(Number(pill.getAttribute('data-stage') || 0));
+            });
+        });
     }
 
-    const isApproved = data.status === 'APPROVED';
-    const badgeClass = isApproved
-      ? 'm3-badge-active'
-      : data.status === 'PENDING_APPROVAL'
-      ? 'm3-badge-warning'
-      : 'm3-badge-error';
-    const grantedMods = (data.allowedModules || [])
-      .map((m) => `<span class="m3-feature-chip">${(MODULE_LABELS[m]?.label) || m}</span>`)
-      .join(' ') || '<span style="font-size:13px;color:var(--text-muted)">Pending administrator assignment</span>';
+    // Load Public Signed Modules Catalog on `/`
+    const publicModuleGrid = document.getElementById('publicModuleGrid');
+    async function loadPublicCatalog() {
+        if (!publicModuleGrid) return;
+        try {
+            const res = await fetch('/api/v1/public/catalog');
+            if (!res.ok) return;
+            const data = await res.json();
+            const modules = Array.isArray(data.modules) ? data.modules : [];
+            if (modules.length === 0) return;
 
-    resultBox.innerHTML = `
-      <div style="padding:16px;border-radius:12px;background:var(--bg-surface-low);border:1px solid var(--border-subtle)">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-          <div>
-            <strong style="font-size:15px">${data.username || 'Registered Device'}</strong>
-            <span style="display:block;font-size:12px;color:var(--text-muted);font-family:var(--font-mono)">${fp}</span>
-          </div>
-          <span class="m3-badge ${badgeClass}">${data.status.replace('_', ' ')}</span>
-        </div>
-        <div>
-          <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">Authorized Modules:</span>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${grantedMods}</div>
-        </div>
-      </div>
-    `;
-  } catch (err) {
-    resultBox.innerHTML = `<p style="color:var(--semantic-error)">Error: ${err.message}</p>`;
-  }
-});
-
-// ---------------------------------------------------------------------------
-// 4. Administrator Console Logic (with Live 5s Auto-Refresh)
-// ---------------------------------------------------------------------------
-const adminLoginCard = document.getElementById('adminLoginCard');
-const adminDashboard = document.getElementById('adminDashboard');
-const adminLoginErr = document.getElementById('adminLoginErr');
-
-function startAdminAutoRefresh() {
-  stopAdminAutoRefresh();
-  adminPollTimer = setInterval(() => {
-    if (adminToken && !views.admin.classList.contains('hidden')) {
-      loadAdminOverview();
+            publicModuleGrid.innerHTML = modules.map((m) => `
+                <article class="module-card">
+                    <div class="module-card-top">
+                        <span class="module-id-chip">${esc(m.id)}</span>
+                        <span class="module-version-chip">v${esc(m.version || '1.0.0')}</span>
+                    </div>
+                    <h3>${esc(m.title || m.id)}</h3>
+                    <p>${esc(m.subtitle || 'Signed modular privacy plugin verified via Ed25519.')}</p>
+                    <div class="module-meta-footer">
+                        <span>Ed25519 Signed</span>
+                        <span>SHA-256: ${esc((m.sha256 || 'verified').slice(0, 12))}...</span>
+                    </div>
+                </article>
+            `).join('');
+        } catch (_) {
+            // Keep static fallback module cards cleanly
+        }
     }
-  }, 5000);
-}
-
-function stopAdminAutoRefresh() {
-  if (adminPollTimer) {
-    clearInterval(adminPollTimer);
-    adminPollTimer = null;
-  }
-}
-
-function updateAdminAuthView() {
-  if (adminToken) {
-    adminLoginCard?.classList.add('hidden');
-    adminDashboard?.classList.remove('hidden');
-    loadAdminOverview();
-  } else {
-    adminLoginCard?.classList.remove('hidden');
-    adminDashboard?.classList.add('hidden');
-  }
-}
-
-document.getElementById('btnAdminLogin')?.addEventListener('click', async () => {
-  adminLoginErr.classList.add('hidden');
-  const username = document.getElementById('adminUser').value.trim();
-  const password = document.getElementById('adminPass').value;
-  try {
-    const res = await fetch('/api/v1/admin/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
-    });
-    const data = await res.json();
-    if (!res.ok || !data.ok) {
-      adminLoginErr.textContent = data.error || 'Invalid administrator credentials';
-      adminLoginErr.classList.remove('hidden');
-      return;
+    if (publicModuleGrid) {
+        loadPublicCatalog();
     }
-    adminToken = data.token;
-    localStorage.setItem('hollow_admin_jwt', adminToken);
-    updateAdminAuthView();
-  } catch (err) {
-    adminLoginErr.textContent = err.message;
-    adminLoginErr.classList.remove('hidden');
-  }
-});
 
-document.getElementById('btnAdminLogout')?.addEventListener('click', () => {
-  adminToken = '';
-  localStorage.removeItem('hollow_admin_jwt');
-  updateAdminAuthView();
-});
+    // Public Device Status Lookup on `/`
+    const btnCheckDeviceStatus = document.getElementById('btnCheckDeviceStatus');
+    const checkHwInput = document.getElementById('checkHwInput');
+    const checkDeviceResult = document.getElementById('checkDeviceResult');
 
-document.getElementById('btnAdminRefresh')?.addEventListener('click', () => loadAdminOverview());
+    if (btnCheckDeviceStatus && checkHwInput && checkDeviceResult) {
+        const runStatusCheck = async () => {
+            const query = checkHwInput.value.trim();
+            if (!query) {
+                checkDeviceResult.style.display = 'block';
+                checkDeviceResult.innerHTML = `<span style="color:#DC2626; font-weight:600;">Please enter your username or hardware fingerprint.</span>`;
+                return;
+            }
+            btnCheckDeviceStatus.disabled = true;
+            btnCheckDeviceStatus.textContent = 'Checking...';
+            try {
+                const res = await fetch('/api/v1/auth/status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        hardwareFingerprint: query,
+                        username: query
+                    })
+                });
+                const data = await res.json();
+                checkDeviceResult.style.display = 'block';
 
-async function loadAdminOverview() {
-  if (!adminToken) return;
-  try {
-    const res = await fetch('/api/v1/admin/overview', {
-      headers: { Authorization: `Bearer ${adminToken}` }
-    });
-    if (res.status === 401) {
-      adminToken = '';
-      localStorage.removeItem('hollow_admin_jwt');
-      updateAdminAuthView();
-      return;
-    }
-    const data = await res.json();
-    if (!data.ok) return;
-
-    cachedOverview = data;
-    renderAdminStats(data.stats || {});
-    renderAdminDevices(data.devices || []);
-    renderAdminLogs(data.auditLogs || []);
-  } catch (err) {
-    console.error('Failed to load admin overview:', err);
-  }
-}
-
-function renderAdminStats(stats) {
-  const el = document.getElementById('adminStatsGrid');
-  if (!el) return;
-  el.innerHTML = `
-    <div class="m3-card">
-      <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">Pending Approval</span>
-      <div style="font-size:28px;font-weight:700;color:var(--semantic-warning);margin-top:4px">${stats.pendingCount || 0}</div>
-    </div>
-    <div class="m3-card">
-      <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">Approved Devices</span>
-      <div style="font-size:28px;font-weight:700;color:var(--semantic-active);margin-top:4px">${stats.approvedCount || 0}</div>
-    </div>
-    <div class="m3-card">
-      <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">Signed Modules Hosted</span>
-      <div style="font-size:28px;font-weight:700;color:var(--accent-primary);margin-top:4px">${stats.modulesCount || 4}</div>
-    </div>
-  `;
-}
-
-function renderAdminDevices(devices) {
-  const container = document.getElementById('adminDevicesContainer');
-  if (!container) return;
-
-  if (devices.length === 0) {
-    container.innerHTML = `
-      <div style="padding: 40px 20px; text-align: center; color: var(--text-muted)">
-        <span class="material-symbols-rounded" style="font-size: 36px; display: block; margin-bottom: 8px">devices</span>
-        <p style="font-weight: 600">No devices registered yet.</p>
-        <p style="font-size: 13px; margin-top: 4px">When a user creates an account in the Hollow app, their device will appear here automatically.</p>
-      </div>
-    `;
-    return;
-  }
-
-  container.innerHTML = `
-    <table class="m3-table">
-      <thead>
-        <tr>
-          <th>Account &amp; Device</th>
-          <th>Hardware Verification ID</th>
-          <th>Status</th>
-          <th>Authorized Modules</th>
-          <th style="text-align:right">Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${devices.map((dev) => {
-          const isApproved = dev.status === 'APPROVED';
-          const isBanned = dev.status === 'BANNED';
-          const badgeClass = isApproved
-            ? 'm3-badge-active'
-            : isBanned
-            ? 'm3-badge-error'
-            : 'm3-badge-warning';
-
-          return `
-            <tr>
-              <td>
-                <strong style="font-size:14px">${dev.username || 'User'}</strong>
-                <span style="display:block;font-size:12px;color:var(--text-secondary)">
-                  ${dev.deviceModel || 'Android Device'}${dev.email ? ` · ${dev.email}` : ''}
-                </span>
-              </td>
-              <td style="font-family:var(--font-mono);font-size:12px;color:var(--accent-primary)">
-                ${dev.hardwareFingerprint}
-              </td>
-              <td>
-                <span class="m3-badge ${badgeClass}">${dev.status.replace('_', ' ')}</span>
-              </td>
-              <td>
-                <div style="display:flex;gap:6px;flex-wrap:wrap">
-                  ${ALL_DEFAULT_MODULES.map((m) => {
-                    const checked = (dev.allowedModules || []).includes(m);
-                    const shortLabel = m.replace('module_', '');
-                    return `
-                      <label class="m3-feature-chip" style="cursor:pointer">
-                        <input
-                          type="checkbox"
-                          onchange="toggleDeviceModule('${dev.hardwareFingerprint}', '${m}', this.checked)"
-                          ${checked ? 'checked' : ''}
-                          style="margin-right:4px"
-                        />
-                        ${shortLabel}
-                      </label>
+                if (!data || data.status === 'UNREGISTERED') {
+                    checkDeviceResult.innerHTML = `
+                        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+                            <div>
+                                <div style="font-weight:700; color:#111827;">No Registration Found</div>
+                                <div style="font-size:0.84rem; color:#475569; margin-top:2px;">Open the Hollow Android app and tap <strong>Create Account</strong> to submit your device for review.</div>
+                            </div>
+                            <span class="status-pill pending">UNREGISTERED</span>
+                        </div>
                     `;
-                  }).join('')}
+                } else {
+                    const st = normalizeStatus(data.status);
+                    const pillClass = st === 'APPROVED' ? 'approved' : (st === 'BANNED' ? 'banned' : 'pending');
+                    const mods = Array.isArray(data.allowedModules) ? data.allowedModules : [];
+                    checkDeviceResult.innerHTML = `
+                        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+                            <div>
+                                <div style="font-weight:700; color:#111827; font-size:0.98rem;">Account: ${esc(data.username || query)}</div>
+                                <div style="font-size:0.84rem; color:#475569; margin-top:3px;">
+                                    ${st === 'APPROVED'
+                                        ? `Approved with <strong>${mods.length}</strong> assigned module(s). Open the app to access your dashboard.`
+                                        : st === 'BANNED'
+                                            ? 'This device registration has been restricted by an administrator.'
+                                            : 'Your registration is in the review queue. The app will unlock automatically once approved.'}
+                                </div>
+                            </div>
+                            <span class="status-pill ${pillClass}">${esc(st)}</span>
+                        </div>
+                    `;
+                }
+            } catch (err) {
+                checkDeviceResult.style.display = 'block';
+                checkDeviceResult.innerHTML = `<span style="color:#DC2626; font-weight:600;">Unable to reach verification server. Please try again.</span>`;
+            } finally {
+                btnCheckDeviceStatus.disabled = false;
+                btnCheckDeviceStatus.textContent = 'Check Status';
+            }
+        };
+
+        btnCheckDeviceStatus.addEventListener('click', runStatusCheck);
+        checkHwInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') runStatusCheck();
+        });
+    }
+
+    // =========================================================================
+    // 2. DEDICATED ADMIN CONSOLE LOGIC (/admin)
+    // =========================================================================
+    const adminLoginCard = document.getElementById('adminLoginCard');
+    const adminDashboard = document.getElementById('adminDashboard');
+    const btnAdminLogin = document.getElementById('btnAdminLogin');
+    const btnAdminRefresh = document.getElementById('btnAdminRefresh');
+    const btnAdminLogout = document.getElementById('btnAdminLogout');
+    const adminLoginErr = document.getElementById('adminLoginErr');
+
+    if (!adminLoginCard || !adminDashboard) {
+        // Not on /admin page
+        return;
+    }
+
+    let adminToken = sessionStorage.getItem('hollow_admin_token') || '';
+    let cachedDevices = [];
+    let cachedModules = [];
+    let cachedIncidents = [];
+    let activeFilter = 'ALL';
+    let searchQuery = '';
+    let autoRefreshTimer = null;
+
+    function setAdminAuthenticatedState(isAuthed) {
+        adminLoginCard.style.display = isAuthed ? 'none' : 'block';
+        adminDashboard.style.display = isAuthed ? 'block' : 'none';
+        if (btnAdminRefresh) btnAdminRefresh.style.display = isAuthed ? 'inline-flex' : 'none';
+        if (btnAdminLogout) btnAdminLogout.style.display = isAuthed ? 'inline-flex' : 'none';
+
+        if (isAuthed) {
+            if (!autoRefreshTimer) {
+                autoRefreshTimer = setInterval(() => {
+                    loadAdminOverview(true);
+                }, 4000);
+            }
+        } else if (autoRefreshTimer) {
+            clearInterval(autoRefreshTimer);
+            autoRefreshTimer = null;
+        }
+    }
+
+    async function performAdminLogin() {
+        const username = (document.getElementById('adminUser')?.value || '').trim();
+        const password = (document.getElementById('adminPass')?.value || '').trim();
+        if (adminLoginErr) adminLoginErr.textContent = '';
+
+        if (!username || !password) {
+            if (adminLoginErr) adminLoginErr.textContent = 'Please enter both username and password.';
+            return;
+        }
+
+        btnAdminLogin.disabled = true;
+        btnAdminLogin.textContent = 'Signing in...';
+
+        try {
+            const res = await fetch('/api/v1/admin/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            const data = await res.json();
+            if (!res.ok || !data.token) {
+                if (adminLoginErr) adminLoginErr.textContent = data.error || 'Invalid administrator credentials.';
+                return;
+            }
+            adminToken = data.token;
+            sessionStorage.setItem('hollow_admin_token', adminToken);
+            setAdminAuthenticatedState(true);
+            await loadAdminOverview(false);
+        } catch (err) {
+            if (adminLoginErr) adminLoginErr.textContent = 'Network error while signing in.';
+        } finally {
+            btnAdminLogin.disabled = false;
+            btnAdminLogin.textContent = 'Sign In to Console';
+        }
+    }
+
+    if (btnAdminLogin) {
+        btnAdminLogin.addEventListener('click', performAdminLogin);
+    }
+    const adminPassInput = document.getElementById('adminPass');
+    if (adminPassInput) {
+        adminPassInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') performAdminLogin();
+        });
+    }
+
+    if (btnAdminRefresh) {
+        btnAdminRefresh.addEventListener('click', () => loadAdminOverview(false));
+    }
+
+    if (btnAdminLogout) {
+        btnAdminLogout.addEventListener('click', () => {
+            adminToken = '';
+            sessionStorage.removeItem('hollow_admin_token');
+            setAdminAuthenticatedState(false);
+        });
+    }
+
+    // Filter Pills & Search
+    document.querySelectorAll('#adminFilterPills .filter-pill').forEach((pill) => {
+        pill.addEventListener('click', () => {
+            document.querySelectorAll('#adminFilterPills .filter-pill').forEach((p) => p.classList.remove('active'));
+            pill.classList.add('active');
+            activeFilter = pill.getAttribute('data-filter') || 'ALL';
+            renderAdminDevices();
+        });
+    });
+
+    const adminSearchInput = document.getElementById('adminSearchInput');
+    if (adminSearchInput) {
+        adminSearchInput.addEventListener('input', () => {
+            searchQuery = adminSearchInput.value.trim().toLowerCase();
+            renderAdminDevices();
+        });
+    }
+
+    // Manual Device Registration / Pre-Approval Bar
+    const btnToggleManualAdd = document.getElementById('btnToggleManualAdd');
+    const manualAddBox = document.getElementById('manualAddBox');
+    const btnManualApproveSubmit = document.getElementById('btnManualApproveSubmit');
+
+    if (btnToggleManualAdd && manualAddBox) {
+        btnToggleManualAdd.addEventListener('click', () => {
+            const isHidden = manualAddBox.style.display === 'none' || !manualAddBox.style.display;
+            manualAddBox.style.display = isHidden ? 'block' : 'none';
+        });
+    }
+
+    if (btnManualApproveSubmit) {
+        btnManualApproveSubmit.addEventListener('click', async () => {
+            const usernameInput = document.getElementById('manualUsername');
+            const hwInput = document.getElementById('manualHwId');
+            const username = (usernameInput?.value || '').trim() || 'hollow_user';
+            const hwId = (hwInput?.value || '').trim();
+
+            if (!hwId) {
+                alert('Please enter the Device Hardware ID (or Username) to register and approve.');
+                return;
+            }
+
+            btnManualApproveSubmit.disabled = true;
+            btnManualApproveSubmit.textContent = 'Approving...';
+            try {
+                // Step 1: Ensure registered
+                await fetch('/api/v1/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username,
+                        hardwareFingerprint: hwId,
+                        deviceModel: 'Manual Admin Entry'
+                    })
+                });
+                // Step 2: Approve with all modules
+                const allModuleIds = cachedModules.map((m) => m.id);
+                await fetch('/api/v1/admin/devices/approve', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${adminToken}`
+                    },
+                    body: JSON.stringify({
+                        hardwareFingerprint: hwId,
+                        allowedModules: allModuleIds
+                    })
+                });
+                if (usernameInput) usernameInput.value = '';
+                if (hwInput) hwInput.value = '';
+                if (manualAddBox) manualAddBox.style.display = 'none';
+                await loadAdminOverview(false);
+            } catch (e) {
+                alert('Failed to manually register/approve device.');
+            } finally {
+                btnManualApproveSubmit.disabled = false;
+                btnManualApproveSubmit.textContent = 'Approve Immediately';
+            }
+        });
+    }
+
+    async function loadAdminOverview(silent) {
+        if (!adminToken) return;
+        try {
+            const res = await fetch('/api/v1/admin/overview', {
+                headers: { Authorization: `Bearer ${adminToken}` }
+            });
+            if (res.status === 401) {
+                adminToken = '';
+                sessionStorage.removeItem('hollow_admin_token');
+                setAdminAuthenticatedState(false);
+                return;
+            }
+            const data = await res.json();
+            cachedDevices = Array.isArray(data.devices) ? data.devices : [];
+            cachedModules = Array.isArray(data.modules) ? data.modules : [];
+            cachedIncidents = Array.isArray(data.incidents) ? data.incidents : [];
+
+            renderAdminStats();
+            if (!silent || !document.activeElement || !document.activeElement.classList.contains('mod-check')) {
+                renderAdminDevices();
+            }
+            renderAdminLogs();
+        } catch (err) {
+            // Keep existing view on transient poll error
+        }
+    }
+
+    function renderAdminStats() {
+        const statsGrid = document.getElementById('adminStatsGrid');
+        if (!statsGrid) return;
+
+        const pendingCount = cachedDevices.filter((d) => normalizeStatus(d.status) === 'PENDING_APPROVAL').length;
+        const approvedCount = cachedDevices.filter((d) => normalizeStatus(d.status) === 'APPROVED').length;
+        const bannedCount = cachedDevices.filter((d) => normalizeStatus(d.status) === 'BANNED').length;
+
+        statsGrid.innerHTML = `
+            <div class="stat-card">
+                <div class="stat-label">Pending Approval</div>
+                <div class="stat-value">${pendingCount}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Approved Devices</div>
+                <div class="stat-value">${approvedCount}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Signed Modules</div>
+                <div class="stat-value">${cachedModules.length}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Restricted</div>
+                <div class="stat-value">${bannedCount}</div>
+            </div>
+        `;
+    }
+
+    function renderAdminDevices() {
+        const container = document.getElementById('adminDevicesContainer');
+        if (!container) return;
+
+        // Sort PENDING_APPROVAL first, then most recently updated
+        const sorted = [...cachedDevices].sort((a, b) => {
+            const sa = normalizeStatus(a.status) === 'PENDING_APPROVAL' ? 0 : 1;
+            const sb = normalizeStatus(b.status) === 'PENDING_APPROVAL' ? 0 : 1;
+            if (sa !== sb) return sa - sb;
+            const ta = new Date(a.updatedAt || a.registeredAt || 0).getTime();
+            const tb = new Date(b.updatedAt || b.registeredAt || 0).getTime();
+            return tb - ta;
+        });
+
+        const filtered = sorted.filter((d) => {
+            const st = normalizeStatus(d.status);
+            if (activeFilter !== 'ALL' && st !== activeFilter) return false;
+            if (searchQuery) {
+                const hay = `${d.username || ''} ${d.email || ''} ${d.hardwareFingerprint || ''} ${d.deviceModel || ''}`.toLowerCase();
+                if (!hay.includes(searchQuery)) return false;
+            }
+            return true;
+        });
+
+        if (filtered.length === 0) {
+            container.innerHTML = `
+                <div class="empty-queue-box">
+                    <h3>No device requests match this view</h3>
+                    <p>When a user registers an account in the Hollow Android app, their request appears here automatically within seconds.</p>
                 </div>
-              </td>
-              <td style="text-align:right;white-space:nowrap">
-                ${!isApproved ? `
-                  <button
-                    onclick="approveDevice('${dev.hardwareFingerprint}')"
-                    class="m3-btn m3-btn-primary"
-                    style="padding:6px 14px;min-height:36px;font-size:12px"
-                  >
-                    Approve &amp; Grant All
-                  </button>
-                ` : `
-                  <button
-                    onclick="revokeDevice('${dev.hardwareFingerprint}')"
-                    class="m3-btn m3-btn-tonal"
-                    style="padding:6px 14px;min-height:36px;font-size:12px;color:var(--semantic-error)"
-                  >
-                    Restrict
-                  </button>
-                `}
-              </td>
-            </tr>
-          `;
-        }).join('')}
-      </tbody>
-    </table>
-  `;
-}
+            `;
+            return;
+        }
 
-function renderAdminLogs(logs) {
-  const container = document.getElementById('adminLogsContainer');
-  if (!container) return;
+        container.innerHTML = filtered.map((d) => {
+            const st = normalizeStatus(d.status);
+            const pillClass = st === 'APPROVED' ? 'approved' : (st === 'BANNED' ? 'banned' : 'pending');
+            const pillLabel = st === 'PENDING_APPROVAL' ? 'WAITING FOR APPROVAL' : st;
+            const allowed = Array.isArray(d.allowedModules) ? d.allowedModules : [];
+            const hwAttr = esc(d.hardwareFingerprint);
 
-  if (logs.length === 0) {
-    container.innerHTML = '<div style="padding: 24px; text-align: center; color: var(--text-muted)">No activity recorded yet.</div>';
-    return;
-  }
+            const moduleChecksHtml = cachedModules.map((m) => {
+                // Default check all modules for pending devices so one-click Approve grants them seamlessly
+                const isChecked = st === 'PENDING_APPROVAL'
+                    ? true
+                    : allowed.includes(m.id);
+                return `
+                    <label class="module-check-label">
+                        <input type="checkbox" class="mod-check" data-hw="${hwAttr}" value="${esc(m.id)}" ${isChecked ? 'checked' : ''} />
+                        <span>${esc(m.title || m.id)}</span>
+                    </label>
+                `;
+            }).join('');
 
-  container.innerHTML = `
-    <table class="m3-table">
-      <thead>
-        <tr>
-          <th>Time</th>
-          <th>Event</th>
-          <th>Device ID</th>
-          <th>Details</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${logs.slice(0, 30).map((l) => `
-          <tr>
-            <td style="color:var(--text-muted);font-family:var(--font-mono);font-size:11px">
-              ${new Date(l.timestamp).toLocaleTimeString()}
-            </td>
-            <td><strong>${l.event}</strong></td>
-            <td style="font-family:var(--font-mono);font-size:11px">${l.hardwareFingerprint || '—'}</td>
-            <td style="color:var(--text-secondary)">${l.details || ''}</td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
-  `;
-}
+            return `
+                <div class="device-row-card ${st === 'PENDING_APPROVAL' ? 'is-pending' : ''}">
+                    <div class="device-row-top">
+                        <div>
+                            <div class="device-user-title">
+                                <span>${esc(d.username || 'Anonymous User')}</span>
+                                ${d.email ? `<span style="font-size:0.82rem; font-weight:500; color:#64748B;">(${esc(d.email)})</span>` : ''}
+                                <span style="font-size:0.76rem; font-weight:600; color:#64748B;">• ${esc(formatTimeAgo(d.updatedAt || d.registeredAt))}</span>
+                            </div>
+                            <div class="device-hw-mono">
+                                HWID: ${esc(d.hardwareFingerprint)} &nbsp;|&nbsp; Model: ${esc(d.deviceModel || 'Android Device')}
+                            </div>
+                        </div>
+                        <span class="status-pill ${pillClass}">${esc(pillLabel)}</span>
+                    </div>
 
-window.approveDevice = async function(fp) {
-  try {
-    const res = await fetch('/api/v1/admin/devices/approve', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${adminToken}`
-      },
-      body: JSON.stringify({
-        hardwareFingerprint: fp,
-        validityDays: 365,
-        allowedModules: ['module_isolation', 'module_privacy', 'module_hider', 'module_network', 'module_sensor_firewall']
-      })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Approval failed');
-    loadAdminOverview();
-  } catch (err) {
-    alert(err.message);
-  }
-};
+                    <div>
+                        <div style="font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:#64748B; margin-bottom:8px;">
+                            Entitled Signed Modules
+                        </div>
+                        <div class="module-checkbox-row">
+                            ${moduleChecksHtml}
+                        </div>
+                    </div>
 
-window.revokeDevice = async function(fp) {
-  try {
-    const res = await fetch('/api/v1/admin/devices/ban', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${adminToken}`
-      },
-      body: JSON.stringify({
-        hardwareFingerprint: fp,
-        banReason: 'Access restricted by administrator.'
-      })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Restriction failed');
-    loadAdminOverview();
-  } catch (err) {
-    alert(err.message);
-  }
-};
+                    <div class="device-actions-row">
+                        <button type="button" class="btn-black btn-sm btn-approve-device" data-hw="${hwAttr}">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><polyline points="20 6 9 17 4 12"/></svg>
+                            <span>${st === 'APPROVED' ? 'Save Module Entitlements' : 'Approve & Grant Selected'}</span>
+                        </button>
+                        ${st !== 'BANNED' ? `
+                            <button type="button" class="btn-danger-outline btn-ban-device" data-hw="${hwAttr}" data-ban="true">
+                                Restrict Device
+                            </button>
+                        ` : `
+                            <button type="button" class="btn-outline btn-sm btn-ban-device" data-hw="${hwAttr}" data-ban="false">
+                                Lift Restriction
+                            </button>
+                        `}
+                    </div>
+                </div>
+            `;
+        }).join('');
 
-window.toggleDeviceModule = async function(fp, modId, isEnabled) {
-  const dev = (cachedOverview.devices || []).find((d) => d.hardwareFingerprint === fp);
-  if (!dev) return;
-  const currentMods = new Set(dev.allowedModules || []);
-  if (isEnabled) currentMods.add(modId); else currentMods.delete(modId);
+        container.querySelectorAll('.btn-approve-device').forEach((btn) => {
+            btn.addEventListener('click', async () => {
+                const hw = btn.getAttribute('data-hw');
+                const checks = Array.from(container.querySelectorAll(`.mod-check[data-hw="${CSS.escape(hw)}"]`));
+                const selectedModules = checks.filter((c) => c.checked).map((c) => c.value);
 
-  try {
-    const endpoint = dev.status === 'APPROVED'
-      ? '/api/v1/admin/devices/update-modules'
-      : '/api/v1/admin/devices/approve';
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${adminToken}`
-      },
-      body: JSON.stringify({
-        hardwareFingerprint: fp,
-        validityDays: 365,
-        allowedModules: Array.from(currentMods)
-      })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to update modules');
-    loadAdminOverview();
-  } catch (err) {
-    alert(err.message);
-  }
-};
+                btn.disabled = true;
+                btn.textContent = 'Saving...';
+                try {
+                    await fetch('/api/v1/admin/devices/approve', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            Authorization: `Bearer ${adminToken}`
+                        },
+                        body: JSON.stringify({
+                            hardwareFingerprint: hw,
+                            allowedModules: selectedModules
+                        })
+                    });
+                    await loadAdminOverview(false);
+                } finally {
+                    btn.disabled = false;
+                }
+            });
+        });
+
+        container.querySelectorAll('.btn-ban-device').forEach((btn) => {
+            btn.addEventListener('click', async () => {
+                const hw = btn.getAttribute('data-hw');
+                const ban = btn.getAttribute('data-ban') === 'true';
+                btn.disabled = true;
+                try {
+                    await fetch('/api/v1/admin/devices/ban', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            Authorization: `Bearer ${adminToken}`
+                        },
+                        body: JSON.stringify({
+                            hardwareFingerprint: hw,
+                            ban
+                        })
+                    });
+                    await loadAdminOverview(false);
+                } finally {
+                    btn.disabled = false;
+                }
+            });
+        });
+    }
+
+    function renderAdminLogs() {
+        const container = document.getElementById('adminLogsContainer');
+        if (!container) return;
+
+        if (!cachedIncidents || cachedIncidents.length === 0) {
+            container.innerHTML = `<div style="color:#64748B; font-size:0.88rem; padding:12px 0;">No administrative or security events recorded yet.</div>`;
+            return;
+        }
+
+        container.innerHTML = `
+            <table class="audit-table">
+                <thead>
+                    <tr>
+                        <th>Event</th>
+                        <th>Hardware ID</th>
+                        <th>Details</th>
+                        <th>Timestamp</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${cachedIncidents.slice(0, 25).map((inc) => `
+                        <tr>
+                            <td style="font-weight:700; color:#111827;">${esc(inc.incidentType || 'EVENT')}</td>
+                            <td style="font-family:var(--font-mono); font-size:0.78rem;">${esc((inc.hardwareFingerprint || 'system').slice(0, 20))}</td>
+                            <td>${esc(inc.details || '')}</td>
+                            <td style="color:#64748B; white-space:nowrap;">${esc(formatTimeAgo(inc.occurredAt))}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    }
+
+    // Initialize Admin Console if session token exists
+    if (adminToken) {
+        setAdminAuthenticatedState(true);
+        loadAdminOverview(false);
+    } else {
+        setAdminAuthenticatedState(false);
+    }
+})();

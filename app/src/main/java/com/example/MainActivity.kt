@@ -23,6 +23,8 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.outlined.Folder
@@ -182,11 +184,26 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
         topBar = {
             if (showMainTopBar) {
                 TopAppBar(
+                    navigationIcon = {
+                        IconButton(
+                            onClick = {
+                                activeModuleId = null
+                                currentScreen = NavDestination.SETTINGS
+                            },
+                            modifier = Modifier.testTag("top_bar_menu_icon")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Menu,
+                                contentDescription = "Menu",
+                                tint = scheme.onBackground
+                            )
+                        }
+                    },
                     title = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             HollowDynamicEmblem(
                                 iconTheme = settings.hollowIconTheme,
-                                size = 34.dp
+                                size = 32.dp
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
@@ -207,9 +224,9 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                             modifier = Modifier.testTag("top_bar_license_hub")
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Key,
-                                contentDescription = "Root Vault & Module Hub",
-                                tint = scheme.primary
+                                imageVector = Icons.Default.Notifications,
+                                contentDescription = "Notifications & Modules Hub",
+                                tint = scheme.onBackground
                             )
                         }
                         IconButton(
