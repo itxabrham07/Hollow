@@ -12,6 +12,17 @@
             .replace(/"/g, '&quot;');
     }
 
+    function setVisible(el, isVisible, displayMode) {
+        if (!el) return;
+        if (isVisible) {
+            el.classList.remove('hidden');
+            el.style.display = displayMode || 'block';
+        } else {
+            el.classList.add('hidden');
+            el.style.display = 'none';
+        }
+    }
+
     function normalizeStatus(rawStatus) {
         const s = String(rawStatus || '').toUpperCase().trim();
         if (s === 'APPROVED') return 'APPROVED';
@@ -48,7 +59,7 @@
 
     // Interactive Phone Storyboard Preview
     const phoneScreenContent = document.getElementById('phoneScreenContent');
-    const phonePills = document.querySelectorAll('#phoneProgressPills .phone-pill');
+    const phonePills = document.querySelectorAll('.phone-step-tabs .phone-pill');
     const phoneStageBtns = document.querySelectorAll('.phone-stage-btn');
 
     const phoneStages = [
@@ -214,7 +225,7 @@
         const runStatusCheck = async () => {
             const query = checkHwInput.value.trim();
             if (!query) {
-                checkDeviceResult.style.display = 'block';
+                setVisible(checkDeviceResult, true, 'block');
                 checkDeviceResult.innerHTML = `<span style="color:#DC2626; font-weight:600;">Please enter your username or hardware fingerprint.</span>`;
                 return;
             }
@@ -230,11 +241,11 @@
                     })
                 });
                 const data = await res.json();
-                checkDeviceResult.style.display = 'block';
+                setVisible(checkDeviceResult, true, 'block');
 
                 if (!data || data.status === 'UNREGISTERED') {
                     checkDeviceResult.innerHTML = `
-                        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; padding:12px 14px; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:12px;">
                             <div>
                                 <div style="font-weight:700; color:#111827;">No Registration Found</div>
                                 <div style="font-size:0.84rem; color:#475569; margin-top:2px;">Open the Hollow Android app and tap <strong>Create Account</strong> to submit your device for review.</div>
@@ -247,7 +258,7 @@
                     const pillClass = st === 'APPROVED' ? 'approved' : (st === 'BANNED' ? 'banned' : 'pending');
                     const mods = Array.isArray(data.allowedModules) ? data.allowedModules : [];
                     checkDeviceResult.innerHTML = `
-                        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:12px 14px; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:12px;">
                             <div>
                                 <div style="font-weight:700; color:#111827; font-size:0.98rem;">Account: ${esc(data.username || query)}</div>
                                 <div style="font-size:0.84rem; color:#475569; margin-top:3px;">
@@ -263,11 +274,11 @@
                     `;
                 }
             } catch (err) {
-                checkDeviceResult.style.display = 'block';
+                setVisible(checkDeviceResult, true, 'block');
                 checkDeviceResult.innerHTML = `<span style="color:#DC2626; font-weight:600;">Unable to reach verification server. Please try again.</span>`;
             } finally {
                 btnCheckDeviceStatus.disabled = false;
-                btnCheckDeviceStatus.textContent = 'Check Status';
+                btnCheckDeviceStatus.textContent = 'Check Approval Status';
             }
         };
 
@@ -295,18 +306,21 @@
     let adminToken = sessionStorage.getItem('hollow_admin_token') || '';
     let cachedDevices = [];
     let cachedModules = [];
-    let cachedIncidents = [];
+    let cachedLogs = [];
     let activeFilter = 'ALL';
     let searchQuery = '';
     let autoRefreshTimer = null;
 
     function setAdminAuthenticatedState(isAuthed) {
-        adminLoginCard.style.display = isAuthed ? 'none' : 'block';
-        adminDashboard.style.display = isAuthed ? 'block' : 'none';
-        if (btnAdminRefresh) btnAdminRefresh.style.display = isAuthed ? 'inline-flex' : 'none';
-        if (btnAdminLogout) btnAdminLogout.style.display = isAuthed ? 'inline-flex' : 'none';
+        setVisible(adminLoginCard, !isAuthed, 'flex');
+        setVisible(adminDashboard, isAuthed, 'block');
+        setVisible(btnAdminRefresh, isAuthed, 'inline-flex');
+        setVisible(btnAdminLogout, isAuthed, 'inline-flex');
 
         if (isAuthed) {
+            renderAdminStats();
+            renderAdminDevices();
+            renderAdminLogs();
             if (!autoRefreshTimer) {
                 autoRefreshTimer = setInterval(() => {
                     loadAdminOverview(true);
@@ -321,10 +335,16 @@
     async function performAdminLogin() {
         const username = (document.getElementById('adminUser')?.value || '').trim();
         const password = (document.getElementById('adminPass')?.value || '').trim();
-        if (adminLoginErr) adminLoginErr.textContent = '';
+        if (adminLoginErr) {
+            adminLoginErr.textContent = '';
+            setVisible(adminLoginErr, false);
+        }
 
         if (!username || !password) {
-            if (adminLoginErr) adminLoginErr.textContent = 'Please enter both username and password.';
+            if (adminLoginErr) {
+                adminLoginErr.textContent = 'Please enter both username and password.';
+                setVisible(adminLoginErr, true, 'block');
+            }
             return;
         }
 
@@ -339,7 +359,10 @@
             });
             const data = await res.json();
             if (!res.ok || !data.token) {
-                if (adminLoginErr) adminLoginErr.textContent = data.error || 'Invalid administrator credentials.';
+                if (adminLoginErr) {
+                    adminLoginErr.textContent = data.error || 'Invalid administrator credentials.';
+                    setVisible(adminLoginErr, true, 'block');
+                }
                 return;
             }
             adminToken = data.token;
@@ -347,10 +370,13 @@
             setAdminAuthenticatedState(true);
             await loadAdminOverview(false);
         } catch (err) {
-            if (adminLoginErr) adminLoginErr.textContent = 'Network error while signing in.';
+            if (adminLoginErr) {
+                adminLoginErr.textContent = 'Network error while signing in.';
+                setVisible(adminLoginErr, true, 'block');
+            }
         } finally {
             btnAdminLogin.disabled = false;
-            btnAdminLogin.textContent = 'Sign In to Console';
+            btnAdminLogin.textContent = 'Sign In';
         }
     }
 
@@ -377,9 +403,9 @@
     }
 
     // Filter Pills & Search
-    document.querySelectorAll('#adminFilterPills .filter-pill').forEach((pill) => {
+    document.querySelectorAll('.filter-pills .filter-pill').forEach((pill) => {
         pill.addEventListener('click', () => {
-            document.querySelectorAll('#adminFilterPills .filter-pill').forEach((p) => p.classList.remove('active'));
+            document.querySelectorAll('.filter-pills .filter-pill').forEach((p) => p.classList.remove('active'));
             pill.classList.add('active');
             activeFilter = pill.getAttribute('data-filter') || 'ALL';
             renderAdminDevices();
@@ -401,8 +427,8 @@
 
     if (btnToggleManualAdd && manualAddBox) {
         btnToggleManualAdd.addEventListener('click', () => {
-            const isHidden = manualAddBox.style.display === 'none' || !manualAddBox.style.display;
-            manualAddBox.style.display = isHidden ? 'block' : 'none';
+            const isCurrentlyHidden = manualAddBox.classList.contains('hidden');
+            setVisible(manualAddBox, isCurrentlyHidden, 'grid');
         });
     }
 
@@ -432,7 +458,7 @@
                     })
                 });
                 // Step 2: Approve with all modules
-                const allModuleIds = cachedModules.map((m) => m.id);
+                const allModuleIds = cachedModules.map((m) => m.moduleId || m.id).filter(Boolean);
                 await fetch('/api/v1/admin/devices/approve', {
                     method: 'POST',
                     headers: {
@@ -446,13 +472,13 @@
                 });
                 if (usernameInput) usernameInput.value = '';
                 if (hwInput) hwInput.value = '';
-                if (manualAddBox) manualAddBox.style.display = 'none';
+                setVisible(manualAddBox, false);
                 await loadAdminOverview(false);
             } catch (e) {
                 alert('Failed to manually register/approve device.');
             } finally {
                 btnManualApproveSubmit.disabled = false;
-                btnManualApproveSubmit.textContent = 'Approve Immediately';
+                btnManualApproveSubmit.textContent = 'Register & Approve Immediately';
             }
         });
     }
@@ -472,7 +498,9 @@
             const data = await res.json();
             cachedDevices = Array.isArray(data.devices) ? data.devices : [];
             cachedModules = Array.isArray(data.modules) ? data.modules : [];
-            cachedIncidents = Array.isArray(data.incidents) ? data.incidents : [];
+            cachedLogs = Array.isArray(data.auditLogs)
+                ? data.auditLogs
+                : (Array.isArray(data.incidents) ? data.incidents : []);
 
             renderAdminStats();
             if (!silent || !document.activeElement || !document.activeElement.classList.contains('mod-check')) {
@@ -494,7 +522,7 @@
 
         statsGrid.innerHTML = `
             <div class="stat-card">
-                <div class="stat-label">Pending Approval</div>
+                <div class="stat-label">Pending Review</div>
                 <div class="stat-value">${pendingCount}</div>
             </div>
             <div class="stat-card">
@@ -539,8 +567,8 @@
         if (filtered.length === 0) {
             container.innerHTML = `
                 <div class="empty-queue-box">
-                    <h3>No device requests match this view</h3>
-                    <p>When a user registers an account in the Hollow Android app, their request appears here automatically within seconds.</p>
+                    <h3>No device requests in this view</h3>
+                    <p>When a user registers an account in the Hollow Android app, their request appears here automatically within seconds. You can also click <strong>+ Add / Approve Device by ID</strong> above.</p>
                 </div>
             `;
             return;
@@ -554,14 +582,15 @@
             const hwAttr = esc(d.hardwareFingerprint);
 
             const moduleChecksHtml = cachedModules.map((m) => {
+                const modId = m.moduleId || m.id;
                 // Default check all modules for pending devices so one-click Approve grants them seamlessly
                 const isChecked = st === 'PENDING_APPROVAL'
                     ? true
-                    : allowed.includes(m.id);
+                    : allowed.includes(modId);
                 return `
                     <label class="module-check-label">
-                        <input type="checkbox" class="mod-check" data-hw="${hwAttr}" value="${esc(m.id)}" ${isChecked ? 'checked' : ''} />
-                        <span>${esc(m.title || m.id)}</span>
+                        <input type="checkbox" class="mod-check" data-hw="${hwAttr}" value="${esc(modId)}" ${isChecked ? 'checked' : ''} />
+                        <span>${esc(m.title || modId)}</span>
                     </label>
                 `;
             }).join('');
@@ -613,7 +642,9 @@
         container.querySelectorAll('.btn-approve-device').forEach((btn) => {
             btn.addEventListener('click', async () => {
                 const hw = btn.getAttribute('data-hw');
-                const checks = Array.from(container.querySelectorAll(`.mod-check[data-hw="${CSS.escape(hw)}"]`));
+                const checks = Array.from(container.querySelectorAll('.mod-check')).filter(
+                    (c) => c.getAttribute('data-hw') === hw
+                );
                 const selectedModules = checks.filter((c) => c.checked).map((c) => c.value);
 
                 btn.disabled = true;
@@ -643,7 +674,8 @@
                 const ban = btn.getAttribute('data-ban') === 'true';
                 btn.disabled = true;
                 try {
-                    await fetch('/api/v1/admin/devices/ban', {
+                    const endpoint = ban ? '/api/v1/admin/devices/ban' : '/api/v1/admin/devices/unban';
+                    await fetch(endpoint, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -666,8 +698,8 @@
         const container = document.getElementById('adminLogsContainer');
         if (!container) return;
 
-        if (!cachedIncidents || cachedIncidents.length === 0) {
-            container.innerHTML = `<div style="color:#64748B; font-size:0.88rem; padding:12px 0;">No administrative or security events recorded yet.</div>`;
+        if (!cachedLogs || cachedLogs.length === 0) {
+            container.innerHTML = `<div style="color:#64748B; font-size:0.88rem; padding:18px 20px;">No administrative or security events recorded yet.</div>`;
             return;
         }
 
@@ -675,19 +707,21 @@
             <table class="audit-table">
                 <thead>
                     <tr>
-                        <th>Event</th>
-                        <th>Hardware ID</th>
+                        <th>Action</th>
+                        <th>Account / Device</th>
                         <th>Details</th>
-                        <th>Timestamp</th>
+                        <th>Time</th>
                     </tr>
                 </thead>
                 <tbody>
-                    ${cachedIncidents.slice(0, 25).map((inc) => `
+                    ${cachedLogs.slice(0, 30).map((log) => `
                         <tr>
-                            <td style="font-weight:700; color:#111827;">${esc(inc.incidentType || 'EVENT')}</td>
-                            <td style="font-family:var(--font-mono); font-size:0.78rem;">${esc((inc.hardwareFingerprint || 'system').slice(0, 20))}</td>
-                            <td>${esc(inc.details || '')}</td>
-                            <td style="color:#64748B; white-space:nowrap;">${esc(formatTimeAgo(inc.occurredAt))}</td>
+                            <td style="font-weight:700; color:#111827;">${esc(log.action || log.incidentType || 'EVENT')}</td>
+                            <td style="font-family:var(--font-mono); font-size:0.78rem;">
+                                ${log.username ? `<strong>${esc(log.username)}</strong> · ` : ''}${esc((log.hardwareFingerprint || 'system').slice(0, 22))}
+                            </td>
+                            <td>${esc(log.details || '')}</td>
+                            <td style="color:#64748B; white-space:nowrap;">${esc(formatTimeAgo(log.timestamp || log.occurredAt))}</td>
                         </tr>
                     `).join('')}
                 </tbody>

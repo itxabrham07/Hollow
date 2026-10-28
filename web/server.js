@@ -741,8 +741,18 @@ async function handleStatusRequest(req, res) {
 
     let record = await findDeviceRecord(hardwareFingerprint);
 
-    // Auto-register any pending device that polls status so it ALWAYS appears in Admin Console
-    if (!record && hardwareFingerprint && username) {
+    if (!record && username) {
+      const allDevs = await listAllDevicesMerged();
+      record =
+        allDevs.find(
+          (d) =>
+            (d.username && d.username.toLowerCase() === username.toLowerCase()) ||
+            (d.email && d.email.toLowerCase() === username.toLowerCase())
+        ) || null;
+    }
+
+    // Auto-register any pending Android device (HLW-...) that polls status so it ALWAYS appears in Admin Console
+    if (!record && hardwareFingerprint.startsWith('HLW-') && username && username !== hardwareFingerprint) {
       record = await upsertDeviceRecord(hardwareFingerprint, {
         username,
         email,
@@ -774,10 +784,12 @@ async function handleStatusRequest(req, res) {
     }
 
     const nowMs = Date.now();
-    record = await upsertDeviceRecord(hardwareFingerprint, {
-      highWaterWallClockMs: Math.max(nowMs, record.highWaterWallClockMs || 0),
-      lastElapsedRealtimeMs: elapsedRealtimeMs
-    });
+    if (hardwareFingerprint && hardwareFingerprint === record.hardwareFingerprint) {
+      record = await upsertDeviceRecord(record.hardwareFingerprint, {
+        highWaterWallClockMs: Math.max(nowMs, record.highWaterWallClockMs || 0),
+        lastElapsedRealtimeMs: elapsedRealtimeMs
+      });
+    }
 
     let activeLicense = memoryStore.licenses.get(hardwareFingerprint);
     if (isDbLive()) {
