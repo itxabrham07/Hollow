@@ -42,9 +42,86 @@ const MONGODB_URI = process.env.MONGODB_URI || '';
 let mongoConnected = false;
 
 const memoryStore = {
-  devices: [],
+  devices: [
+    {
+      hardwareFingerprint: 'HLW-9A4F2C10-7B8E3D11-5C6A902F',
+      username: 'arshman_pro',
+      email: 'arshman@hollow.me',
+      passwordHash: crypto.createHash('sha256').update('demo1234').digest('hex'),
+      socSerial: 'SM8650-0194A',
+      androidId: '9774d56d682e549c',
+      storageCid: '1501003531324743',
+      deviceModel: 'Google Pixel 9 Pro',
+      status: 'APPROVED',
+      allowedModules: ['module_hider', 'module_isolation', 'module_privacy', 'module_network', 'module_sensor_firewall'],
+      banReason: '',
+      highWaterWallClockMs: Date.now(),
+      lastElapsedRealtimeMs: 428000,
+      registeredAt: new Date(Date.now() - 3 * 86400000),
+      updatedAt: new Date()
+    },
+    {
+      hardwareFingerprint: 'HLW-3E81B402-19C4A77D-8F201E6A',
+      username: 'alex_tester',
+      email: 'alex@example.com',
+      passwordHash: crypto.createHash('sha256').update('demo1234').digest('hex'),
+      socSerial: 'SM8550-8821B',
+      androidId: '4182b90c112e773a',
+      storageCid: '1501003235364742',
+      deviceModel: 'Samsung Galaxy S24 Ultra',
+      status: 'PENDING_APPROVAL',
+      allowedModules: [],
+      banReason: '',
+      highWaterWallClockMs: Date.now(),
+      lastElapsedRealtimeMs: 120000,
+      registeredAt: new Date(Date.now() - 3600000),
+      updatedAt: new Date()
+    },
+    {
+      hardwareFingerprint: 'HLW-7C12D908-44A10F3E-99B12C44',
+      username: 'sarah_workspace',
+      email: 'sarah@example.com',
+      passwordHash: crypto.createHash('sha256').update('demo1234').digest('hex'),
+      socSerial: 'MT6989-7731C',
+      androidId: '6621f09a883c120d',
+      storageCid: '1501003132384741',
+      deviceModel: 'OnePlus 12',
+      status: 'APPROVED',
+      allowedModules: ['module_isolation', 'module_privacy', 'module_hider'],
+      banReason: '',
+      highWaterWallClockMs: Date.now(),
+      lastElapsedRealtimeMs: 910000,
+      registeredAt: new Date(Date.now() - 86400000 * 5),
+      updatedAt: new Date()
+    }
+  ],
   licenses: new Map(),
-  auditLogs: []
+  auditLogs: [
+    {
+      event: 'SERVER_BOOT',
+      hardwareFingerprint: 'SYSTEM',
+      username: 'system',
+      details: 'Hollow Cloud Module Hub initialized with 5 dynamic modules',
+      ipAddress: '127.0.0.1',
+      timestamp: new Date(Date.now() - 600000)
+    },
+    {
+      event: 'ADMIN_APPROVE',
+      hardwareFingerprint: 'HLW-9A4F2C10-7B8E3D11-5C6A902F',
+      username: 'arshman_pro',
+      details: 'Approved Google Pixel 9 Pro for all 5 modules (30 days)',
+      ipAddress: '127.0.0.1',
+      timestamp: new Date(Date.now() - 300000)
+    },
+    {
+      event: 'REGISTER_PENDING',
+      hardwareFingerprint: 'HLW-3E81B402-19C4A77D-8F201E6A',
+      username: 'alex_tester',
+      details: 'Registered Samsung Galaxy S24 Ultra — waiting for Admin approval',
+      ipAddress: '127.0.0.1',
+      timestamp: new Date(Date.now() - 120000)
+    }
+  ]
 };
 
 function isDbLive() {
@@ -53,7 +130,7 @@ function isDbLive() {
 
 async function connectMongoDB() {
   if (!MONGODB_URI) {
-    console.log('[MongoDB] MONGODB_URI not set — running with clean live memory store.');
+    console.log('[MongoDB] MONGODB_URI not set — running with built-in live memory store.');
     return;
   }
   try {
@@ -62,6 +139,13 @@ async function connectMongoDB() {
     });
     mongoConnected = true;
     console.log('[MongoDB] Connected to MongoDB Atlas successfully.');
+    // Seed initial sample devices if database is brand new & empty
+    const count = await Device.countDocuments();
+    if (count === 0) {
+      await Device.insertMany(memoryStore.devices);
+      await AuditLog.insertMany(memoryStore.auditLogs);
+      console.log('[MongoDB] Seeded initial devices & activity logs.');
+    }
   } catch (err) {
     mongoConnected = false;
     console.error('[MongoDB] Connection failed, using in-memory store fallback:', err.message);
