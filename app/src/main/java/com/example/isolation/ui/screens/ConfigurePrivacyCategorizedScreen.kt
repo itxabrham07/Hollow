@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -28,32 +27,18 @@ import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Fingerprint
-import androidx.compose.material.icons.filled.GppBad
-import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.PhoneAndroid
-import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.Sensors
-import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -71,31 +56,26 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.isolation.model.DeviceProfilePreset
 import com.example.isolation.model.IsolationRuleManager
 import com.example.isolation.model.PrivacyProfile
 import com.example.isolation.model.VpnProxyPresets
 import com.example.isolation.pkg.InstalledAppInfo
+import com.example.isolation.ui.components.ContentCard
+import com.example.isolation.ui.components.ListRow
+import com.example.isolation.ui.components.MonoDataText
+import com.example.isolation.ui.components.PrimaryButton
+import com.example.isolation.ui.components.SecondaryButton
+import com.example.isolation.ui.components.SectionHeader
+import com.example.isolation.ui.components.StatusIndicator
 import com.example.isolation.ui.components.rememberAppIconBitmap
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
-import com.example.ui.theme.JakartaFontFamily
-import com.example.ui.theme.M3AmberAccent
-import com.example.ui.theme.M3IndigoAccent
-import com.example.ui.theme.M3RoseAccent
-import com.example.ui.theme.M3SkyAccent
-import com.example.ui.theme.M3TealAccent
-import com.example.ui.theme.M3VioletAccent
-import java.util.UUID
+import com.example.ui.theme.JetBrainsMonoFontFamily
 import kotlin.math.roundToInt
 import kotlin.random.Random
 
@@ -133,8 +113,8 @@ private enum class PrivacyStudioTab(val label: String) {
 }
 
 /**
- * Complete Colorful Material 3 Per-App Privacy, Hardware Identity, Browser Fingerprint & VPN Studio.
- * Exposes every privacy and anti-tracking control in organized, colorful Material 3 cards.
+ * Per-App Privacy, Hardware Identity, Browser Fingerprint & VPN Studio.
+ * Uses the unified design system components, typography tokens, and Indigo primary accent.
  */
 @Composable
 fun ConfigurePrivacyCategorizedScreen(
@@ -143,6 +123,8 @@ fun ConfigurePrivacyCategorizedScreen(
     onBack: () -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
+    val typography = MaterialTheme.typography
+    val shapes = MaterialTheme.shapes
     val settings by viewModel.settings.collectAsState()
     val privacyProfiles by viewModel.privacyProfiles.collectAsState()
     val deadmanIncidents by viewModel.deadmanBlockedIncidents.collectAsState()
@@ -484,7 +466,7 @@ fun ConfigurePrivacyCategorizedScreen(
             .padding(horizontal = 16.dp)
             .testTag("configure_privacy_screen")
     ) {
-        // Clean Material 3 Top App Bar
+        // Top App Bar
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -499,6 +481,7 @@ fun ConfigurePrivacyCategorizedScreen(
                 Surface(
                     color = scheme.surfaceContainerLow,
                     shape = CircleShape,
+                    border = BorderStroke(1.dp, scheme.outlineVariant),
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
@@ -518,60 +501,31 @@ fun ConfigurePrivacyCategorizedScreen(
                 Column {
                     Text(
                         text = app.appName,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.ExtraBold,
+                        style = typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
                         color = scheme.onSurface,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        fontFamily = JakartaFontFamily
+                        overflow = TextOverflow.Ellipsis
                     )
-                    Text(
+                    MonoDataText(
                         text = app.packageName,
-                        fontSize = 11.sp,
                         color = scheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        fontFamily = JakartaFontFamily
+                        maxLines = 1
                     )
                 }
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(
-                    onClick = { showSaveProfileDialog = true },
-                    shape = RoundedCornerShape(50),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                ) {
-                    Text(
-                        text = "Save Profile",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = JakartaFontFamily
-                    )
-                }
-                Button(
+                SecondaryButton(
+                    text = "Save Profile",
+                    onClick = { showSaveProfileDialog = true }
+                )
+                PrimaryButton(
+                    text = "Apply",
+                    icon = Icons.Default.Save,
                     onClick = { saveAllChanges(closeAfterSave = true) },
-                    shape = RoundedCornerShape(50),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = scheme.primary,
-                        contentColor = scheme.onPrimary
-                    ),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     modifier = Modifier.testTag("btn_save_privacy_config")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Save,
-                        contentDescription = null,
-                        modifier = Modifier.size(15.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Apply",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = JakartaFontFamily
-                    )
-                }
+                )
             }
         }
 
@@ -580,7 +534,7 @@ fun ConfigurePrivacyCategorizedScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .padding(bottom = 10.dp),
+                .padding(bottom = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             PrivacyStudioTab.entries.forEach { tab ->
@@ -591,12 +545,11 @@ fun ConfigurePrivacyCategorizedScreen(
                     label = {
                         Text(
                             text = tab.label,
-                            fontSize = 12.sp,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                            fontFamily = JakartaFontFamily
+                            style = typography.labelMedium,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
                         )
                     },
-                    shape = RoundedCornerShape(50),
+                    shape = shapes.extraSmall,
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = scheme.primaryContainer,
                         selectedLabelColor = scheme.onPrimaryContainer
@@ -607,166 +560,108 @@ fun ConfigurePrivacyCategorizedScreen(
 
         LazyColumn(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(bottom = 28.dp)
+            verticalArrangement = Arrangement.spacedBy(24.dp),
+            contentPadding = PaddingValues(bottom = 32.dp)
         ) {
-            // 1. Colorful App Identity Hero Card (Always Visible)
+            // 1. App Identity Hero Card (Always Visible)
             item {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                    shape = RoundedCornerShape(24.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(
-                            Brush.linearGradient(
-                                listOf(
-                                    M3IndigoAccent,
-                                    M3VioletAccent
-                                )
-                            )
-                        )
+                ContentCard(
+                    shape = shapes.large,
+                    borderColor = scheme.primary
                 ) {
-                    Column(modifier = Modifier.padding(18.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                val iconBitmap = rememberAppIconBitmap(app.packageName, app.icon)
-                                if (iconBitmap != null) {
-                                    Image(
-                                        bitmap = iconBitmap,
-                                        contentDescription = app.appName,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier
-                                            .size(50.dp)
-                                            .clip(RoundedCornerShape(14.dp))
-                                    )
-                                } else {
-                                    Surface(
-                                        color = Color.White.copy(alpha = 0.2f),
-                                        shape = RoundedCornerShape(14.dp),
-                                        modifier = Modifier.size(50.dp)
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Icon(
-                                                imageVector = Icons.Default.Android,
-                                                contentDescription = null,
-                                                tint = Color.White
-                                            )
-                                        }
+                            val iconBitmap = rememberAppIconBitmap(app.packageName, app.icon)
+                            if (iconBitmap != null) {
+                                Image(
+                                    bitmap = iconBitmap,
+                                    contentDescription = app.appName,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(shapes.small)
+                                )
+                            } else {
+                                Surface(
+                                    color = scheme.primary.copy(alpha = 0.12f),
+                                    shape = shapes.small,
+                                    modifier = Modifier.size(48.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.Android,
+                                            contentDescription = null,
+                                            tint = scheme.primary
+                                        )
                                     }
                                 }
-                                Spacer(modifier = Modifier.width(14.dp))
-                                Column {
-                                    Text(
-                                        text = if (isSpoofEnabled) "Privacy Cloaking Active" else "Using Real Device Identity",
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = Color.White,
-                                        fontFamily = JakartaFontFamily
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "$brand $model · AID ${androidId.take(8)}… · ${if (vpnProxyEnabled) selectedProxyNode.protocol.badge else "Direct"}",
-                                        fontSize = 12.sp,
-                                        color = Color.White.copy(alpha = 0.9f),
-                                        fontFamily = JakartaFontFamily
-                                    )
-                                }
                             }
-
-                            Switch(
-                                checked = isSpoofEnabled,
-                                onCheckedChange = { isSpoofEnabled = it },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = M3IndigoAccent,
-                                    checkedTrackColor = Color.White
-                                ),
-                                modifier = Modifier.testTag("switch_master_spoof")
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Surface(
-                                color = Color.White.copy(alpha = 0.2f),
-                                shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .clickable { randomizeEverything() }
-                                    .testTag("btn_one_tap_randomize")
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center,
-                                    modifier = Modifier.padding(vertical = 10.dp, horizontal = 10.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.AutoFixHigh,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Randomize All",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White,
-                                        fontFamily = JakartaFontFamily
-                                    )
-                                }
-                            }
-
-                            Surface(
-                                color = Color.White.copy(alpha = 0.16f),
-                                shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .clickable {
-                                        applyPresetValues(DeviceProfilePreset.REAL_HARDWARE)
-                                        androidId = realHw.androidId
-                                        serialNumber = realHw.serial
-                                        carrierName = realHw.carrierName
-                                        simOperator = realHw.simOperator
-                                    }
-                                    .testTag("btn_reset_real_hardware")
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center,
-                                    modifier = Modifier.padding(vertical = 10.dp, horizontal = 10.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.RestartAlt,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Load Real Phone",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White,
-                                        fontFamily = JakartaFontFamily
-                                    )
-                                }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                StatusIndicator(
+                                    label = if (isSpoofEnabled) "Privacy Cloaking Active" else "Real Device Identity",
+                                    color = if (isSpoofEnabled) scheme.secondary else scheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "$brand $model",
+                                    style = typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = scheme.onSurface
+                                )
+                                MonoDataText(
+                                    text = "AID ${androidId.take(8)}… · ${if (vpnProxyEnabled) selectedProxyNode.protocol.badge else "Direct"}",
+                                    color = scheme.onSurfaceVariant
+                                )
                             }
                         }
+
+                        Switch(
+                            checked = isSpoofEnabled,
+                            onCheckedChange = { isSpoofEnabled = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = scheme.onPrimary,
+                                checkedTrackColor = scheme.primary
+                            ),
+                            modifier = Modifier.testTag("switch_master_spoof")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        PrimaryButton(
+                            text = "Randomize All",
+                            icon = Icons.Default.AutoFixHigh,
+                            onClick = { randomizeEverything() },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("btn_one_tap_randomize")
+                        )
+                        SecondaryButton(
+                            text = "Load Real Phone",
+                            icon = Icons.Default.RestartAlt,
+                            onClick = {
+                                applyPresetValues(DeviceProfilePreset.REAL_HARDWARE)
+                                androidId = realHw.androidId
+                                serialNumber = realHw.serial
+                                carrierName = realHw.carrierName
+                                simOperator = realHw.simOperator
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("btn_reset_real_hardware")
+                        )
                     }
                 }
             }
@@ -774,32 +669,33 @@ fun ConfigurePrivacyCategorizedScreen(
             // 2. Reusable Privacy Profiles & Phone Model Presets
             if (activeTab == PrivacyStudioTab.ALL || activeTab == PrivacyStudioTab.PROFILES_MODELS) {
                 item {
-                    ColorfulSectionCard(
-                        title = "Reusable Privacy Profiles",
-                        subtitle = "Apply a complete anti-tracking template in 1 tap",
-                        icon = Icons.Default.Shield,
-                        accent = M3VioletAccent
-                    ) {
+                    ContentCard {
+                        SectionHeader(
+                            title = "Reusable Privacy Profiles",
+                            subtitle = "Apply a complete anti-tracking template in 1 tap"
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             privacyProfiles.forEach { profile ->
                                 val isSelected = selectedProfileId == profile.id
                                 Card(
                                     colors = CardDefaults.cardColors(
-                                        containerColor = if (isSelected) M3VioletAccent.copy(alpha = 0.14f) else scheme.surface
+                                        containerColor = if (isSelected) scheme.primaryContainer.copy(alpha = 0.35f) else scheme.surfaceContainerLow
                                     ),
-                                    shape = RoundedCornerShape(16.dp),
+                                    shape = shapes.medium,
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                                     border = BorderStroke(
-                                        width = if (isSelected) 2.dp else 1.dp,
-                                        color = if (isSelected) M3VioletAccent else scheme.outlineVariant.copy(alpha = 0.4f)
+                                        width = 1.dp,
+                                        color = if (isSelected) scheme.primary else scheme.outlineVariant
                                     ),
                                     modifier = Modifier
-                                        .width(190.dp)
-                                        .clip(RoundedCornerShape(16.dp))
+                                        .width(192.dp)
+                                        .clip(shapes.medium)
                                         .clickable { applyReusableProfile(profile) }
                                 ) {
                                     Column(modifier = Modifier.padding(12.dp)) {
@@ -810,18 +706,17 @@ fun ConfigurePrivacyCategorizedScreen(
                                         ) {
                                             Text(
                                                 text = profile.name,
-                                                fontSize = 13.sp,
+                                                style = typography.titleSmall,
                                                 fontWeight = FontWeight.Bold,
-                                                color = if (isSelected) M3VioletAccent else scheme.onSurface,
+                                                color = if (isSelected) scheme.primary else scheme.onSurface,
                                                 maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                fontFamily = JakartaFontFamily
+                                                overflow = TextOverflow.Ellipsis
                                             )
                                             if (isSelected) {
                                                 Icon(
                                                     imageVector = Icons.Default.Check,
                                                     contentDescription = null,
-                                                    tint = M3VioletAccent,
+                                                    tint = scheme.primary,
                                                     modifier = Modifier.size(16.dp)
                                                 )
                                             }
@@ -829,11 +724,10 @@ fun ConfigurePrivacyCategorizedScreen(
                                         Spacer(modifier = Modifier.height(4.dp))
                                         Text(
                                             text = profile.description,
-                                            fontSize = 11.sp,
+                                            style = typography.bodySmall,
                                             color = scheme.onSurfaceVariant,
                                             maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis,
-                                            fontFamily = JakartaFontFamily
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
                                 }
@@ -843,32 +737,33 @@ fun ConfigurePrivacyCategorizedScreen(
                 }
 
                 item {
-                    ColorfulSectionCard(
-                        title = "Phone Model Preset",
-                        subtitle = "Choose a preset phone model or start from your real hardware",
-                        icon = Icons.Default.PhoneAndroid,
-                        accent = M3IndigoAccent
-                    ) {
+                    ContentCard {
+                        SectionHeader(
+                            title = "Phone Model Preset",
+                            subtitle = "Choose a preset phone model or start from your real hardware"
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             DeviceProfilePreset.entries.forEach { preset ->
                                 val isSelected = selectedPreset == preset
                                 Card(
                                     colors = CardDefaults.cardColors(
-                                        containerColor = if (isSelected) M3IndigoAccent.copy(alpha = 0.14f) else scheme.surface
+                                        containerColor = if (isSelected) scheme.primaryContainer.copy(alpha = 0.35f) else scheme.surfaceContainerLow
                                     ),
-                                    shape = RoundedCornerShape(16.dp),
+                                    shape = shapes.medium,
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                                     border = BorderStroke(
-                                        width = if (isSelected) 2.dp else 1.dp,
-                                        color = if (isSelected) M3IndigoAccent else scheme.outlineVariant.copy(alpha = 0.45f)
+                                        width = 1.dp,
+                                        color = if (isSelected) scheme.primary else scheme.outlineVariant
                                     ),
                                     modifier = Modifier
-                                        .width(156.dp)
-                                        .clip(RoundedCornerShape(16.dp))
+                                        .width(160.dp)
+                                        .clip(shapes.medium)
                                         .clickable { applyPresetValues(preset) }
                                 ) {
                                     Column(modifier = Modifier.padding(12.dp)) {
@@ -877,38 +772,31 @@ fun ConfigurePrivacyCategorizedScreen(
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Default.PhoneAndroid,
-                                                contentDescription = null,
-                                                tint = if (isSelected) M3IndigoAccent else scheme.onSurfaceVariant,
-                                                modifier = Modifier.size(18.dp)
+                                            Text(
+                                                text = preset.label,
+                                                style = typography.titleSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isSelected) scheme.primary else scheme.onSurface,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f)
                                             )
                                             if (isSelected) {
                                                 Icon(
                                                     imageVector = Icons.Default.Check,
                                                     contentDescription = null,
-                                                    tint = M3IndigoAccent,
+                                                    tint = scheme.primary,
                                                     modifier = Modifier.size(16.dp)
                                                 )
                                             }
                                         }
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text(
-                                            text = preset.label,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (isSelected) M3IndigoAccent else scheme.onSurface,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            fontFamily = JakartaFontFamily
-                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
                                         Text(
                                             text = "${preset.brand} · ${preset.model}",
-                                            fontSize = 11.sp,
+                                            style = typography.bodySmall,
                                             color = scheme.onSurfaceVariant,
                                             maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            fontFamily = JakartaFontFamily
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
                                 }
@@ -921,168 +809,148 @@ fun ConfigurePrivacyCategorizedScreen(
             // 3. Per-App VPN / Proxy (V2Ray / VLESS / VMess / Shadowsocks / SOCKS5 / HTTP)
             if (activeTab == PrivacyStudioTab.ALL || activeTab == PrivacyStudioTab.VPN_PROXY) {
                 item {
-                    ColorfulSectionCard(
-                        title = "Per-App VPN & Proxy Routing",
-                        subtitle = "Route this app through V2Ray (VLESS/VMess), Shadowsocks, Trojan, or SOCKS5",
-                        icon = Icons.Default.VpnKey,
-                        accent = M3SkyAccent
-                    ) {
-                        ColorfulToggleRow(
-                            title = "Enable Per-App VPN / Proxy Tunnel",
-                            subtitle = "Routes ${app.appName}'s network traffic through the selected exit node",
-                            checked = vpnProxyEnabled,
-                            accent = M3SkyAccent,
-                            onCheckedChange = { vpnProxyEnabled = it }
+                    ContentCard {
+                        SectionHeader(
+                            title = "Per-App VPN & Proxy Routing",
+                            subtitle = "Route this app through V2Ray (VLESS/VMess), Shadowsocks, Trojan, or SOCKS5"
                         )
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "Select Exit Node (${allProxyNodes.size} available)",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = scheme.onSurface,
-                                fontFamily = JakartaFontFamily
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            PrivacyToggleRow(
+                                title = "Enable Per-App VPN / Proxy Tunnel",
+                                subtitle = "Routes ${app.appName}'s network traffic through the selected exit node",
+                                checked = vpnProxyEnabled,
+                                onCheckedChange = { vpnProxyEnabled = it }
                             )
-                            TextButton(onClick = { showImportProxyDialog = true }) {
-                                Icon(
-                                    imageVector = Icons.Default.Add,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(15.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "Import URI / Node",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = JakartaFontFamily
-                                )
-                            }
-                        }
 
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            allProxyNodes.forEach { node ->
-                                val selected = proxyServerId == node.id
-                                Card(
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (selected) M3SkyAccent.copy(alpha = 0.14f) else scheme.surface
-                                    ),
-                                    shape = RoundedCornerShape(14.dp),
-                                    border = BorderStroke(
-                                        width = if (selected) 2.dp else 1.dp,
-                                        color = if (selected) M3SkyAccent else scheme.outlineVariant.copy(alpha = 0.4f)
-                                    ),
-                                    modifier = Modifier
-                                        .width(195.dp)
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .clickable {
-                                            proxyServerId = node.id
-                                            vpnProxyEnabled = true
-                                            if (matchTimezoneWithIp) {
-                                                timezoneId = node.timezoneId
-                                                localeTag = node.localeTag
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "Select Exit Node (${allProxyNodes.size} available)",
+                                    style = typography.labelLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = scheme.onSurface
+                                )
+                                TextButton(onClick = { showImportProxyDialog = true }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "Import URI / Node",
+                                        style = typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                allProxyNodes.forEach { node ->
+                                    val selected = proxyServerId == node.id
+                                    Card(
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (selected) scheme.primaryContainer.copy(alpha = 0.35f) else scheme.surfaceContainerLow
+                                        ),
+                                        shape = shapes.small,
+                                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                                        border = BorderStroke(
+                                            width = 1.dp,
+                                            color = if (selected) scheme.primary else scheme.outlineVariant
+                                        ),
+                                        modifier = Modifier
+                                            .width(192.dp)
+                                            .clip(shapes.small)
+                                            .clickable {
+                                                proxyServerId = node.id
+                                                vpnProxyEnabled = true
+                                                if (matchTimezoneWithIp) {
+                                                    timezoneId = node.timezoneId
+                                                    localeTag = node.localeTag
+                                                }
                                             }
-                                        }
-                                ) {
-                                    Column(modifier = Modifier.padding(10.dp)) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Surface(
-                                                color = M3SkyAccent.copy(alpha = 0.16f),
-                                                shape = RoundedCornerShape(6.dp)
+                                    ) {
+                                        Column(modifier = Modifier.padding(12.dp)) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                modifier = Modifier.fillMaxWidth()
                                             ) {
-                                                Text(
-                                                    text = node.protocol.badge,
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.ExtraBold,
-                                                    color = M3SkyAccent,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                    fontFamily = JakartaFontFamily
+                                                StatusIndicator(
+                                                    label = node.protocol.badge,
+                                                    color = scheme.primary,
+                                                    showDot = false
+                                                )
+                                                MonoDataText(
+                                                    text = "${node.latencyMs} ms",
+                                                    color = scheme.secondary
                                                 )
                                             }
+                                            Spacer(modifier = Modifier.height(8.dp))
                                             Text(
-                                                text = "${node.latencyMs} ms",
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = M3TealAccent,
-                                                fontFamily = JakartaFontFamily
+                                                text = node.name,
+                                                style = typography.titleSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = scheme.onSurface,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            MonoDataText(
+                                                text = "${node.exitIp} · ${node.timezoneId}",
+                                                color = scheme.onSurfaceVariant,
+                                                maxLines = 1
                                             )
                                         }
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Text(
-                                            text = node.name,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = scheme.onSurface,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            fontFamily = JakartaFontFamily
-                                        )
-                                        Text(
-                                            text = "${node.exitIp} · ${node.timezoneId}",
-                                            fontSize = 10.sp,
-                                            color = scheme.onSurfaceVariant,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            fontFamily = JakartaFontFamily
-                                        )
                                     }
                                 }
                             }
-                        }
 
-                        HorizontalDivider(
-                            modifier = Modifier.padding(vertical = 10.dp),
-                            color = scheme.outlineVariant.copy(alpha = 0.3f)
-                        )
+                            HorizontalDivider(
+                                modifier = Modifier.padding(vertical = 8.dp),
+                                color = scheme.outlineVariant
+                            )
 
-                        ColorfulToggleRow(
-                            title = "Per-App VPN Kill Switch",
-                            subtitle = "Block all internet traffic for this app if the VPN/Proxy tunnel disconnects",
-                            checked = requireVpnForNetwork,
-                            accent = M3RoseAccent,
-                            onCheckedChange = { requireVpnForNetwork = it }
-                        )
-                        ColorfulToggleRow(
-                            title = "Auto-Match Timezone & Locale with Exit IP",
-                            subtitle = "Automatically sets IANA timezone (${selectedProxyNode.timezoneId}) & locale (${selectedProxyNode.localeTag})",
-                            checked = matchTimezoneWithIp,
-                            accent = M3SkyAccent,
-                            onCheckedChange = {
-                                matchTimezoneWithIp = it
-                                if (it) {
-                                    timezoneId = selectedProxyNode.timezoneId
-                                    localeTag = selectedProxyNode.localeTag
+                            PrivacyToggleRow(
+                                title = "Per-App VPN Kill Switch",
+                                subtitle = "Block all internet traffic for this app if the VPN/Proxy tunnel disconnects",
+                                checked = requireVpnForNetwork,
+                                isDestructive = true,
+                                onCheckedChange = { requireVpnForNetwork = it }
+                            )
+                            PrivacyToggleRow(
+                                title = "Auto-Match Timezone & Locale with Exit IP",
+                                subtitle = "Automatically sets IANA timezone (${selectedProxyNode.timezoneId}) & locale (${selectedProxyNode.localeTag})",
+                                checked = matchTimezoneWithIp,
+                                onCheckedChange = {
+                                    matchTimezoneWithIp = it
+                                    if (it) {
+                                        timezoneId = selectedProxyNode.timezoneId
+                                        localeTag = selectedProxyNode.localeTag
+                                    }
                                 }
-                            }
-                        )
-                        ColorfulToggleRow(
-                            title = "Route Embedded WebView Through Proxy",
-                            subtitle = "Forces in-app Chromium WebViews and custom tabs through the proxy node",
-                            checked = webViewProxyEnabled,
-                            accent = M3SkyAccent,
-                            onCheckedChange = { webViewProxyEnabled = it }
-                        )
-                        ColorfulToggleRow(
-                            title = "Trust Custom SSL/TLS Certificates",
-                            subtitle = "Bypasses SSL pinning for local proxy debugging and traffic inspection",
-                            checked = trustAllCerts,
-                            accent = M3AmberAccent,
-                            onCheckedChange = { trustAllCerts = it }
-                        )
+                            )
+                            PrivacyToggleRow(
+                                title = "Route Embedded WebView Through Proxy",
+                                subtitle = "Forces in-app Chromium WebViews and custom tabs through the proxy node",
+                                checked = webViewProxyEnabled,
+                                onCheckedChange = { webViewProxyEnabled = it }
+                            )
+                            PrivacyToggleRow(
+                                title = "Trust Custom SSL/TLS Certificates",
+                                subtitle = "Bypasses SSL pinning for local proxy debugging and traffic inspection",
+                                checked = trustAllCerts,
+                                onCheckedChange = { trustAllCerts = it }
+                            )
+                        }
                     }
                 }
             }
@@ -1090,13 +958,13 @@ fun ConfigurePrivacyCategorizedScreen(
             // 4. Complete Hardware Build Props, Device IDs, SIM & GPU/Screen Specs
             if (activeTab == PrivacyStudioTab.ALL || activeTab == PrivacyStudioTab.HARDWARE_IDS) {
                 item {
-                    ColorfulSectionCard(
-                        title = "Unique Hardware & SIM Identifiers",
-                        subtitle = "Android ID, Luhn IMEI, Advertising ID, Wi-Fi MAC, Serial & Carrier",
-                        icon = Icons.Default.Fingerprint,
-                        accent = M3IndigoAccent
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ContentCard {
+                        SectionHeader(
+                            title = "Unique Hardware & SIM Identifiers",
+                            subtitle = "Android ID, Luhn IMEI, Advertising ID, Wi-Fi MAC, Serial & Carrier"
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             IdTextFieldWithRandomizer(
                                 label = "Android ID (16-hex)",
                                 value = androidId,
@@ -1115,7 +983,7 @@ fun ConfigurePrivacyCategorizedScreen(
                                 onValueChange = { adId = it },
                                 onRandomize = { adId = IsolationRuleManager.generateAdvertisingId() }
                             )
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Box(modifier = Modifier.weight(1f)) {
                                     IdTextFieldWithRandomizer(
                                         label = "Wi-Fi MAC Address",
@@ -1135,14 +1003,14 @@ fun ConfigurePrivacyCategorizedScreen(
                             }
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 OutlinedTextField(
                                     value = carrierName,
                                     onValueChange = { carrierName = it },
                                     label = { Text("SIM Carrier") },
                                     singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
+                                    shape = shapes.small,
                                     modifier = Modifier.weight(1f)
                                 )
                                 OutlinedTextField(
@@ -1150,7 +1018,8 @@ fun ConfigurePrivacyCategorizedScreen(
                                     onValueChange = { simOperator = it },
                                     label = { Text("MCC/MNC") },
                                     singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
+                                    textStyle = typography.bodyMedium.copy(fontFamily = JetBrainsMonoFontFamily),
+                                    shape = shapes.small,
                                     modifier = Modifier.weight(0.8f)
                                 )
                                 IconButton(
@@ -1163,7 +1032,7 @@ fun ConfigurePrivacyCategorizedScreen(
                                     Icon(
                                         imageVector = Icons.Default.Refresh,
                                         contentDescription = "Randomize Carrier",
-                                        tint = M3IndigoAccent
+                                        tint = scheme.primary
                                     )
                                 }
                             }
@@ -1172,14 +1041,14 @@ fun ConfigurePrivacyCategorizedScreen(
                 }
 
                 item {
-                    ColorfulSectionCard(
-                        title = "Build Properties, GPU & Display Specs",
-                        subtitle = "Fine-tune android.os.Build fields, OpenGL renderer, CPU cores, RAM & screen DPI",
-                        icon = Icons.Default.Memory,
-                        accent = M3TealAccent
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ContentCard {
+                        SectionHeader(
+                            title = "Build Properties, GPU & Display Specs",
+                            subtitle = "Fine-tune android.os.Build fields, OpenGL renderer, CPU cores, RAM & screen DPI"
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 OutlinedTextField(
                                     value = brand,
                                     onValueChange = {
@@ -1188,7 +1057,7 @@ fun ConfigurePrivacyCategorizedScreen(
                                     },
                                     label = { Text("Brand (ro.product.brand)") },
                                     singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
+                                    shape = shapes.small,
                                     modifier = Modifier.weight(1f)
                                 )
                                 OutlinedTextField(
@@ -1199,11 +1068,11 @@ fun ConfigurePrivacyCategorizedScreen(
                                     },
                                     label = { Text("Manufacturer") },
                                     singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
+                                    shape = shapes.small,
                                     modifier = Modifier.weight(1f)
                                 )
                             }
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 OutlinedTextField(
                                     value = model,
                                     onValueChange = {
@@ -1212,7 +1081,7 @@ fun ConfigurePrivacyCategorizedScreen(
                                     },
                                     label = { Text("Model (ro.product.model)") },
                                     singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
+                                    shape = shapes.small,
                                     modifier = Modifier.weight(1f)
                                 )
                                 OutlinedTextField(
@@ -1223,17 +1092,17 @@ fun ConfigurePrivacyCategorizedScreen(
                                     },
                                     label = { Text("Device Codename") },
                                     singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
+                                    shape = shapes.small,
                                     modifier = Modifier.weight(1f)
                                 )
                             }
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 OutlinedTextField(
                                     value = product,
                                     onValueChange = { product = it },
                                     label = { Text("Product Name") },
                                     singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
+                                    shape = shapes.small,
                                     modifier = Modifier.weight(1f)
                                 )
                                 OutlinedTextField(
@@ -1241,17 +1110,17 @@ fun ConfigurePrivacyCategorizedScreen(
                                     onValueChange = { board = it },
                                     label = { Text("Board Name") },
                                     singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
+                                    shape = shapes.small,
                                     modifier = Modifier.weight(1f)
                                 )
                             }
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 OutlinedTextField(
                                     value = hardware,
                                     onValueChange = { hardware = it },
                                     label = { Text("SoC Hardware (qcom/tensor)") },
                                     singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
+                                    shape = shapes.small,
                                     modifier = Modifier.weight(1f)
                                 )
                                 OutlinedTextField(
@@ -1259,7 +1128,8 @@ fun ConfigurePrivacyCategorizedScreen(
                                     onValueChange = { bootloader = it },
                                     label = { Text("Bootloader Version") },
                                     singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
+                                    textStyle = typography.bodyMedium.copy(fontFamily = JetBrainsMonoFontFamily),
+                                    shape = shapes.small,
                                     modifier = Modifier.weight(1f)
                                 )
                             }
@@ -1268,25 +1138,26 @@ fun ConfigurePrivacyCategorizedScreen(
                                 onValueChange = { fingerprint = it },
                                 label = { Text("Build Fingerprint (ro.build.fingerprint)") },
                                 singleLine = true,
-                                shape = RoundedCornerShape(14.dp),
+                                textStyle = typography.bodySmall.copy(fontFamily = JetBrainsMonoFontFamily),
+                                shape = shapes.small,
                                 modifier = Modifier.fillMaxWidth()
                             )
 
                             HorizontalDivider(
                                 modifier = Modifier.padding(vertical = 4.dp),
-                                color = scheme.outlineVariant.copy(alpha = 0.3f)
+                                color = scheme.outlineVariant
                             )
 
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 OutlinedTextField(
                                     value = gpuVendor,
                                     onValueChange = { gpuVendor = it },
                                     label = { Text("GPU Vendor") },
                                     singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
+                                    shape = shapes.small,
                                     modifier = Modifier.weight(0.8f)
                                 )
                                 OutlinedTextField(
@@ -1294,7 +1165,7 @@ fun ConfigurePrivacyCategorizedScreen(
                                     onValueChange = { gpuRenderer = it },
                                     label = { Text("OpenGL / Vulkan Renderer") },
                                     singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
+                                    shape = shapes.small,
                                     modifier = Modifier.weight(1.2f)
                                 )
                                 IconButton(
@@ -1307,7 +1178,7 @@ fun ConfigurePrivacyCategorizedScreen(
                                     Icon(
                                         imageVector = Icons.Default.Refresh,
                                         contentDescription = "Randomize GPU",
-                                        tint = M3TealAccent
+                                        tint = scheme.primary
                                     )
                                 }
                             }
@@ -1321,7 +1192,7 @@ fun ConfigurePrivacyCategorizedScreen(
                                     onValueChange = { cpuCoresText = it },
                                     label = { Text("CPU Cores") },
                                     singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
+                                    shape = shapes.small,
                                     modifier = Modifier.weight(0.7f)
                                 )
                                 OutlinedTextField(
@@ -1329,7 +1200,7 @@ fun ConfigurePrivacyCategorizedScreen(
                                     onValueChange = { ramGbText = it },
                                     label = { Text("RAM (GB)") },
                                     singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
+                                    shape = shapes.small,
                                     modifier = Modifier.weight(0.7f)
                                 )
                                 OutlinedTextField(
@@ -1337,7 +1208,8 @@ fun ConfigurePrivacyCategorizedScreen(
                                     onValueChange = { screenResolution = it },
                                     label = { Text("Resolution") },
                                     singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
+                                    textStyle = typography.bodyMedium.copy(fontFamily = JetBrainsMonoFontFamily),
+                                    shape = shapes.small,
                                     modifier = Modifier.weight(1.1f)
                                 )
                                 OutlinedTextField(
@@ -1345,7 +1217,8 @@ fun ConfigurePrivacyCategorizedScreen(
                                     onValueChange = { screenDpiText = it },
                                     label = { Text("DPI") },
                                     singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
+                                    textStyle = typography.bodyMedium.copy(fontFamily = JetBrainsMonoFontFamily),
+                                    shape = shapes.small,
                                     modifier = Modifier.weight(0.7f)
                                 )
                                 IconButton(
@@ -1358,7 +1231,7 @@ fun ConfigurePrivacyCategorizedScreen(
                                     Icon(
                                         imageVector = Icons.Default.Refresh,
                                         contentDescription = "Randomize Screen",
-                                        tint = M3TealAccent
+                                        tint = scheme.primary
                                     )
                                 }
                             }
@@ -1370,82 +1243,74 @@ fun ConfigurePrivacyCategorizedScreen(
             // 5. Chrome, Browser & WebView Deep Anti-Fingerprinting
             if (activeTab == PrivacyStudioTab.ALL || activeTab == PrivacyStudioTab.BROWSER_WEBVIEW) {
                 item {
-                    ColorfulSectionCard(
-                        title = "Browser, WebView & DRM Anti-Fingerprinting",
-                        subtitle = "Defeat WebGL, Canvas, AudioContext, WebRTC, Client Hints & Widevine DRM tracking",
-                        icon = Icons.Default.Language,
-                        accent = M3VioletAccent
-                    ) {
-                        ColorfulToggleRow(
-                            title = "Spoof Browser & WebView User-Agent",
-                            subtitle = "Aligns HTTP User-Agent and navigator.userAgent with the spoofed device model",
-                            checked = spoofBrowserUa,
-                            accent = M3VioletAccent,
-                            onCheckedChange = { spoofBrowserUa = it }
+                    ContentCard {
+                        SectionHeader(
+                            title = "Browser, WebView & DRM Anti-Fingerprinting",
+                            subtitle = "Defeat WebGL, Canvas, AudioContext, WebRTC, Client Hints & Widevine DRM tracking"
                         )
-                        if (spoofBrowserUa) {
-                            Spacer(modifier = Modifier.height(6.dp))
-                            IdTextFieldWithRandomizer(
-                                label = "Custom User-Agent String",
-                                value = customUserAgent,
-                                onValueChange = { customUserAgent = it },
-                                onRandomize = {
-                                    val chromeMinor = Random.nextInt(6700, 6850)
-                                    val chromePatch = Random.nextInt(100, 240)
-                                    customUserAgent = "Mozilla/5.0 (Linux; Android 15; $model) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.$chromeMinor.$chromePatch Mobile Safari/537.36"
-                                }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            PrivacyToggleRow(
+                                title = "Spoof Browser & WebView User-Agent",
+                                subtitle = "Aligns HTTP User-Agent and navigator.userAgent with the spoofed device model",
+                                checked = spoofBrowserUa,
+                                onCheckedChange = { spoofBrowserUa = it }
                             )
-                            Spacer(modifier = Modifier.height(6.dp))
+                            if (spoofBrowserUa) {
+                                IdTextFieldWithRandomizer(
+                                    label = "Custom User-Agent String",
+                                    value = customUserAgent,
+                                    onValueChange = { customUserAgent = it },
+                                    onRandomize = {
+                                        val chromeMinor = Random.nextInt(6700, 6850)
+                                        val chromePatch = Random.nextInt(100, 240)
+                                        customUserAgent = "Mozilla/5.0 (Linux; Android 15; $model) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.$chromeMinor.$chromePatch Mobile Safari/537.36"
+                                    }
+                                )
+                            }
+                            PrivacyToggleRow(
+                                title = "Spoof GPU & WebGL Fingerprint",
+                                subtitle = "Replaces UNMASKED_VENDOR_WEBGL and UNMASKED_RENDERER_WEBGL with $gpuRenderer",
+                                checked = spoofGpuFingerprint,
+                                onCheckedChange = { spoofGpuFingerprint = it }
+                            )
+                            PrivacyToggleRow(
+                                title = "Canvas 2D Noise Injection",
+                                subtitle = "Adds imperceptible deterministic pixel entropy to HTML5 Canvas readbacks",
+                                checked = spoofCanvasNoise,
+                                onCheckedChange = { spoofCanvasNoise = it }
+                            )
+                            PrivacyToggleRow(
+                                title = "WebAudio AudioContext Entropy Shield",
+                                subtitle = "Neutralizes oscillator and DynamicsCompressor audio fingerprinting",
+                                checked = spoofAudioContext,
+                                onCheckedChange = { spoofAudioContext = it }
+                            )
+                            PrivacyToggleRow(
+                                title = "WebRTC Local & STUN IP Leak Shield",
+                                subtitle = "Prevents WebRTC ICE candidates from exposing real LAN or cellular IP addresses",
+                                checked = spoofWebRtc,
+                                onCheckedChange = { spoofWebRtc = it }
+                            )
+                            PrivacyToggleRow(
+                                title = "Spoof Sec-CH-UA Client Hints",
+                                subtitle = "Synchronizes high-entropy Chromium Client Hints headers with $model",
+                                checked = spoofClientHints,
+                                onCheckedChange = { spoofClientHints = it }
+                            )
+                            PrivacyToggleRow(
+                                title = "Block System Font Enumeration",
+                                subtitle = "Prevents scripts from measuring installed system fonts to build a device hash",
+                                checked = spoofFontEnumeration,
+                                onCheckedChange = { spoofFontEnumeration = it }
+                            )
+                            PrivacyToggleRow(
+                                title = "Spoof MediaDrm Widevine Device ID",
+                                subtitle = "Randomizes the hardware-backed Widevine DRM identifier per app",
+                                checked = spoofDrmWidevine,
+                                onCheckedChange = { spoofDrmWidevine = it }
+                            )
                         }
-                        ColorfulToggleRow(
-                            title = "Spoof GPU & WebGL Fingerprint",
-                            subtitle = "Replaces UNMASKED_VENDOR_WEBGL and UNMASKED_RENDERER_WEBGL with $gpuRenderer",
-                            checked = spoofGpuFingerprint,
-                            accent = M3VioletAccent,
-                            onCheckedChange = { spoofGpuFingerprint = it }
-                        )
-                        ColorfulToggleRow(
-                            title = "Canvas 2D Noise Injection",
-                            subtitle = "Adds imperceptible deterministic pixel entropy to HTML5 Canvas readbacks",
-                            checked = spoofCanvasNoise,
-                            accent = M3VioletAccent,
-                            onCheckedChange = { spoofCanvasNoise = it }
-                        )
-                        ColorfulToggleRow(
-                            title = "WebAudio AudioContext Entropy Shield",
-                            subtitle = "Neutralizes oscillator and DynamicsCompressor audio fingerprinting",
-                            checked = spoofAudioContext,
-                            accent = M3VioletAccent,
-                            onCheckedChange = { spoofAudioContext = it }
-                        )
-                        ColorfulToggleRow(
-                            title = "WebRTC Local & STUN IP Leak Shield",
-                            subtitle = "Prevents WebRTC ICE candidates from exposing real LAN or cellular IP addresses",
-                            checked = spoofWebRtc,
-                            accent = M3VioletAccent,
-                            onCheckedChange = { spoofWebRtc = it }
-                        )
-                        ColorfulToggleRow(
-                            title = "Spoof Sec-CH-UA Client Hints",
-                            subtitle = "Synchronizes high-entropy Chromium Client Hints headers with $model",
-                            checked = spoofClientHints,
-                            accent = M3VioletAccent,
-                            onCheckedChange = { spoofClientHints = it }
-                        )
-                        ColorfulToggleRow(
-                            title = "Block System Font Enumeration",
-                            subtitle = "Prevents scripts from measuring installed system fonts to build a device hash",
-                            checked = spoofFontEnumeration,
-                            accent = M3VioletAccent,
-                            onCheckedChange = { spoofFontEnumeration = it }
-                        )
-                        ColorfulToggleRow(
-                            title = "Spoof MediaDrm Widevine Device ID",
-                            subtitle = "Randomizes the hardware-backed Widevine DRM identifier per app",
-                            checked = spoofDrmWidevine,
-                            accent = M3VioletAccent,
-                            onCheckedChange = { spoofDrmWidevine = it }
-                        )
                     }
                 }
             }
@@ -1453,75 +1318,69 @@ fun ConfigurePrivacyCategorizedScreen(
             // 6. System Stealth, Environment & Anti-Detection Shields
             if (activeTab == PrivacyStudioTab.ALL || activeTab == PrivacyStudioTab.STEALTH_SYSTEM) {
                 item {
-                    ColorfulSectionCard(
-                        title = "System Stealth & Environment Shields",
-                        subtitle = "Hide Root, LSPosed, ADB, Knox bit, other installed apps, clipboard & network access",
-                        icon = Icons.Default.Shield,
-                        accent = M3TealAccent
-                    ) {
-                        ColorfulToggleRow(
-                            title = "Hide Root, Magisk, KernelSU & LSPosed",
-                            subtitle = "Blocks detection of su binaries, root mounts, Xposed stacks, and Zygisk",
-                            checked = hideRootAndXposed,
-                            accent = M3TealAccent,
-                            onCheckedChange = { hideRootAndXposed = it }
+                    ContentCard {
+                        SectionHeader(
+                            title = "System Stealth & Environment Shields",
+                            subtitle = "Hide Root, LSPosed, ADB, Knox bit, other installed apps, clipboard & network access"
                         )
-                        ColorfulToggleRow(
-                            title = "Hide ADB & Developer Options",
-                            subtitle = "Reports USB debugging, ADB, and developer settings as disabled",
-                            checked = hideAdbAndDev,
-                            accent = M3TealAccent,
-                            onCheckedChange = { hideAdbAndDev = it }
-                        )
-                        ColorfulToggleRow(
-                            title = "Hide VPN & Proxy Transport (tun0)",
-                            subtitle = "Reports a clean residential Wi-Fi/5G interface instead of VPN transport flags",
-                            checked = hideVpnAndProxy,
-                            accent = M3TealAccent,
-                            onCheckedChange = { hideVpnAndProxy = it }
-                        )
-                        ColorfulToggleRow(
-                            title = "Spoof Samsung Knox Warranty Bit (0x0)",
-                            subtitle = "Reports intact Knox warranty bit 0x0 and green Verified Boot state",
-                            checked = knoxWarrantyBitSpoof,
-                            accent = M3TealAccent,
-                            onCheckedChange = { knoxWarrantyBitSpoof = it }
-                        )
-                        ColorfulToggleRow(
-                            title = "Isolate Installed App List",
-                            subtitle = "Prevents this app from scanning other installed apps on your phone",
-                            checked = hideOtherApps,
-                            accent = M3TealAccent,
-                            onCheckedChange = { hideOtherApps = it }
-                        )
-                        ColorfulToggleRow(
-                            title = "Block Background Clipboard Snooping",
-                            subtitle = "Returns empty clipboard data when the app tries to read copied text/links",
-                            checked = blockClipboard,
-                            accent = M3TealAccent,
-                            onCheckedChange = { blockClipboard = it }
-                        )
-                        ColorfulToggleRow(
-                            title = "Bypass Screenshot Restrictions (FLAG_SECURE)",
-                            subtitle = "Controls screenshot and screen-capture flags for this app window",
-                            checked = preventScreenshots,
-                            accent = M3TealAccent,
-                            onCheckedChange = { preventScreenshots = it }
-                        )
-                        ColorfulToggleRow(
-                            title = "Silence Logcat & Crash Telemetry",
-                            subtitle = "Drops android.util.Log output from this app so SDKs cannot inspect logs",
-                            checked = disableLogcatLogging,
-                            accent = M3TealAccent,
-                            onCheckedChange = { disableLogcatLogging = it }
-                        )
-                        ColorfulToggleRow(
-                            title = "Complete Offline Firewall (Block All Network)",
-                            subtitle = "Blocks all internet and socket connections for this app while keeping it functional",
-                            checked = disableAllNetworking,
-                            accent = M3RoseAccent,
-                            onCheckedChange = { disableAllNetworking = it }
-                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            PrivacyToggleRow(
+                                title = "Hide Root, Magisk, KernelSU & LSPosed",
+                                subtitle = "Blocks detection of su binaries, root mounts, Xposed stacks, and Zygisk",
+                                checked = hideRootAndXposed,
+                                onCheckedChange = { hideRootAndXposed = it }
+                            )
+                            PrivacyToggleRow(
+                                title = "Hide ADB & Developer Options",
+                                subtitle = "Reports USB debugging, ADB, and developer settings as disabled",
+                                checked = hideAdbAndDev,
+                                onCheckedChange = { hideAdbAndDev = it }
+                            )
+                            PrivacyToggleRow(
+                                title = "Hide VPN & Proxy Transport (tun0)",
+                                subtitle = "Reports a clean residential Wi-Fi/5G interface instead of VPN transport flags",
+                                checked = hideVpnAndProxy,
+                                onCheckedChange = { hideVpnAndProxy = it }
+                            )
+                            PrivacyToggleRow(
+                                title = "Spoof Samsung Knox Warranty Bit (0x0)",
+                                subtitle = "Reports intact Knox warranty bit 0x0 and green Verified Boot state",
+                                checked = knoxWarrantyBitSpoof,
+                                onCheckedChange = { knoxWarrantyBitSpoof = it }
+                            )
+                            PrivacyToggleRow(
+                                title = "Isolate Installed App List",
+                                subtitle = "Prevents this app from scanning other installed apps on your phone",
+                                checked = hideOtherApps,
+                                onCheckedChange = { hideOtherApps = it }
+                            )
+                            PrivacyToggleRow(
+                                title = "Block Background Clipboard Snooping",
+                                subtitle = "Returns empty clipboard data when the app tries to read copied text/links",
+                                checked = blockClipboard,
+                                onCheckedChange = { blockClipboard = it }
+                            )
+                            PrivacyToggleRow(
+                                title = "Bypass Screenshot Restrictions (FLAG_SECURE)",
+                                subtitle = "Controls screenshot and screen-capture flags for this app window",
+                                checked = preventScreenshots,
+                                onCheckedChange = { preventScreenshots = it }
+                            )
+                            PrivacyToggleRow(
+                                title = "Silence Logcat & Crash Telemetry",
+                                subtitle = "Drops android.util.Log output from this app so SDKs cannot inspect logs",
+                                checked = disableLogcatLogging,
+                                onCheckedChange = { disableLogcatLogging = it }
+                            )
+                            PrivacyToggleRow(
+                                title = "Complete Offline Firewall (Block All Network)",
+                                subtitle = "Blocks all internet and socket connections for this app while keeping it functional",
+                                checked = disableAllNetworking,
+                                isDestructive = true,
+                                onCheckedChange = { disableAllNetworking = it }
+                            )
+                        }
                     }
                 }
             }
@@ -1529,82 +1388,76 @@ fun ConfigurePrivacyCategorizedScreen(
             // 7. Sensors, Battery & Radio Telemetry
             if (activeTab == PrivacyStudioTab.ALL || activeTab == PrivacyStudioTab.SENSORS_BATTERY) {
                 item {
-                    ColorfulSectionCard(
-                        title = "Sensors, Battery & Radio Entropy",
-                        subtitle = "Prevent motion sensor fingerprinting, battery level tracking, cell tower & Wi-Fi BSSID leaks",
-                        icon = Icons.Default.Sensors,
-                        accent = M3AmberAccent
-                    ) {
-                        ColorfulToggleRow(
-                            title = "Anonymize Motion & Orientation Sensors",
-                            subtitle = "Adds subtle micro-jitter to Gyroscope, Accelerometer & Magnetometer readings",
-                            checked = anonymizeSensors,
-                            accent = M3AmberAccent,
-                            onCheckedChange = { anonymizeSensors = it }
+                    ContentCard {
+                        SectionHeader(
+                            title = "Sensors, Battery & Radio Entropy",
+                            subtitle = "Prevent motion sensor fingerprinting, battery level tracking, cell tower & Wi-Fi BSSID leaks"
                         )
-                        ColorfulToggleRow(
-                            title = "Sensor Calibration Bias Neutralizer",
-                            subtitle = "Removes factory MEMS hardware offset signatures used to link accounts across reinstalls",
-                            checked = sensorBiasNeutralizer,
-                            accent = M3AmberAccent,
-                            onCheckedChange = { sensorBiasNeutralizer = it }
-                        )
-                        ColorfulToggleRow(
-                            title = "Block Cell Tower CID/LAC Tracking",
-                            subtitle = "Hides neighboring GSM/LTE/5G cell tower IDs from location SDKs",
-                            checked = blockCellTracking,
-                            accent = M3AmberAccent,
-                            onCheckedChange = { blockCellTracking = it }
-                        )
-                        ColorfulToggleRow(
-                            title = "Spoof Wi-Fi Router BSSID & Scan List",
-                            subtitle = "Randomizes nearby Wi-Fi access point MAC addresses so indoor positioning cannot locate you",
-                            checked = spoofWifiBssid,
-                            accent = M3AmberAccent,
-                            onCheckedChange = { spoofWifiBssid = it }
-                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            PrivacyToggleRow(
+                                title = "Anonymize Motion & Orientation Sensors",
+                                subtitle = "Adds subtle micro-jitter to Gyroscope, Accelerometer & Magnetometer readings",
+                                checked = anonymizeSensors,
+                                onCheckedChange = { anonymizeSensors = it }
+                            )
+                            PrivacyToggleRow(
+                                title = "Sensor Calibration Bias Neutralizer",
+                                subtitle = "Removes factory MEMS hardware offset signatures used to link accounts across reinstalls",
+                                checked = sensorBiasNeutralizer,
+                                onCheckedChange = { sensorBiasNeutralizer = it }
+                            )
+                            PrivacyToggleRow(
+                                title = "Block Cell Tower CID/LAC Tracking",
+                                subtitle = "Hides neighboring GSM/LTE/5G cell tower IDs from location SDKs",
+                                checked = blockCellTracking,
+                                onCheckedChange = { blockCellTracking = it }
+                            )
+                            PrivacyToggleRow(
+                                title = "Spoof Wi-Fi Router BSSID & Scan List",
+                                subtitle = "Randomizes nearby Wi-Fi access point MAC addresses so indoor positioning cannot locate you",
+                                checked = spoofWifiBssid,
+                                onCheckedChange = { spoofWifiBssid = it }
+                            )
 
-                        HorizontalDivider(
-                            modifier = Modifier.padding(vertical = 8.dp),
-                            color = scheme.outlineVariant.copy(alpha = 0.3f)
-                        )
+                            HorizontalDivider(
+                                modifier = Modifier.padding(vertical = 4.dp),
+                                color = scheme.outlineVariant
+                            )
 
-                        ColorfulToggleRow(
-                            title = "Spoof Battery Level & Charging Telemetry",
-                            subtitle = "Reports a synthetic battery percentage (${fakeBatteryLevel.roundToInt()}%) to prevent cross-app correlation",
-                            checked = fakeBatteryEnabled,
-                            accent = M3AmberAccent,
-                            onCheckedChange = { fakeBatteryEnabled = it }
-                        )
+                            PrivacyToggleRow(
+                                title = "Spoof Battery Level & Charging Telemetry",
+                                subtitle = "Reports a synthetic battery percentage (${fakeBatteryLevel.roundToInt()}%) to prevent cross-app correlation",
+                                checked = fakeBatteryEnabled,
+                                onCheckedChange = { fakeBatteryEnabled = it }
+                            )
 
-                        if (fakeBatteryEnabled) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.BatteryChargingFull,
-                                    contentDescription = null,
-                                    tint = M3AmberAccent,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "${fakeBatteryLevel.roundToInt()}%",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = M3AmberAccent,
-                                    modifier = Modifier.width(44.dp),
-                                    fontFamily = JakartaFontFamily
-                                )
-                                Slider(
-                                    value = fakeBatteryLevel,
-                                    onValueChange = { fakeBatteryLevel = it },
-                                    valueRange = 15f..100f,
-                                    modifier = Modifier.weight(1f)
-                                )
+                            if (fakeBatteryEnabled) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.BatteryChargingFull,
+                                        contentDescription = null,
+                                        tint = scheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    MonoDataText(
+                                        text = "${fakeBatteryLevel.roundToInt()}%",
+                                        color = scheme.primary,
+                                        modifier = Modifier.width(48.dp)
+                                    )
+                                    Slider(
+                                        value = fakeBatteryLevel,
+                                        onValueChange = { fakeBatteryLevel = it },
+                                        valueRange = 15f..100f,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
                             }
                         }
                     }
@@ -1614,201 +1467,175 @@ fun ConfigurePrivacyCategorizedScreen(
             // 8. GPS Location, Timezone, Locale & Deadman Switch
             if (activeTab == PrivacyStudioTab.ALL || activeTab == PrivacyStudioTab.GPS_DEADMAN) {
                 item {
-                    ColorfulSectionCard(
-                        title = "Virtual GPS Location, Timezone & Locale",
-                        subtitle = "Set virtual coordinates, 1-tap world cities, IANA timezone & language locale",
-                        icon = Icons.Default.LocationOn,
-                        accent = M3AmberAccent
-                    ) {
-                        ColorfulToggleRow(
-                            title = "Enable Virtual GPS Location",
-                            subtitle = "Overrides GPS, FusedLocationProvider & Network location coordinates",
-                            checked = spoofLocationEnabled,
-                            accent = M3AmberAccent,
-                            onCheckedChange = { spoofLocationEnabled = it }
+                    ContentCard {
+                        SectionHeader(
+                            title = "Virtual GPS Location, Timezone & Locale",
+                            subtitle = "Set virtual coordinates, 1-tap world cities, IANA timezone & language locale"
                         )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            PrivacyToggleRow(
+                                title = "Enable Virtual GPS Location",
+                                subtitle = "Overrides GPS, FusedLocationProvider & Network location coordinates",
+                                checked = spoofLocationEnabled,
+                                onCheckedChange = { spoofLocationEnabled = it }
+                            )
 
-                        Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "Quick World City Presets",
+                                style = typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = scheme.onSurfaceVariant
+                            )
 
-                        Text(
-                            text = "Quick World City Presets",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = scheme.onSurfaceVariant,
-                            fontFamily = JakartaFontFamily
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                QUICK_CITIES.forEach { preset ->
+                                    Surface(
+                                        color = scheme.surfaceContainerLow,
+                                        shape = shapes.extraSmall,
+                                        border = BorderStroke(1.dp, scheme.outlineVariant),
+                                        modifier = Modifier
+                                            .clip(shapes.extraSmall)
+                                            .clickable {
+                                                spoofLocationEnabled = true
+                                                latitudeText = preset.lat.toString()
+                                                longitudeText = preset.lon.toString()
+                                                timezoneId = preset.tz
+                                                localeTag = preset.locale
+                                            }
+                                    ) {
+                                        Text(
+                                            text = "${preset.city}, ${preset.country}",
+                                            style = typography.labelMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = scheme.onSurface,
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                        )
+                                    }
+                                }
+                            }
 
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            QUICK_CITIES.forEach { preset ->
-                                Surface(
-                                    color = M3AmberAccent.copy(alpha = 0.12f),
-                                    shape = RoundedCornerShape(50),
-                                    border = BorderStroke(1.dp, M3AmberAccent.copy(alpha = 0.3f)),
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(50))
-                                        .clickable {
-                                            spoofLocationEnabled = true
-                                            latitudeText = preset.lat.toString()
-                                            longitudeText = preset.lon.toString()
-                                            timezoneId = preset.tz
-                                            localeTag = preset.locale
-                                        }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = latitudeText,
+                                    onValueChange = {
+                                        latitudeText = it
+                                        spoofLocationEnabled = true
+                                    },
+                                    label = { Text("Latitude") },
+                                    singleLine = true,
+                                    textStyle = typography.bodyMedium.copy(fontFamily = JetBrainsMonoFontFamily),
+                                    shape = shapes.small,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                OutlinedTextField(
+                                    value = longitudeText,
+                                    onValueChange = {
+                                        longitudeText = it
+                                        spoofLocationEnabled = true
+                                    },
+                                    label = { Text("Longitude") },
+                                    singleLine = true,
+                                    textStyle = typography.bodyMedium.copy(fontFamily = JetBrainsMonoFontFamily),
+                                    shape = shapes.small,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(
+                                    onClick = {
+                                        val baseLat = latitudeText.toDoubleOrNull() ?: 40.7128
+                                        val baseLon = longitudeText.toDoubleOrNull() ?: -74.0060
+                                        val jitterLat = ((baseLat + Random.nextDouble(-0.008, 0.008)) * 10000.0).roundToInt() / 10000.0
+                                        val jitterLon = ((baseLon + Random.nextDouble(-0.008, 0.008)) * 10000.0).roundToInt() / 10000.0
+                                        latitudeText = jitterLat.toString()
+                                        longitudeText = jitterLon.toString()
+                                        spoofLocationEnabled = true
+                                    }
                                 ) {
-                                    Text(
-                                        text = "${preset.city}, ${preset.country}",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = M3AmberAccent,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                                        fontFamily = JakartaFontFamily
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = "Add GPS Drift",
+                                        tint = scheme.primary
                                     )
                                 }
                             }
-                        }
 
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            OutlinedTextField(
-                                value = latitudeText,
-                                onValueChange = {
-                                    latitudeText = it
-                                    spoofLocationEnabled = true
-                                },
-                                label = { Text("Latitude") },
-                                singleLine = true,
-                                shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier.weight(1f)
-                            )
-                            OutlinedTextField(
-                                value = longitudeText,
-                                onValueChange = {
-                                    longitudeText = it
-                                    spoofLocationEnabled = true
-                                },
-                                label = { Text("Longitude") },
-                                singleLine = true,
-                                shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier.weight(1f)
-                            )
-                            IconButton(
-                                onClick = {
-                                    val baseLat = latitudeText.toDoubleOrNull() ?: 40.7128
-                                    val baseLon = longitudeText.toDoubleOrNull() ?: -74.0060
-                                    val jitterLat = ((baseLat + Random.nextDouble(-0.008, 0.008)) * 10000.0).roundToInt() / 10000.0
-                                    val jitterLon = ((baseLon + Random.nextDouble(-0.008, 0.008)) * 10000.0).roundToInt() / 10000.0
-                                    latitudeText = jitterLat.toString()
-                                    longitudeText = jitterLon.toString()
-                                    spoofLocationEnabled = true
-                                }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Refresh,
-                                    contentDescription = "Add GPS Drift",
-                                    tint = M3AmberAccent
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                OutlinedTextField(
+                                    value = timezoneId,
+                                    onValueChange = { timezoneId = it },
+                                    label = { Text("IANA Timezone") },
+                                    singleLine = true,
+                                    shape = shapes.small,
+                                    modifier = Modifier.weight(1.2f)
+                                )
+                                OutlinedTextField(
+                                    value = localeTag,
+                                    onValueChange = { localeTag = it },
+                                    label = { Text("Locale (e.g. en-US)") },
+                                    singleLine = true,
+                                    shape = shapes.small,
+                                    modifier = Modifier.weight(0.8f)
                                 )
                             }
-                        }
 
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            OutlinedTextField(
-                                value = timezoneId,
-                                onValueChange = { timezoneId = it },
-                                label = { Text("IANA Timezone") },
-                                singleLine = true,
-                                shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier.weight(1.2f)
+                            PrivacyToggleRow(
+                                title = "Hide Mock Location Flag",
+                                subtitle = "Strips isFromMockProvider and mock location indicators from Location objects",
+                                checked = hideMockLocation,
+                                onCheckedChange = { hideMockLocation = it }
                             )
-                            OutlinedTextField(
-                                value = localeTag,
-                                onValueChange = { localeTag = it },
-                                label = { Text("Locale (e.g. en-US)") },
-                                singleLine = true,
-                                shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier.weight(0.8f)
+                            PrivacyToggleRow(
+                                title = "Auto-Align Timezone with Virtual Location",
+                                subtitle = "Keeps system clock timezone consistent with your spoofed region",
+                                checked = autoSyncTimezone,
+                                onCheckedChange = { autoSyncTimezone = it }
                             )
                         }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        ColorfulToggleRow(
-                            title = "Hide Mock Location Flag",
-                            subtitle = "Strips isFromMockProvider and mock location indicators from Location objects",
-                            checked = hideMockLocation,
-                            accent = M3AmberAccent,
-                            onCheckedChange = { hideMockLocation = it }
-                        )
-                        ColorfulToggleRow(
-                            title = "Auto-Align Timezone with Virtual Location",
-                            subtitle = "Keeps system clock timezone consistent with your spoofed region",
-                            checked = autoSyncTimezone,
-                            accent = M3AmberAccent,
-                            onCheckedChange = { autoSyncTimezone = it }
-                        )
                     }
                 }
 
                 item {
-                    ColorfulSectionCard(
-                        title = "Identity Leak Deadman Switch",
-                        subtitle = "Kernel iptables UID kill-switch if the app attempts to bypass hooks or read real IDs",
-                        icon = Icons.Default.GppBad,
-                        accent = M3RoseAccent
-                    ) {
-                        ColorfulToggleRow(
-                            title = "Enable Total Leak Deadman Switch",
-                            subtitle = "Instantly terminates ${app.appName} and severs its network via iptables if an unhooked hardware read occurs",
-                            checked = deadmanSwitchEnabled,
-                            accent = M3RoseAccent,
-                            onCheckedChange = { deadmanSwitchEnabled = it }
+                    ContentCard {
+                        SectionHeader(
+                            title = "Identity Leak Deadman Switch",
+                            subtitle = "Kernel iptables UID kill-switch if the app attempts to bypass hooks or read real IDs"
                         )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            PrivacyToggleRow(
+                                title = "Enable Total Leak Deadman Switch",
+                                subtitle = "Instantly terminates ${app.appName} and severs its network via iptables if an unhooked hardware read occurs",
+                                checked = deadmanSwitchEnabled,
+                                isDestructive = true,
+                                onCheckedChange = { deadmanSwitchEnabled = it }
+                            )
 
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            OutlinedButton(
-                                onClick = {
-                                    viewModel.simulateIdentityLeak(app.packageName, app.appName, appUid)
-                                },
-                                shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, M3RoseAccent.copy(alpha = 0.5f)),
-                                modifier = Modifier.weight(1f)
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text(
+                                SecondaryButton(
                                     text = "Test Leak Trigger",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = M3RoseAccent,
-                                    fontFamily = JakartaFontFamily
+                                    onClick = {
+                                        viewModel.simulateIdentityLeak(app.packageName, app.appName, appUid)
+                                    },
+                                    modifier = Modifier.weight(1f)
                                 )
-                            }
 
-                            FilledTonalButton(
-                                onClick = {
-                                    viewModel.restoreAppNetwork(appUid)
-                                },
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text(
+                                SecondaryButton(
                                     text = if (isAppBlackholed) "Restore Severed Network" else "Reset UID Firewall",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = JakartaFontFamily
+                                    onClick = {
+                                        viewModel.restoreAppNetwork(appUid)
+                                    },
+                                    modifier = Modifier.weight(1f)
                                 )
                             }
                         }
@@ -1820,30 +1647,30 @@ fun ConfigurePrivacyCategorizedScreen(
 
     if (showSaveProfileDialog) {
         var profileName by remember { mutableStateOf("${app.appName} Preset") }
-        var profileDesc by remember { mutableStateOf("$brand $model · ${timezoneId}") }
+        var profileDesc by remember { mutableStateOf("$brand $model · $timezoneId") }
         AlertDialog(
             onDismissRequest = { showSaveProfileDialog = false },
+            shape = shapes.extraLarge,
             title = {
                 Text(
                     text = "Save as Reusable Privacy Profile",
-                    fontWeight = FontWeight.ExtraBold,
-                    fontFamily = JakartaFontFamily
+                    style = typography.titleMedium,
+                    fontWeight = FontWeight.Bold
                 )
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
                         text = "Save these exact privacy, browser, sensor, and stealth settings so you can apply them to any other app in 1 tap.",
-                        fontSize = 12.sp,
-                        color = scheme.onSurfaceVariant,
-                        fontFamily = JakartaFontFamily
+                        style = typography.bodySmall,
+                        color = scheme.onSurfaceVariant
                     )
                     OutlinedTextField(
                         value = profileName,
                         onValueChange = { profileName = it },
                         label = { Text("Profile Name") },
                         singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
+                        shape = shapes.small,
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
@@ -1851,13 +1678,14 @@ fun ConfigurePrivacyCategorizedScreen(
                         onValueChange = { profileDesc = it },
                         label = { Text("Short Description") },
                         singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
+                        shape = shapes.small,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
             },
             confirmButton = {
-                Button(
+                PrimaryButton(
+                    text = "Save Profile",
                     onClick = {
                         val id = "custom_${System.currentTimeMillis()}"
                         val newProfile = PrivacyProfile(
@@ -1899,9 +1727,7 @@ fun ConfigurePrivacyCategorizedScreen(
                         selectedProfileId = id
                         showSaveProfileDialog = false
                     }
-                ) {
-                    Text("Save Profile")
-                }
+                )
             },
             dismissButton = {
                 TextButton(onClick = { showSaveProfileDialog = false }) {
@@ -1916,20 +1742,20 @@ fun ConfigurePrivacyCategorizedScreen(
         var importError by remember { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { showImportProxyDialog = false },
+            shape = shapes.extraLarge,
             title = {
                 Text(
                     text = "Import V2Ray / Proxy Node",
-                    fontWeight = FontWeight.ExtraBold,
-                    fontFamily = JakartaFontFamily
+                    style = typography.titleMedium,
+                    fontWeight = FontWeight.Bold
                 )
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
                         text = "Paste a vless://, vmess://, ss://, trojan://, socks5:// URI or host:port#name to add and assign it to ${app.appName}.",
-                        fontSize = 12.sp,
-                        color = scheme.onSurfaceVariant,
-                        fontFamily = JakartaFontFamily
+                        style = typography.bodySmall,
+                        color = scheme.onSurfaceVariant
                     )
                     OutlinedTextField(
                         value = uriInput,
@@ -1938,21 +1764,22 @@ fun ConfigurePrivacyCategorizedScreen(
                             importError = false
                         },
                         label = { Text("vless:// or socks5://127.0.0.1:10808#MyNode") },
-                        shape = RoundedCornerShape(12.dp),
+                        textStyle = typography.bodySmall.copy(fontFamily = JetBrainsMonoFontFamily),
+                        shape = shapes.small,
                         modifier = Modifier.fillMaxWidth()
                     )
                     if (importError) {
                         Text(
                             text = "Could not parse proxy URI. Try vless://uuid@host:443#Name or host:port",
-                            fontSize = 11.sp,
-                            color = M3RoseAccent,
-                            fontFamily = JakartaFontFamily
+                            style = typography.bodySmall,
+                            color = scheme.error
                         )
                     }
                 }
             },
             confirmButton = {
-                Button(
+                PrimaryButton(
+                    text = "Import & Select",
                     onClick = {
                         val parsed = VpnProxyPresets.parseUri(uriInput)
                         if (parsed != null) {
@@ -1964,9 +1791,7 @@ fun ConfigurePrivacyCategorizedScreen(
                             importError = true
                         }
                     }
-                ) {
-                    Text("Import & Select")
-                }
+                )
             },
             dismissButton = {
                 TextButton(onClick = { showImportProxyDialog = false }) {
@@ -1978,103 +1803,30 @@ fun ConfigurePrivacyCategorizedScreen(
 }
 
 @Composable
-private fun ColorfulSectionCard(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    accent: Color,
-    content: @Composable () -> Unit
-) {
-    val scheme = MaterialTheme.colorScheme
-    Card(
-        colors = CardDefaults.cardColors(containerColor = scheme.surfaceContainerLow),
-        shape = RoundedCornerShape(22.dp),
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.22f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    color = accent.copy(alpha = 0.14f),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.size(38.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            tint = accent,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = title,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = scheme.onSurface,
-                        fontFamily = JakartaFontFamily
-                    )
-                    Text(
-                        text = subtitle,
-                        fontSize = 12.sp,
-                        color = scheme.onSurfaceVariant,
-                        fontFamily = JakartaFontFamily
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(14.dp))
-            content()
-        }
-    }
-}
-
-@Composable
-private fun ColorfulToggleRow(
+private fun PrivacyToggleRow(
     title: String,
     subtitle: String,
     checked: Boolean,
-    accent: Color,
+    isDestructive: Boolean = false,
     onCheckedChange: (Boolean) -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .clickable { onCheckedChange(!checked) }
-            .padding(vertical = 8.dp)
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                fontSize = 13.5.sp,
-                fontWeight = FontWeight.Bold,
-                color = scheme.onSurface,
-                fontFamily = JakartaFontFamily
-            )
-            Text(
-                text = subtitle,
-                fontSize = 11.5.sp,
-                color = scheme.onSurfaceVariant,
-                fontFamily = JakartaFontFamily
+    val trackColor = if (isDestructive) scheme.error else scheme.primary
+    ListRow(
+        title = title,
+        subtitle = subtitle,
+        onClick = { onCheckedChange(!checked) },
+        trailing = {
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = scheme.onPrimary,
+                    checkedTrackColor = trackColor
+                )
             )
         }
-        Spacer(modifier = Modifier.width(12.dp))
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.White,
-                checkedTrackColor = accent
-            )
-        )
-    }
+    )
 }
 
 @Composable
@@ -2084,18 +1836,22 @@ private fun IdTextFieldWithRandomizer(
     onValueChange: (String) -> Unit,
     onRandomize: () -> Unit
 ) {
+    val scheme = MaterialTheme.colorScheme
+    val typography = MaterialTheme.typography
+    val shapes = MaterialTheme.shapes
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },
         singleLine = true,
-        shape = RoundedCornerShape(14.dp),
+        textStyle = typography.bodyMedium.copy(fontFamily = JetBrainsMonoFontFamily),
+        shape = shapes.small,
         trailingIcon = {
             IconButton(onClick = onRandomize) {
                 Icon(
                     imageVector = Icons.Default.Refresh,
                     contentDescription = "Randomize $label",
-                    tint = M3IndigoAccent
+                    tint = scheme.primary
                 )
             }
         },

@@ -3,7 +3,7 @@
   "name": "Hardware Spoofer & Privacy Profiles",
   "version": 5,
   "minCoreVersion": 1,
-  "sizeKb": 790,
+  "sizeKb": 9,
   "entryClass": "com.example.isolation.module.privacy.DevicePrivacyModule",
   "primaryRoute": "DEVICE_SPOOFER",
   "contributesBottomNavTab": true,
@@ -22,5 +22,8 @@
     "android.media.MediaDrm",
     "android.location.LocationManager",
     "android.hardware.SystemSensorManager"
-  ]
+  ],
+  "sha256": "c7fc02f4006f7b574b132a5246c728e4db0957cb7d7b53f7c4ba590ec456281f",
+  "sha256Checksum": "c7fc02f4006f7b574b132a5246c728e4db0957cb7d7b53f7c4ba590ec456281f",
+  "signatureB64": "9gH13kNV175R6ZOrWYOyQ87Z6QlKvGf4XBgd872BYj8SLt8CzXHc+aDWLN3Sp4E5e+BdLxGs1mAQWNiLstIdDQ=="
 }

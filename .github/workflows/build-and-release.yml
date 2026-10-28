@@ -18,6 +18,7 @@ jobs:
       STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'hollowrelease2026' }}
       KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'hollowrelease2026' }}
       RELEASE_KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_BASE64 || '' }}
+      MODULE_ED25519_PRIVATE_KEY_B64: ${{ secrets.MODULE_ED25519_PRIVATE_KEY_B64 || '' }}
 
     steps:
       - name: Checkout Repository
@@ -43,6 +44,7 @@ jobs:
 
       - name: Prepare Dev & Release Keystores and Environment
         run: |
+          set +x
           if [ -f "debug.keystore.base64" ]; then
             base64 -d debug.keystore.base64 > debug.keystore || true
           fi
@@ -57,18 +59,36 @@ jobs:
           fi
           touch .env
 
-      - name: Build 1 Dev APK (assembleDebug) & 1 Release Normal APK (assembleRelease)
+      - name: Compile & Ed25519-Sign Feature Modules + Build Dev & Release Normal APKs
         run: |
+          set +x
+          if [ -z "$MODULE_ED25519_PRIVATE_KEY_B64" ] && [ ! -f "certs/module_ed25519_private.pem" ]; then
+            node -e '
+              const crypto = require("crypto");
+              const fs = require("fs");
+              fs.mkdirSync("certs", { recursive: true });
+              const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
+              fs.writeFileSync("certs/module_ed25519_private.pem", privateKey.export({ type: "pkcs8", format: "pem" }), { mode: 0o600 });
+              fs.writeFileSync("certs/module_ed25519_public.pem", publicKey.export({ type: "spki", format: "pem" }));
+            '
+          fi
           if [ -f "./gradlew" ]; then
             chmod +x ./gradlew
-            ./gradlew assembleDebug assembleRelease --no-daemon --stacktrace
+            ./gradlew :app:compileFeatureModules assembleDebug assembleRelease --no-daemon --stacktrace
           else
-            gradle assembleDebug assembleRelease --no-daemon --stacktrace
+            gradle :app:compileFeatureModules assembleDebug assembleRelease --no-daemon --stacktrace
           fi
+          rm -f certs/module_ed25519_private.pem "$KEYSTORE_PATH"
           mkdir -p dist
           cp app/build/outputs/apk/debug/*.apk dist/Hollow-Dev.apk
           cp app/build/outputs/apk/release/*.apk dist/Hollow-Release.apk
           ls -lh dist/
+
+      - name: Scrub Ephemeral Signing Keys Before Artifact Upload
+        if: always()
+        run: |
+          set +x
+          rm -f certs/module_ed25519_private.pem "$KEYSTORE_PATH"
 
       - name: Upload Dev APK Artifact
         uses: actions/upload-artifact@v4

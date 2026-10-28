@@ -20,9 +20,11 @@ const mongoose = require('mongoose');
 const Device = require('./models/Device');
 const License = require('./models/License');
 const AuditLog = require('./models/AuditLog');
+const Module = require('./models/Module');
+const SecurityIncident = require('./models/SecurityIncident');
 
 const app = express();
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '5mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Serve the Web App on both / and /admin
@@ -42,86 +44,10 @@ const MONGODB_URI = process.env.MONGODB_URI || '';
 let mongoConnected = false;
 
 const memoryStore = {
-  devices: [
-    {
-      hardwareFingerprint: 'HLW-9A4F2C10-7B8E3D11-5C6A902F',
-      username: 'arshman_pro',
-      email: 'arshman@hollow.me',
-      passwordHash: crypto.createHash('sha256').update('demo1234').digest('hex'),
-      socSerial: 'SM8650-0194A',
-      androidId: '9774d56d682e549c',
-      storageCid: '1501003531324743',
-      deviceModel: 'Google Pixel 9 Pro',
-      status: 'APPROVED',
-      allowedModules: ['module_hider', 'module_isolation', 'module_privacy', 'module_network', 'module_sensor_firewall'],
-      banReason: '',
-      highWaterWallClockMs: Date.now(),
-      lastElapsedRealtimeMs: 428000,
-      registeredAt: new Date(Date.now() - 3 * 86400000),
-      updatedAt: new Date()
-    },
-    {
-      hardwareFingerprint: 'HLW-3E81B402-19C4A77D-8F201E6A',
-      username: 'alex_tester',
-      email: 'alex@example.com',
-      passwordHash: crypto.createHash('sha256').update('demo1234').digest('hex'),
-      socSerial: 'SM8550-8821B',
-      androidId: '4182b90c112e773a',
-      storageCid: '1501003235364742',
-      deviceModel: 'Samsung Galaxy S24 Ultra',
-      status: 'PENDING_APPROVAL',
-      allowedModules: [],
-      banReason: '',
-      highWaterWallClockMs: Date.now(),
-      lastElapsedRealtimeMs: 120000,
-      registeredAt: new Date(Date.now() - 3600000),
-      updatedAt: new Date()
-    },
-    {
-      hardwareFingerprint: 'HLW-7C12D908-44A10F3E-99B12C44',
-      username: 'sarah_workspace',
-      email: 'sarah@example.com',
-      passwordHash: crypto.createHash('sha256').update('demo1234').digest('hex'),
-      socSerial: 'MT6989-7731C',
-      androidId: '6621f09a883c120d',
-      storageCid: '1501003132384741',
-      deviceModel: 'OnePlus 12',
-      status: 'APPROVED',
-      allowedModules: ['module_isolation', 'module_privacy', 'module_hider'],
-      banReason: '',
-      highWaterWallClockMs: Date.now(),
-      lastElapsedRealtimeMs: 910000,
-      registeredAt: new Date(Date.now() - 86400000 * 5),
-      updatedAt: new Date()
-    }
-  ],
+  devices: [],
   licenses: new Map(),
-  auditLogs: [
-    {
-      event: 'SERVER_BOOT',
-      hardwareFingerprint: 'SYSTEM',
-      username: 'system',
-      details: 'Hollow Cloud Module Hub initialized with 5 dynamic modules',
-      ipAddress: '127.0.0.1',
-      timestamp: new Date(Date.now() - 600000)
-    },
-    {
-      event: 'ADMIN_APPROVE',
-      hardwareFingerprint: 'HLW-9A4F2C10-7B8E3D11-5C6A902F',
-      username: 'arshman_pro',
-      details: 'Approved Google Pixel 9 Pro for all 5 modules (30 days)',
-      ipAddress: '127.0.0.1',
-      timestamp: new Date(Date.now() - 300000)
-    },
-    {
-      event: 'REGISTER_PENDING',
-      hardwareFingerprint: 'HLW-3E81B402-19C4A77D-8F201E6A',
-      username: 'alex_tester',
-      details: 'Registered Samsung Galaxy S24 Ultra — waiting for Admin approval',
-      ipAddress: '127.0.0.1',
-      timestamp: new Date(Date.now() - 120000)
-    }
-  ]
+  auditLogs: [],
+  securityIncidents: []
 };
 
 function isDbLive() {
@@ -130,7 +56,7 @@ function isDbLive() {
 
 async function connectMongoDB() {
   if (!MONGODB_URI) {
-    console.log('[MongoDB] MONGODB_URI not set — running with built-in live memory store.');
+    console.log('[MongoDB] MONGODB_URI not set — running with clean live memory store.');
     return;
   }
   try {
@@ -139,13 +65,6 @@ async function connectMongoDB() {
     });
     mongoConnected = true;
     console.log('[MongoDB] Connected to MongoDB Atlas successfully.');
-    // Seed initial sample devices if database is brand new & empty
-    const count = await Device.countDocuments();
-    if (count === 0) {
-      await Device.insertMany(memoryStore.devices);
-      await AuditLog.insertMany(memoryStore.auditLogs);
-      console.log('[MongoDB] Seeded initial devices & activity logs.');
-    }
   } catch (err) {
     mongoConnected = false;
     console.error('[MongoDB] Connection failed, using in-memory store fallback:', err.message);
@@ -175,104 +94,65 @@ async function recordAudit(event, hardwareFingerprint, username, details, req) {
 }
 
 // ---------------------------------------------------------------------------
-// 2. Cryptographic Keys (Ed25519 Signing + ECDH P-256 Envelope)
+// 2. Cryptographic Keys (Ed25519 Module Signing + ECDH / AES-256-GCM Envelope)
 // ---------------------------------------------------------------------------
-const { publicKey: edPublicKey, privateKey: edPrivateKey } = crypto.generateKeyPairSync('ed25519');
+const CERTS_DIR = path.resolve(__dirname, '..', 'certs');
+const PRIV_KEY_PATH = path.join(CERTS_DIR, 'module_ed25519_private.pem');
+const PUB_KEY_PATH = path.join(CERTS_DIR, 'module_ed25519_public.pem');
+
+const { edPublicKey, edPrivateKey } = (() => {
+  try {
+    if (process.env.MODULE_ED25519_PRIVATE_KEY_PEM && process.env.MODULE_ED25519_PUBLIC_KEY_PEM) {
+      return {
+        edPrivateKey: crypto.createPrivateKey(process.env.MODULE_ED25519_PRIVATE_KEY_PEM),
+        edPublicKey: crypto.createPublicKey(process.env.MODULE_ED25519_PUBLIC_KEY_PEM)
+      };
+    }
+    if (fs.existsSync(PRIV_KEY_PATH) && fs.existsSync(PUB_KEY_PATH)) {
+      return {
+        edPrivateKey: crypto.createPrivateKey(fs.readFileSync(PRIV_KEY_PATH, 'utf8')),
+        edPublicKey: crypto.createPublicKey(fs.readFileSync(PUB_KEY_PATH, 'utf8'))
+      };
+    }
+    if (fs.existsSync(PUB_KEY_PATH)) {
+      return {
+        edPrivateKey: null,
+        edPublicKey: crypto.createPublicKey(fs.readFileSync(PUB_KEY_PATH, 'utf8'))
+      };
+    }
+  } catch (err) {
+    console.error('[Crypto] Failed to load Ed25519 keys from certs/:', err.message);
+  }
+  const generated = crypto.generateKeyPairSync('ed25519');
+  return { edPublicKey: generated.publicKey, edPrivateKey: generated.privateKey };
+})();
+
 const serverEcdh = crypto.createECDH('prime256v1');
 serverEcdh.generateKeys();
 
+const CLIENT_PAYLOAD_HEX_KEY = '4f8b9a2c1d7e6f5031425364758697a8b9c0d1e2f30415263748596a7b8c9d0e';
+const CLIENT_HMAC_SECRET = 'hollow_ultra_secret_jwt_signing_key_2026';
+
 // ---------------------------------------------------------------------------
-// 3. Dynamic Module Catalog Loader (reads from repo root /modules/)
+// 3. Dynamic Module Catalog Loader (reads ONLY real compiled DEX from ../modules/)
 // ---------------------------------------------------------------------------
 const REPO_MODULES_DIR = path.resolve(__dirname, '..', 'modules');
 
-const FALLBACK_MODULES = {
-  module_hider: {
-    moduleId: 'module_hider',
-    displayName: 'App Hider & Launcher Disguise',
-    version: '2.4.0',
-    minCoreVersion: 1,
-    entryClass: 'com.example.isolation.modules.hider.AppHiderModuleEntry',
-    cardTitle: 'Hide App',
-    cardSubtitle: 'Calculator decoy & hidden apps',
-    cardBadge: 'Stealth',
-    iconName: 'visibility_off',
-    accentColorHex: '#7C3AED',
-    description: 'Hide apps from launcher or disguise Hollow as a working Calculator or Notes app.',
-    features: [
-      { key: 'hide_from_launcher', title: 'Hide Apps from Launcher', subtitle: 'Remove selected apps from launcher & recents', defaultEnabled: true },
-      { key: 'calculator_decoy', title: 'Calculator PIN Vault', subtitle: 'Open hidden apps by entering secret PIN in Calculator', defaultEnabled: true }
-    ]
-  },
-  module_isolation: {
-    moduleId: 'module_isolation',
-    displayName: 'Storage Isolate & Per-App Drives',
-    version: '2.4.0',
-    minCoreVersion: 1,
-    entryClass: 'com.example.isolation.modules.isolation.StorageIsolationModuleEntry',
-    cardTitle: 'Storage Isolate',
-    cardSubtitle: 'Private folders & photo shield',
-    cardBadge: 'Protected',
-    iconName: 'folder',
-    accentColorHex: '#0D9488',
-    description: 'Give each app its own clean storage sandbox so it cannot scan your personal DCIM photos or downloads.',
-    features: [
-      { key: 'sandbox_redirect', title: 'Per-App Storage Sandbox', subtitle: 'Redirect /sdcard reads & writes to isolated workspace', defaultEnabled: true },
-      { key: 'encrypted_vault', title: 'AES-256 Safe Folder', subtitle: 'Encrypt sensitive photos & documents at rest', defaultEnabled: true }
-    ]
-  },
-  module_privacy: {
-    moduleId: 'module_privacy',
-    displayName: 'Privacy & Device Identity Spoofer',
-    version: '2.4.0',
-    minCoreVersion: 1,
-    entryClass: 'com.example.isolation.modules.privacy.PrivacySpooferModuleEntry',
-    cardTitle: 'Privacy & Identity',
-    cardSubtitle: 'Spoof phone model, IDs & GPS',
-    cardBadge: 'Shield',
-    iconName: 'fingerprint',
-    accentColorHex: '#4F46E5',
-    description: 'Customize per-app device model (Pixel 9 Pro, Galaxy S24 Ultra), Android ID, IMEI, Wi-Fi MAC, and virtual GPS.',
-    features: [
-      { key: 'device_model_spoof', title: 'Phone Model & Hardware IDs', subtitle: 'Per-app Brand, Model, IMEI, Android ID & MAC', defaultEnabled: true },
-      { key: 'virtual_gps', title: 'Virtual GPS & Timezone', subtitle: 'Spoof per-app coordinates and matching timezone', defaultEnabled: true }
-    ]
-  },
-  module_network: {
-    moduleId: 'module_network',
-    displayName: 'V2Ray, SOCKS5 & Per-App Proxy',
-    version: '2.4.0',
-    minCoreVersion: 1,
-    entryClass: 'com.example.isolation.modules.network.NetworkProxyModuleEntry',
-    cardTitle: 'V2Ray & Proxy',
-    cardSubtitle: 'Per-app VLESS, VMess & SOCKS5',
-    cardBadge: 'Routing',
-    iconName: 'public',
-    accentColorHex: '#0284C7',
-    description: 'Route individual apps through VLESS, VMess, Trojan, Shadowsocks, or SOCKS5 nodes with timezone sync.',
-    features: [
-      { key: 'per_app_proxy', title: 'Per-App Proxy Routing', subtitle: 'Assign different proxy nodes to individual apps', defaultEnabled: true },
-      { key: 'kill_switch', title: 'Leak Kill-Switch', subtitle: 'Block direct traffic if proxy tunnel disconnects', defaultEnabled: true }
-    ]
-  },
-  module_sensor_firewall: {
-    moduleId: 'module_sensor_firewall',
-    displayName: 'Zero-Trust Sensor Firewall',
-    version: '2.4.0',
-    minCoreVersion: 1,
-    entryClass: 'com.example.isolation.modules.sensor.SensorFirewallModuleEntry',
-    cardTitle: 'Sensor Firewall',
-    cardSubtitle: 'Gyroscope, step & mic guard',
-    cardBadge: 'Firewall',
-    iconName: 'sensors',
-    accentColorHex: '#E11D48',
-    description: 'Neutralize gyroscope, accelerometer, step counter, and barometer telemetry used for motion fingerprinting.',
-    features: [
-      { key: 'gyro_noise', title: 'Gyroscope & Accelerometer Guard', subtitle: 'Filter micro-vibration hardware signatures', defaultEnabled: true },
-      { key: 'step_counter_block', title: 'Step & Activity Blocker', subtitle: 'Prevent background pedometer tracking', defaultEnabled: true }
-    ]
+function signModuleSha256(sha256Checksum, existingSignatureB64) {
+  const msgBuf = Buffer.from(sha256Checksum, 'utf8');
+  if (existingSignatureB64 && edPublicKey) {
+    try {
+      const sigBuf = Buffer.from(existingSignatureB64, 'base64');
+      if (crypto.verify(null, msgBuf, edPublicKey, sigBuf)) {
+        return existingSignatureB64;
+      }
+    } catch (_e) {}
   }
-};
+  if (edPrivateKey) {
+    return crypto.sign(null, msgBuf, edPrivateKey).toString('base64');
+  }
+  return existingSignatureB64 || '';
+}
 
 function loadModulesFromRepo() {
   const catalog = {};
@@ -284,42 +164,58 @@ function loadModulesFromRepo() {
         const modDir = path.join(REPO_MODULES_DIR, entry.name);
         const manifestFile = path.join(modDir, 'manifest.json');
         const payloadFile = path.join(modDir, 'module.dex.bin');
-        if (!fs.existsSync(manifestFile)) continue;
+
+        // Only serve modules that have BOTH a manifest.json AND a real compiled module.dex.bin
+        if (!fs.existsSync(manifestFile) || !fs.existsSync(payloadFile)) continue;
+
+        const rawPayload = fs.readFileSync(payloadFile);
+        if (rawPayload.length < 8 || rawPayload.subarray(0, 4).toString('ascii') !== 'dex\n') {
+          console.warn(`[Modules] Skipping ${entry.name}: module.dex.bin does not have valid DEX header`);
+          continue;
+        }
 
         const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
-        const rawPayload = fs.existsSync(payloadFile)
-          ? fs.readFileSync(payloadFile)
-          : Buffer.from(`HOLLOW_DYNAMIC_DEX::${manifest.moduleId}::${manifest.version}`);
-        const sha256 = crypto.createHash('sha256').update(rawPayload).digest('hex');
+        const moduleId = manifest.moduleId || entry.name;
+        const sha256Checksum = crypto.createHash('sha256').update(rawPayload).digest('hex');
+        const signatureB64 = signModuleSha256(sha256Checksum, manifest.signatureB64);
 
-        catalog[manifest.moduleId] = {
+        catalog[moduleId] = {
           ...manifest,
-          sha256,
+          moduleId,
+          displayName: manifest.displayName || manifest.name || moduleId,
+          sha256: sha256Checksum,
+          sha256Checksum,
+          signatureB64,
           sizeBytes: rawPayload.length,
+          sizeKb: Math.max(1, Math.round(rawPayload.length / 1024)),
           dexPayloadBase64: rawPayload.toString('base64')
         };
+
+        if (isDbLive()) {
+          Module.findOneAndUpdate(
+            { moduleId },
+            {
+              moduleId,
+              version: Number(manifest.version) || 1,
+              minCoreVersion: Number(manifest.minCoreVersion) || 1,
+              payloadUrl: `/api/v1/modules/download/${moduleId}`,
+              sha256Checksum,
+              signatureB64,
+              isEnabled: true
+            },
+            { upsert: true }
+          ).catch(() => {});
+        }
       }
     }
   } catch (err) {
     console.error('[Modules] Error reading /modules directory:', err.message);
   }
-
-  for (const [id, mod] of Object.entries(FALLBACK_MODULES)) {
-    if (!catalog[id]) {
-      const buf = Buffer.from(`HOLLOW_DYNAMIC_DEX::${id}::${mod.version}`);
-      catalog[id] = {
-        ...mod,
-        sha256: crypto.createHash('sha256').update(buf).digest('hex'),
-        sizeBytes: buf.length,
-        dexPayloadBase64: buf.toString('base64')
-      };
-    }
-  }
   return catalog;
 }
 
 // ---------------------------------------------------------------------------
-// 4. Envelope Encryption Helpers (ECDH + AES-256-GCM)
+// 4. Envelope Encryption Helpers (HollowSecureClient AES-256-GCM + ECDH P-256)
 // ---------------------------------------------------------------------------
 function deriveSharedAesKey(clientPubKeyBase64, nonce) {
   const clientPubBuf = Buffer.from(clientPubKeyBase64, 'base64');
@@ -331,7 +227,22 @@ function deriveSharedAesKey(clientPubKeyBase64, nonce) {
 }
 
 function decryptEnvelope(envelope) {
-  if (!envelope || !envelope.encrypted || !envelope.clientEphemeralPub) {
+  if (!envelope) return {};
+
+  // Support HollowSecureClient AES-256-GCM envelope (`payload_enc`)
+  if (typeof envelope.payload_enc === 'string') {
+    const combined = Buffer.from(envelope.payload_enc, 'base64');
+    const iv = combined.subarray(0, 12);
+    const tag = combined.subarray(combined.length - 16);
+    const ciphertext = combined.subarray(12, combined.length - 16);
+    const keyBuf = Buffer.from(CLIENT_PAYLOAD_HEX_KEY, 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', keyBuf, iv);
+    decipher.setAuthTag(tag);
+    const plainBuf = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    return JSON.parse(plainBuf.toString('utf8'));
+  }
+
+  if (!envelope.encrypted || !envelope.clientEphemeralPub) {
     return envelope;
   }
   const aesKey = deriveSharedAesKey(envelope.clientEphemeralPub, envelope.nonce);
@@ -347,6 +258,7 @@ function decryptEnvelope(envelope) {
 }
 
 function signJsonPayload(obj) {
+  if (!edPrivateKey) return '';
   const canonical = JSON.stringify(obj);
   const sig = crypto.sign(null, Buffer.from(canonical, 'utf8'), edPrivateKey);
   return sig.toString('base64');
@@ -359,6 +271,27 @@ function hashPassword(pw) {
 function sendClientResponse(req, res, payloadObj) {
   const signature = signJsonPayload(payloadObj);
   const bodyWithSig = { ...payloadObj, ed25519Signature: signature };
+
+  if (req.body && typeof req.body.payload_enc === 'string') {
+    const keyBuf = Buffer.from(CLIENT_PAYLOAD_HEX_KEY, 'hex');
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', keyBuf, iv);
+    const plainBuf = Buffer.from(JSON.stringify(bodyWithSig), 'utf8');
+    const encrypted = Buffer.concat([cipher.update(plainBuf), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    const combined = Buffer.concat([iv, encrypted, tag]);
+    const payloadB64 = combined.toString('base64');
+    const hmacB64 = crypto
+      .createHmac('sha256', Buffer.from(CLIENT_HMAC_SECRET, 'utf8'))
+      .update(payloadB64)
+      .digest('base64');
+
+    return res.json({
+      payload_enc: payloadB64,
+      signature_b64: hmacB64,
+      ts: Date.now()
+    });
+  }
 
   if (req.body && req.body.encrypted && req.body.clientEphemeralPub) {
     const nonce = crypto.randomBytes(12).toString('hex');
@@ -598,47 +531,108 @@ app.post('/api/v1/auth/status', async (req, res) => {
   }
 });
 
+async function handleModuleDownload(req, res, hardwareFingerprint, moduleId) {
+  let record = null;
+  if (isDbLive()) {
+    record = await Device.findOne({ hardwareFingerprint });
+  } else {
+    record = memoryStore.devices.find((d) => d.hardwareFingerprint === hardwareFingerprint);
+  }
+
+  if (!record || record.status !== 'APPROVED') {
+    return res.status(403).json({
+      ok: false,
+      error: record?.status === 'BANNED'
+        ? `Device is banned: ${record.banReason}`
+        : 'Device is not approved by Administrator.'
+    });
+  }
+
+  if (!record.allowedModules.includes(moduleId)) {
+    return res.status(403).json({
+      ok: false,
+      error: `Account is not authorized for module: ${moduleId}`
+    });
+  }
+
+  const catalog = loadModulesFromRepo();
+  const mod = catalog[moduleId];
+  if (!mod) {
+    return res.status(404).json({ ok: false, error: `Unknown or unbuilt moduleId: ${moduleId}` });
+  }
+
+  await recordAudit(
+    'MODULE_DOWNLOADED',
+    hardwareFingerprint,
+    record.username,
+    `Downloaded & Ed25519-signed ${moduleId} (v${mod.version}, sha256=${mod.sha256Checksum.slice(0, 12)}...)`,
+    req
+  );
+
+  return sendClientResponse(req, res, {
+    ok: true,
+    ...mod,
+    hardwareBoundTo: hardwareFingerprint,
+    issuedAtMs: Date.now()
+  });
+}
+
 app.post('/api/v1/modules/download', async (req, res) => {
   try {
     const body = decryptEnvelope(req.body);
-    const { hardwareFingerprint, moduleId } = body;
+    const hardwareFingerprint = body.hardwareFingerprint || req.headers['x-hollow-hw'] || '';
+    const moduleId = body.moduleId || '';
+    return await handleModuleDownload(req, res, hardwareFingerprint, moduleId);
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
 
-    let record = null;
+app.get('/api/v1/modules/download/:moduleId', async (req, res) => {
+  try {
+    const hardwareFingerprint = req.headers['x-hollow-hw'] || req.query.hw || '';
+    const moduleId = req.params.moduleId || '';
+    return await handleModuleDownload(req, res, hardwareFingerprint, moduleId);
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/v1/security/incident', async (req, res) => {
+  try {
+    const body = decryptEnvelope(req.body);
+    const hardwareFingerprint = body.hardwareFingerprint || req.headers['x-hollow-hw'] || 'UNKNOWN_HW';
+    const triggerVector = body.triggerVector || 'MODULE_SIGNATURE_OR_CHECKSUM_FAILURE';
+    const moduleId = body.moduleId || '';
+    const details = body.details || '';
+
+    const incidentDoc = {
+      hardwareFingerprint,
+      ipAddress: req.ip || req.connection?.remoteAddress || '127.0.0.1',
+      triggerVector: `${triggerVector}${moduleId ? ` (${moduleId})` : ''}: ${details}`,
+      actionTaken: 'REJECTED_AND_PURGED_MODULE_FROM_VAULT',
+      timestamp: new Date()
+    };
+
+    memoryStore.securityIncidents.unshift(incidentDoc);
+    if (memoryStore.securityIncidents.length > 100) memoryStore.securityIncidents.pop();
+
     if (isDbLive()) {
-      record = await Device.findOne({ hardwareFingerprint });
-    } else {
-      record = memoryStore.devices.find((d) => d.hardwareFingerprint === hardwareFingerprint);
+      await SecurityIncident.create(incidentDoc).catch(() => {});
     }
 
-    if (!record || record.status !== 'APPROVED') {
-      return res.status(403).json({
-        ok: false,
-        error: record?.status === 'BANNED'
-          ? `Device is banned: ${record.banReason}`
-          : 'Device is not approved by Administrator.'
-      });
-    }
-
-    if (!record.allowedModules.includes(moduleId)) {
-      return res.status(403).json({
-        ok: false,
-        error: `Account is not authorized for module: ${moduleId}`
-      });
-    }
-
-    const catalog = loadModulesFromRepo();
-    const mod = catalog[moduleId];
-    if (!mod) {
-      return res.status(404).json({ ok: false, error: `Unknown moduleId: ${moduleId}` });
-    }
-
-    await recordAudit('MODULE_DOWNLOADED', hardwareFingerprint, record.username, `Downloaded & bound ${moduleId} (v${mod.version})`, req);
+    await recordAudit(
+      'SECURITY_INCIDENT',
+      hardwareFingerprint,
+      '',
+      `[${triggerVector}] ${moduleId}: ${details}`,
+      req
+    );
 
     return sendClientResponse(req, res, {
       ok: true,
-      ...mod,
-      hardwareBoundTo: hardwareFingerprint,
-      issuedAtMs: Date.now()
+      recorded: true,
+      actionTaken: incidentDoc.actionTaken
     });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });

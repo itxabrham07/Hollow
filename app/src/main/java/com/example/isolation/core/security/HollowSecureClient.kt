@@ -3,8 +3,9 @@ package com.example.isolation.core.security
 import android.content.Context
 import android.os.SystemClock
 import android.util.Base64
+import com.example.BuildConfig
 import com.example.isolation.core.license.DeviceHardwareFingerprint
-import org.json.JSONArray
+import com.example.isolation.core.module.HollowDexModuleLoader
 import org.json.JSONObject
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
@@ -22,6 +23,7 @@ import javax.crypto.spec.SecretKeySpec
  * 1. Application-layer AES-256-GCM encryption on every request/response body (`payload_enc`).
  * 2. Hardware-tethered HMAC-SHA256 request signing (`X-Hollow-Signature` & `X-Hollow-HW`).
  * 3. Rejects proxy environment variables (`Proxy.NO_PROXY`) so userland proxy tools cannot intercept traffic.
+ * 4. Verifies SHA-256 checksum and Ed25519 cryptographic signature on every downloaded `.dex` module.
  */
 object HollowSecureClient {
 
@@ -71,6 +73,7 @@ object HollowSecureClient {
         endpointPath: String,
         requestJson: JSONObject
     ): JSONObject? {
+        if (serverBaseUrl.isBlank()) return null
         val hw = DeviceHardwareFingerprint.collect(context)
         val envelope = encryptPayloadEnvelope(requestJson)
         return try {
@@ -100,83 +103,122 @@ object HollowSecureClient {
         }
     }
 
+    /**
+     * Downloads an authorized `.dex` module from `/api/v1/modules/download` (or `/api/v1/modules/download/<moduleId>`)
+     * and verifies its SHA-256 checksum and Ed25519 signature before accepting the payload.
+     */
     fun downloadEncryptedModule(
         context: Context,
         serverBaseUrl: String,
         moduleId: String
     ): JSONObject? {
         val hw = DeviceHardwareFingerprint.collect(context)
-        return try {
-            val cleanBase = serverBaseUrl.trimEnd('/')
-            val url = URL("$cleanBase/api/v1/modules/download/$moduleId")
-            val conn = (url.openConnection(java.net.Proxy.NO_PROXY) as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = 4500
-                readTimeout = 4500
-                setRequestProperty("X-Hollow-HW", hw.fingerprintHex)
+        val postReq = JSONObject()
+            .put("hardwareFingerprint", hw.fingerprintHex)
+            .put("moduleId", moduleId)
+
+        val postResp = postEncrypted(
+            context = context,
+            serverBaseUrl = serverBaseUrl,
+            endpointPath = "/api/v1/modules/download",
+            requestJson = postReq
+        )
+
+        val rawResponse: JSONObject? = if (postResp != null && postResp.has("dexPayloadBase64")) {
+            postResp
+        } else {
+            try {
+                val cleanBase = serverBaseUrl.trimEnd('/')
+                val url = URL("$cleanBase/api/v1/modules/download/$moduleId")
+                val conn = (url.openConnection(java.net.Proxy.NO_PROXY) as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 4500
+                    readTimeout = 4500
+                    setRequestProperty("X-Hollow-HW", hw.fingerprintHex)
+                }
+                if (conn.responseCode !in 200..299) {
+                    null
+                } else {
+                    val bodyStr = conn.inputStream.bufferedReader().readText()
+                    decryptPayloadEnvelope(JSONObject(bodyStr))
+                }
+            } catch (_: Throwable) {
+                null
             }
-            if (conn.responseCode !in 200..299) return null
-            val bodyStr = conn.inputStream.bufferedReader().readText()
-            decryptPayloadEnvelope(JSONObject(bodyStr))
-        } catch (_: Throwable) {
-            null
+        }
+
+        if (rawResponse == null) return null
+
+        // Verify SHA-256 checksum, Ed25519 signature & minCoreVersion immediately upon download
+        return when (val check = HollowDexModuleLoader.verifyModuleBundleIntegrity(rawResponse)) {
+            is HollowDexModuleLoader.VerificationOutcome.Success -> rawResponse
+            is HollowDexModuleLoader.VerificationOutcome.IncompatibleVersion -> null
+            is HollowDexModuleLoader.VerificationOutcome.Failure -> {
+                reportSecurityIncidentAsync(
+                    context = context,
+                    serverBaseUrl = serverBaseUrl,
+                    moduleId = moduleId,
+                    triggerVector = check.reasonCode,
+                    details = check.details
+                )
+                null
+            }
         }
     }
 
-    fun buildSignedSimulatedModuleBundle(context: Context, moduleId: String): String {
+    fun reportSecurityIncident(
+        context: Context,
+        serverBaseUrl: String,
+        moduleId: String,
+        triggerVector: String,
+        details: String
+    ): JSONObject? {
+        if (serverBaseUrl.isBlank()) return null
         val hw = DeviceHardwareFingerprint.collect(context)
-        val obj = JSONObject()
+        val payload = JSONObject()
+            .put("hardwareFingerprint", hw.fingerprintHex)
             .put("moduleId", moduleId)
-            .put("boundHardwareFingerprint", hw.fingerprintHex)
-            .put("issuedAtMs", System.currentTimeMillis())
-            .put("dexHeaderMagic", "dex\n039\u0000")
-            .put("signatureB64", computeHmacSha256("$moduleId:${hw.fingerprintHex}"))
+            .put("triggerVector", triggerVector)
+            .put("details", details)
+            .put("timestampMs", System.currentTimeMillis())
+        return postEncrypted(
+            context = context,
+            serverBaseUrl = serverBaseUrl,
+            endpointPath = "/api/v1/security/incident",
+            requestJson = payload
+        )
+    }
 
-        if (moduleId == "module_sensor_firewall") {
-            obj.put("name", "Sensor & Mic Hardware Firewall")
-                .put("cardTitle", "Sensor Firewall")
-                .put(
-                    "description",
-                    "Zero-touch server-shipped module that blanks camera/microphone buffers, zeroes gyroscope/accelerometer telemetry, and blocks background ultrasonic beacons."
+    fun reportSecurityIncidentAsync(
+        context: Context,
+        serverBaseUrl: String,
+        moduleId: String,
+        triggerVector: String,
+        details: String
+    ) {
+        if (serverBaseUrl.isBlank()) return
+        Thread {
+            try {
+                reportSecurityIncident(
+                    context = context,
+                    serverBaseUrl = serverBaseUrl,
+                    moduleId = moduleId,
+                    triggerVector = triggerVector,
+                    details = details
                 )
-                .put("version", 1)
-                .put("sizeKb", 395)
-                .put("accentColorHex", "0xFFF59E0B")
-                .put("entryClass", "com.example.isolation.module.sensorfirewall.SensorFirewallPayload")
-                .put(
-                    "features",
-                    JSONArray()
-                        .put(
-                            JSONObject()
-                                .put("key", "mic_null_pcm_stream")
-                                .put("title", "Silent PCM Microphone Guard")
-                                .put("description", "Injects zeroed PCM audio frames into AudioRecord when background apps attempt covert recording.")
-                                .put("defaultEnabled", true)
-                        )
-                        .put(
-                            JSONObject()
-                                .put("key", "camera_black_frame_shield")
-                                .put("title", "Camera2 Black Frame Shield")
-                                .put("description", "Replaces CameraDevice capture surfaces with synthetic blank frames unless explicitly whitelisted.")
-                                .put("defaultEnabled", true)
-                        )
-                        .put(
-                            JSONObject()
-                                .put("key", "gyro_motion_fingerprint_scrub")
-                                .put("title", "Gyroscope & Step Counter Scrubber")
-                                .put("description", "Prevents gait and micro-vibration fingerprinting across SensorManager listeners.")
-                                .put("defaultEnabled", true)
-                        )
-                )
-                .put(
-                    "hookTargets",
-                    JSONArray()
-                        .put("android.media.AudioRecord")
-                        .put("android.hardware.camera2.CameraManager")
-                        .put("android.hardware.SystemSensorManager")
-                )
-        }
-        return obj.toString()
+            } catch (_: Throwable) {
+            }
+        }.start()
+    }
+
+    /**
+     * In DEBUG builds only (`BuildConfig.DEBUG`), returns the real compiled & Ed25519-signed
+     * DEX module bundle from `debug_modules/<moduleId>.json` for offline emulator / Robolectric testing.
+     * In RELEASE builds, returns an empty string (no local fallback bundles in release).
+     */
+    fun buildSignedSimulatedModuleBundle(context: Context, moduleId: String): String {
+        if (!BuildConfig.DEBUG) return ""
+        return HollowDexModuleLoader.readDebugModuleBundleJson(context, moduleId).orEmpty()
     }
 
     private fun computeHmacSha256(data: String): String {

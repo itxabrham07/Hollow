@@ -1,8 +1,6 @@
 package com.example.isolation.ui.screens
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -22,7 +20,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -33,27 +30,19 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.GppBad
-import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.PhonelinkSetup
-import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -71,29 +60,28 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.isolation.model.AppSettings
 import com.example.isolation.model.DeviceProfilePreset
 import com.example.isolation.model.IsolationRuleManager
 import com.example.isolation.model.PrivacyProfile
 import com.example.isolation.model.VpnProxyPresets
 import com.example.isolation.pkg.InstalledAppInfo
+import com.example.isolation.ui.components.ContentCard
+import com.example.isolation.ui.components.EmptyState
+import com.example.isolation.ui.components.ListRow
+import com.example.isolation.ui.components.MonoDataText
+import com.example.isolation.ui.components.PrimaryButton
+import com.example.isolation.ui.components.SecondaryButton
+import com.example.isolation.ui.components.SectionHeader
+import com.example.isolation.ui.components.StatusIndicator
 import com.example.isolation.ui.components.rememberAppIconBitmap
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
-import com.example.ui.theme.JakartaFontFamily
 import com.example.ui.theme.M3AmberAccent
-import com.example.ui.theme.M3IndigoAccent
-import com.example.ui.theme.M3RoseAccent
-import com.example.ui.theme.M3SkyAccent
-import com.example.ui.theme.M3TealAccent
-import com.example.ui.theme.M3VioletAccent
 
 private enum class PrivacyAppFilter(val label: String) {
     USER_APPS("Installed Apps"),
@@ -104,7 +92,7 @@ private enum class PrivacyAppFilter(val label: String) {
 }
 
 /**
- * Colorful Material 3 App Privacy, Hardware Identity, Per-App VPN & Anti-Tracking Screen.
+ * App Privacy, Hardware Identity, Per-App VPN & Anti-Tracking Screen.
  * Shows all installed apps immediately with 1-tap switches, quick profile assignment,
  * per-app VPN toggles, Global V2Ray/Proxy Suite manager, and full 50+ setting Privacy Studio.
  */
@@ -200,9 +188,12 @@ fun DeviceSpooferScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 8.dp, bottom = 10.dp)
+                .padding(top = 8.dp, bottom = 12.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
                 if (onBack != null) {
                     Surface(
                         color = scheme.surfaceContainerLow,
@@ -227,103 +218,101 @@ fun DeviceSpooferScreen(
                 Column {
                     Text(
                         text = "App Privacy & Identity",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = scheme.onSurface,
-                        fontFamily = JakartaFontFamily
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = scheme.onSurface
                     )
                     Text(
                         text = "Device IDs, browser fingerprint, sensors, GPS & per-app VPN",
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         color = scheme.onSurfaceVariant,
-                        fontFamily = JakartaFontFamily
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Surface(
-                    color = if (settings.vpnTunnelEnabled) M3SkyAccent.copy(alpha = 0.16f) else scheme.surfaceContainerLow,
-                    shape = RoundedCornerShape(50),
-                    border = BorderStroke(
-                        1.dp,
-                        if (settings.vpnTunnelEnabled) M3SkyAccent else scheme.outlineVariant.copy(alpha = 0.4f)
-                    ),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .clickable { showVpnSuiteDialog = true }
-                        .testTag("btn_open_vpn_suite")
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.VpnKey,
-                            contentDescription = null,
-                            tint = if (settings.vpnTunnelEnabled) M3SkyAccent else scheme.onSurfaceVariant,
-                            modifier = Modifier.size(15.dp)
-                        )
-                        Spacer(modifier = Modifier.width(5.dp))
-                        Text(
-                            text = if (settings.vpnTunnelEnabled) activeExitNode.protocol.badge else "VPN",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (settings.vpnTunnelEnabled) M3SkyAccent else scheme.onSurface,
-                            fontFamily = JakartaFontFamily
-                        )
-                    }
-                }
+            Spacer(modifier = Modifier.width(8.dp))
 
-                Surface(
-                    color = scheme.secondaryContainer,
-                    shape = RoundedCornerShape(50),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .clickable { showProfilesDialog = true }
-                        .testTag("btn_manage_privacy_profiles")
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Shield,
-                            contentDescription = null,
-                            tint = scheme.onSecondaryContainer,
-                            modifier = Modifier.size(15.dp)
-                        )
-                        Spacer(modifier = Modifier.width(5.dp))
-                        Text(
-                            text = "Profiles (${privacyProfiles.size})",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = scheme.onSecondaryContainer,
-                            fontFamily = JakartaFontFamily
-                        )
-                    }
-                }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SecondaryButton(
+                    text = if (settings.vpnTunnelEnabled) activeExitNode.protocol.badge else "VPN",
+                    icon = Icons.Default.VpnKey,
+                    onClick = { showVpnSuiteDialog = true },
+                    modifier = Modifier.testTag("btn_open_vpn_suite")
+                )
+                SecondaryButton(
+                    text = "Profiles (${privacyProfiles.size})",
+                    icon = Icons.Default.Shield,
+                    onClick = { showProfilesDialog = true },
+                    modifier = Modifier.testTag("btn_manage_privacy_profiles")
+                )
             }
         }
 
-        // Colorful Summary Hero Banner
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-            shape = RoundedCornerShape(22.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(22.dp))
-                .background(
-                    Brush.linearGradient(
-                        listOf(
-                            M3VioletAccent,
-                            M3IndigoAccent
-                        )
-                    )
-                )
+        // Summary Hero Card
+        ContentCard(
+            shape = MaterialTheme.shapes.large,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(MaterialTheme.shapes.small)
+                            .background(scheme.primaryContainer)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PhonelinkSetup,
+                            contentDescription = null,
+                            tint = scheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "$protectedCount Protected · $vpnRoutedCount VPN Routed",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = scheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        if (settings.vpnTunnelEnabled) {
+                            MonoDataText(
+                                text = "Exit Node: ${activeExitNode.name} (${activeExitNode.exitIp})",
+                                maxLines = 1
+                            )
+                        } else {
+                            Text(
+                                text = "Tap any app for 50+ hardware, browser, GPS, sensor & VPN controls",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = scheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                StatusIndicator(
+                    label = if (settings.vpnTunnelEnabled) "Tunnel ON" else "Standby",
+                    color = if (settings.vpnTunnelEnabled) scheme.secondary else scheme.onSurfaceVariant,
+                    modifier = Modifier.clickable { showVpnSuiteDialog = true }
+                )
+            }
+
+            if (deadmanIncidents.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider(color = scheme.outlineVariant)
+                Spacer(modifier = Modifier.height(12.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -333,116 +322,30 @@ fun DeviceSpooferScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.weight(1f)
                     ) {
-                        Surface(
-                            color = Color.White.copy(alpha = 0.2f),
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.size(44.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.PhonelinkSetup,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "$protectedCount Protected · $vpnRoutedCount VPN Routed",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color.White,
-                                fontFamily = JakartaFontFamily
-                            )
-                            Text(
-                                text = if (settings.vpnTunnelEnabled) {
-                                    "Exit Node: ${activeExitNode.name} (${activeExitNode.exitIp})"
-                                } else {
-                                    "Tap any app for 50+ hardware, browser, GPS, sensor & VPN controls"
-                                },
-                                fontSize = 11.5.sp,
-                                color = Color.White.copy(alpha = 0.9f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                fontFamily = JakartaFontFamily
-                            )
-                        }
-                    }
-
-                    Surface(
-                        color = Color.White.copy(alpha = 0.22f),
-                        shape = RoundedCornerShape(50),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .clickable { showVpnSuiteDialog = true }
-                    ) {
+                        Icon(
+                            imageVector = Icons.Default.GppBad,
+                            contentDescription = null,
+                            tint = scheme.error,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (settings.vpnTunnelEnabled) "Tunnel ON" else "Setup VPN",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = Color.White,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            fontFamily = JakartaFontFamily
+                            text = "${deadmanIncidents.size} app(s) severed by Deadman Switch",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = scheme.error
                         )
                     }
-                }
-
-                if (deadmanIncidents.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Surface(
-                        color = M3RoseAccent.copy(alpha = 0.92f),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.GppBad,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "${deadmanIncidents.size} app(s) severed by Deadman Switch",
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White,
-                                    fontFamily = JakartaFontFamily
-                                )
-                            }
-                            Surface(
-                                color = Color.White,
-                                shape = RoundedCornerShape(50),
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(50))
-                                    .clickable { viewModel.restoreAllNetworks() }
-                            ) {
-                                Text(
-                                    text = "Restore All",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = M3RoseAccent,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                    fontFamily = JakartaFontFamily
-                                )
-                            }
-                        }
-                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    SecondaryButton(
+                        text = "Restore All",
+                        isDestructive = true,
+                        onClick = { viewModel.restoreAllNetworks() }
+                    )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         // Search Field
         OutlinedTextField(
@@ -451,8 +354,7 @@ fun DeviceSpooferScreen(
             placeholder = {
                 Text(
                     text = "Search apps, package names, or spoofed models...",
-                    fontSize = 13.sp,
-                    fontFamily = JakartaFontFamily
+                    style = MaterialTheme.typography.bodyMedium
                 )
             },
             leadingIcon = {
@@ -473,12 +375,12 @@ fun DeviceSpooferScreen(
                 }
             },
             singleLine = true,
-            shape = RoundedCornerShape(16.dp),
+            shape = MaterialTheme.shapes.extraSmall,
             colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = scheme.surfaceContainerLow,
-                unfocusedContainerColor = scheme.surfaceContainerLow,
+                focusedContainerColor = scheme.surface,
+                unfocusedContainerColor = scheme.surface,
                 focusedBorderColor = scheme.primary,
-                unfocusedBorderColor = Color.Transparent
+                unfocusedBorderColor = scheme.outlineVariant
             ),
             modifier = Modifier
                 .fillMaxWidth()
@@ -502,9 +404,9 @@ fun DeviceSpooferScreen(
                     label = {
                         Text(
                             text = filter.label,
-                            fontSize = 12.sp,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                            fontFamily = JakartaFontFamily
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                            )
                         )
                     },
                     leadingIcon = if (selected) {
@@ -516,7 +418,7 @@ fun DeviceSpooferScreen(
                             )
                         }
                     } else null,
-                    shape = RoundedCornerShape(50),
+                    shape = MaterialTheme.shapes.extraSmall,
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = scheme.primaryContainer,
                         selectedLabelColor = scheme.onPrimaryContainer
@@ -525,7 +427,7 @@ fun DeviceSpooferScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         // Unified App List
         if (filteredApps.isEmpty()) {
@@ -535,107 +437,221 @@ fun DeviceSpooferScreen(
                     .fillMaxWidth()
                     .weight(1f)
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Default.PhonelinkSetup,
-                        contentDescription = null,
-                        tint = scheme.onSurfaceVariant,
-                        modifier = Modifier.size(42.dp)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "No matching apps found",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = scheme.onSurface,
-                        fontFamily = JakartaFontFamily
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    TextButton(onClick = {
+                EmptyState(
+                    icon = Icons.Default.PhonelinkSetup,
+                    title = "No matching apps found",
+                    message = "Try adjusting your search or filter to view installed packages.",
+                    actionLabel = "Show All Installed Apps",
+                    onAction = {
                         activeFilter = PrivacyAppFilter.ALL_APPS
                         searchQuery = ""
-                    }) {
-                        Text("Show All Installed Apps")
                     }
-                }
+                )
             }
         } else {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
                 contentPadding = PaddingValues(bottom = 24.dp)
             ) {
                 items(filteredApps, key = { it.packageName }) { app ->
-                    ColorfulPrivacyAppCard(
-                        app = app,
-                        privacyProfiles = privacyProfiles,
-                        onOpenConfig = { selectedAppPkg = app.packageName },
-                        onToggleSpoof = { enabled ->
-                            if (!enabled) {
-                                viewModel.removeAppIdentitySpoof(app)
-                            } else {
-                                val preset = if (app.deviceProfilePreset == DeviceProfilePreset.REAL_HARDWARE) {
-                                    DeviceProfilePreset.PIXEL_9_PRO
-                                } else {
-                                    app.deviceProfilePreset
-                                }
-                                viewModel.saveAppIdentitySpoofConfig(
-                                    appInfo = app,
-                                    enabled = true,
-                                    preset = preset,
-                                    brand = app.spoofBrand.ifBlank { preset.brand },
-                                    model = app.spoofModel.ifBlank { preset.model },
-                                    device = app.spoofDevice.ifBlank { preset.device },
-                                    androidId = app.spoofAndroidId.ifBlank { IsolationRuleManager.generateAndroidId() },
-                                    imei = app.spoofImei.ifBlank { IsolationRuleManager.generateLuhnImei() },
-                                    advertisingId = app.spoofAdvertisingId.ifBlank { IsolationRuleManager.generateAdvertisingId() },
-                                    macAddress = app.spoofMacAddress.ifBlank { IsolationRuleManager.generateMacAddress() },
-                                    carrierName = app.spoofCarrierName.ifBlank { "T-Mobile US" },
-                                    simOperator = app.spoofSimOperator.ifBlank { "310260" },
-                                    serial = app.spoofSerial.ifBlank { IsolationRuleManager.generateSerial() },
-                                    hideRootAndXposed = true,
-                                    hideAdbAndDevOptions = true,
-                                    hideVpnAndProxy = true,
-                                    blockClipboardRead = app.blockClipboardRead
+                    val isProtected = app.isIdentitySpoofed || app.spoofLocationEnabled || app.vpnProxyEnabled
+                    val activeModelLabel = if (app.isIdentitySpoofed) {
+                        app.spoofModel.ifBlank { app.deviceProfilePreset.label }
+                    } else {
+                        "Real Device"
+                    }
+                    val matchedProfile = remember(app.privacyProfileId, privacyProfiles) {
+                        privacyProfiles.firstOrNull { it.id == app.privacyProfileId }
+                    }
+                    val iconBitmap = rememberAppIconBitmap(app.packageName, app.icon)
+
+                    ContentCard(
+                        onClick = { selectedAppPkg = app.packageName },
+                        borderColor = if (isProtected) scheme.secondary else scheme.outlineVariant,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("privacy_app_card_${app.packageName}")
+                    ) {
+                        ListRow(
+                            title = app.appName,
+                            monoSubtitle = app.packageName,
+                            leadingBitmap = iconBitmap,
+                            leadingIcon = if (iconBitmap == null) Icons.Default.Android else null,
+                            statusLabel = if (isProtected) "Protected" else null,
+                            statusColor = scheme.secondary,
+                            modifier = Modifier.padding(0.dp),
+                            trailing = {
+                                Switch(
+                                    checked = app.isIdentitySpoofed,
+                                    onCheckedChange = { enabled ->
+                                        if (!enabled) {
+                                            viewModel.removeAppIdentitySpoof(app)
+                                        } else {
+                                            val preset = if (app.deviceProfilePreset == DeviceProfilePreset.REAL_HARDWARE) {
+                                                DeviceProfilePreset.PIXEL_9_PRO
+                                            } else {
+                                                app.deviceProfilePreset
+                                            }
+                                            viewModel.saveAppIdentitySpoofConfig(
+                                                appInfo = app,
+                                                enabled = true,
+                                                preset = preset,
+                                                brand = app.spoofBrand.ifBlank { preset.brand },
+                                                model = app.spoofModel.ifBlank { preset.model },
+                                                device = app.spoofDevice.ifBlank { preset.device },
+                                                androidId = app.spoofAndroidId.ifBlank { IsolationRuleManager.generateAndroidId() },
+                                                imei = app.spoofImei.ifBlank { IsolationRuleManager.generateLuhnImei() },
+                                                advertisingId = app.spoofAdvertisingId.ifBlank { IsolationRuleManager.generateAdvertisingId() },
+                                                macAddress = app.spoofMacAddress.ifBlank { IsolationRuleManager.generateMacAddress() },
+                                                carrierName = app.spoofCarrierName.ifBlank { "T-Mobile US" },
+                                                simOperator = app.spoofSimOperator.ifBlank { "310260" },
+                                                serial = app.spoofSerial.ifBlank { IsolationRuleManager.generateSerial() },
+                                                hideRootAndXposed = true,
+                                                hideAdbAndDevOptions = true,
+                                                hideVpnAndProxy = true,
+                                                blockClipboardRead = app.blockClipboardRead
+                                            )
+                                        }
+                                    },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = scheme.onPrimary,
+                                        checkedTrackColor = scheme.primary
+                                    ),
+                                    modifier = Modifier.testTag("switch_spoof_${app.packageName}")
                                 )
                             }
-                        },
-                        onToggleAppVpn = { enabled ->
-                            viewModel.toggleAppVpnProxy(app, enabled)
-                        },
-                        onApplyProfile = { profile ->
-                            viewModel.applyPrivacyProfileToApp(app, profile)
-                        },
-                        onQuickRandomize = {
-                            val preset = listOf(
-                                DeviceProfilePreset.PIXEL_9_PRO,
-                                DeviceProfilePreset.SAMSUNG_S24_ULTRA,
-                                DeviceProfilePreset.ONEPLUS_12,
-                                DeviceProfilePreset.XIAOMI_14_ULTRA
-                            ).random()
-                            viewModel.saveAppIdentitySpoofConfig(
-                                appInfo = app,
-                                enabled = true,
-                                preset = preset,
-                                brand = preset.brand,
-                                model = preset.model,
-                                device = preset.device,
-                                androidId = IsolationRuleManager.generateAndroidId(),
-                                imei = IsolationRuleManager.generateLuhnImei(),
-                                advertisingId = IsolationRuleManager.generateAdvertisingId(),
-                                macAddress = IsolationRuleManager.generateMacAddress(),
-                                carrierName = "T-Mobile US",
-                                simOperator = "310260",
-                                serial = IsolationRuleManager.generateSerial(),
-                                hideRootAndXposed = true,
-                                hideAdbAndDevOptions = true,
-                                hideVpnAndProxy = true,
-                                blockClipboardRead = true
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Active Status Indicators Row
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            StatusIndicator(
+                                label = activeModelLabel,
+                                color = if (app.isIdentitySpoofed) scheme.secondary else scheme.onSurfaceVariant
                             )
+                            if (matchedProfile != null) {
+                                StatusIndicator(
+                                    label = matchedProfile.name,
+                                    color = scheme.primary
+                                )
+                            }
+                            if (app.spoofLocationEnabled) {
+                                StatusIndicator(
+                                    label = "GPS · ${app.spoofTimezoneId.substringAfterLast('/')}",
+                                    color = M3AmberAccent
+                                )
+                            }
+                            if (app.disableAllNetworking) {
+                                StatusIndicator(
+                                    label = "Offline Firewall",
+                                    color = scheme.error
+                                )
+                            }
                         }
-                    )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Quick Action Controls Row
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .horizontalScroll(rememberScrollState())
+                            ) {
+                                FilterChip(
+                                    selected = app.vpnProxyEnabled,
+                                    onClick = { viewModel.toggleAppVpnProxy(app, !app.vpnProxyEnabled) },
+                                    label = {
+                                        Text(
+                                            text = if (app.vpnProxyEnabled) "VPN ON" else "VPN Off",
+                                            style = MaterialTheme.typography.labelMedium
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.VpnKey,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    },
+                                    shape = MaterialTheme.shapes.extraSmall
+                                )
+
+                                privacyProfiles.take(2).forEach { profile ->
+                                    val active = app.privacyProfileId == profile.id
+                                    FilterChip(
+                                        selected = active,
+                                        onClick = { viewModel.applyPrivacyProfileToApp(app, profile) },
+                                        label = {
+                                            Text(
+                                                text = profile.name,
+                                                style = MaterialTheme.typography.labelMedium
+                                            )
+                                        },
+                                        shape = MaterialTheme.shapes.extraSmall
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                SecondaryButton(
+                                    text = "Random",
+                                    icon = Icons.Default.AutoFixHigh,
+                                    onClick = {
+                                        val preset = listOf(
+                                            DeviceProfilePreset.PIXEL_9_PRO,
+                                            DeviceProfilePreset.SAMSUNG_S24_ULTRA,
+                                            DeviceProfilePreset.ONEPLUS_12,
+                                            DeviceProfilePreset.XIAOMI_14_ULTRA
+                                        ).random()
+                                        viewModel.saveAppIdentitySpoofConfig(
+                                            appInfo = app,
+                                            enabled = true,
+                                            preset = preset,
+                                            brand = preset.brand,
+                                            model = preset.model,
+                                            device = preset.device,
+                                            androidId = IsolationRuleManager.generateAndroidId(),
+                                            imei = IsolationRuleManager.generateLuhnImei(),
+                                            advertisingId = IsolationRuleManager.generateAdvertisingId(),
+                                            macAddress = IsolationRuleManager.generateMacAddress(),
+                                            carrierName = "T-Mobile US",
+                                            simOperator = "310260",
+                                            serial = IsolationRuleManager.generateSerial(),
+                                            hideRootAndXposed = true,
+                                            hideAdbAndDevOptions = true,
+                                            hideVpnAndProxy = true,
+                                            blockClipboardRead = true
+                                        )
+                                    },
+                                    modifier = Modifier.testTag("btn_quick_randomize_${app.packageName}")
+                                )
+                                PrimaryButton(
+                                    text = "Studio",
+                                    icon = Icons.Default.Tune,
+                                    onClick = { selectedAppPkg = app.packageName },
+                                    modifier = Modifier.testTag("btn_configure_privacy_${app.packageName}")
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -661,334 +677,6 @@ fun DeviceSpooferScreen(
 }
 
 @Composable
-private fun ColorfulPrivacyAppCard(
-    app: InstalledAppInfo,
-    privacyProfiles: List<PrivacyProfile>,
-    onOpenConfig: () -> Unit,
-    onToggleSpoof: (Boolean) -> Unit,
-    onToggleAppVpn: (Boolean) -> Unit,
-    onApplyProfile: (PrivacyProfile) -> Unit,
-    onQuickRandomize: () -> Unit
-) {
-    val scheme = MaterialTheme.colorScheme
-    val isProtected = app.isIdentitySpoofed || app.spoofLocationEnabled || app.vpnProxyEnabled
-    val activeModelLabel = if (app.isIdentitySpoofed) {
-        app.spoofModel.ifBlank { app.deviceProfilePreset.label }
-    } else {
-        "Real Device"
-    }
-    val matchedProfile = remember(app.privacyProfileId, privacyProfiles) {
-        privacyProfiles.firstOrNull { it.id == app.privacyProfileId }
-    }
-
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (isProtected) {
-                scheme.primaryContainer.copy(alpha = 0.35f)
-            } else {
-                scheme.surfaceContainerLow
-            }
-        ),
-        shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (isProtected) {
-                M3VioletAccent.copy(alpha = 0.4f)
-            } else {
-                scheme.outlineVariant.copy(alpha = 0.35f)
-            }
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .clickable { onOpenConfig() }
-            .testTag("privacy_app_card_${app.packageName}")
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    val iconBitmap = rememberAppIconBitmap(app.packageName, app.icon)
-                    if (iconBitmap != null) {
-                        Image(
-                            bitmap = iconBitmap,
-                            contentDescription = app.appName,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .size(46.dp)
-                                .clip(RoundedCornerShape(13.dp))
-                        )
-                    } else {
-                        Surface(
-                            color = M3IndigoAccent.copy(alpha = 0.14f),
-                            shape = RoundedCornerShape(13.dp),
-                            modifier = Modifier.size(46.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Android,
-                                    contentDescription = null,
-                                    tint = M3IndigoAccent,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(12.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = app.appName,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = scheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            fontFamily = JakartaFontFamily
-                        )
-                        Text(
-                            text = app.packageName,
-                            fontSize = 11.sp,
-                            color = scheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            fontFamily = JakartaFontFamily
-                        )
-                    }
-                }
-
-                Switch(
-                    checked = app.isIdentitySpoofed,
-                    onCheckedChange = onToggleSpoof,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = M3VioletAccent
-                    ),
-                    modifier = Modifier.testTag("switch_spoof_${app.packageName}")
-                )
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Active Badges Row
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Surface(
-                    color = if (app.isIdentitySpoofed) M3VioletAccent.copy(alpha = 0.15f) else scheme.surfaceContainerHighest,
-                    shape = RoundedCornerShape(50)
-                ) {
-                    Text(
-                        text = activeModelLabel,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (app.isIdentitySpoofed) M3VioletAccent else scheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        fontFamily = JakartaFontFamily
-                    )
-                }
-
-                if (matchedProfile != null) {
-                    Surface(
-                        color = M3IndigoAccent.copy(alpha = 0.15f),
-                        shape = RoundedCornerShape(50)
-                    ) {
-                        Text(
-                            text = matchedProfile.name,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = M3IndigoAccent,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                            fontFamily = JakartaFontFamily
-                        )
-                    }
-                }
-
-                if (app.spoofLocationEnabled) {
-                    Surface(
-                        color = M3AmberAccent.copy(alpha = 0.16f),
-                        shape = RoundedCornerShape(50)
-                    ) {
-                        Text(
-                            text = "GPS · ${app.spoofTimezoneId.substringAfterLast('/')}",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = M3AmberAccent,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                            fontFamily = JakartaFontFamily
-                        )
-                    }
-                }
-
-                if (app.disableAllNetworking) {
-                    Surface(
-                        color = M3RoseAccent.copy(alpha = 0.16f),
-                        shape = RoundedCornerShape(50)
-                    ) {
-                        Text(
-                            text = "Offline Firewall",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = M3RoseAccent,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                            fontFamily = JakartaFontFamily
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Quick Action Pills Row (1-Tap VPN, Quick Profiles, Randomize, Full Studio)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .horizontalScroll(rememberScrollState())
-                ) {
-                    // 1-Tap Per-App VPN Toggle Pill
-                    Surface(
-                        color = if (app.vpnProxyEnabled) M3SkyAccent.copy(alpha = 0.18f) else scheme.surface,
-                        shape = RoundedCornerShape(50),
-                        border = BorderStroke(
-                            1.dp,
-                            if (app.vpnProxyEnabled) M3SkyAccent else scheme.outlineVariant.copy(alpha = 0.45f)
-                        ),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .clickable { onToggleAppVpn(!app.vpnProxyEnabled) }
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.VpnKey,
-                                contentDescription = null,
-                                tint = if (app.vpnProxyEnabled) M3SkyAccent else scheme.onSurfaceVariant,
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (app.vpnProxyEnabled) "VPN ON" else "VPN Off",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (app.vpnProxyEnabled) M3SkyAccent else scheme.onSurfaceVariant,
-                                fontFamily = JakartaFontFamily
-                            )
-                        }
-                    }
-
-                    // Quick Apply Built-in Profiles
-                    privacyProfiles.take(2).forEach { profile ->
-                        val active = app.privacyProfileId == profile.id
-                        Surface(
-                            color = if (active) M3VioletAccent.copy(alpha = 0.16f) else scheme.surface,
-                            shape = RoundedCornerShape(50),
-                            border = BorderStroke(
-                                1.dp,
-                                if (active) M3VioletAccent else scheme.outlineVariant.copy(alpha = 0.4f)
-                            ),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(50))
-                                .clickable { onApplyProfile(profile) }
-                        ) {
-                            Text(
-                                text = profile.name,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (active) M3VioletAccent else scheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-                                fontFamily = JakartaFontFamily
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Surface(
-                        color = M3IndigoAccent.copy(alpha = 0.12f),
-                        shape = RoundedCornerShape(50),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .clickable { onQuickRandomize() }
-                            .testTag("btn_quick_randomize_${app.packageName}")
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AutoFixHigh,
-                                contentDescription = null,
-                                tint = M3IndigoAccent,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Random",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = M3IndigoAccent,
-                                fontFamily = JakartaFontFamily
-                            )
-                        }
-                    }
-
-                    Surface(
-                        color = scheme.primary,
-                        shape = RoundedCornerShape(50),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .clickable { onOpenConfig() }
-                            .testTag("btn_configure_privacy_${app.packageName}")
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Tune,
-                                contentDescription = null,
-                                tint = scheme.onPrimary,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Studio",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = scheme.onPrimary,
-                                fontFamily = JakartaFontFamily
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun GlobalVpnProxySuiteDialog(
     settings: AppSettings,
     viewModel: IsoVaultViewModel,
@@ -1003,18 +691,20 @@ private fun GlobalVpnProxySuiteDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = MaterialTheme.shapes.extraLarge,
+        containerColor = scheme.surface,
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = Icons.Default.VpnKey,
                     contentDescription = null,
-                    tint = M3SkyAccent
+                    tint = scheme.primary
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "V2Ray / Proxy & VPN Suite",
-                    fontWeight = FontWeight.ExtraBold,
-                    fontFamily = JakartaFontFamily
+                    style = MaterialTheme.typography.titleLarge,
+                    color = scheme.onSurface
                 )
             }
         },
@@ -1023,137 +713,79 @@ private fun GlobalVpnProxySuiteDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Global Tunnel Master Switch
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = scheme.surfaceContainerLow),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp)
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Global V2Ray / Proxy Tunnel",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = scheme.onSurface,
-                                fontFamily = JakartaFontFamily
-                            )
-                            Text(
-                                text = "${settings.activeServer.name} (${settings.activeServer.exitIp})",
-                                fontSize = 11.sp,
-                                color = scheme.onSurfaceVariant,
-                                fontFamily = JakartaFontFamily
+                ContentCard {
+                    ListRow(
+                        title = "Global V2Ray / Proxy Tunnel",
+                        monoSubtitle = "${settings.activeServer.name} (${settings.activeServer.exitIp})",
+                        trailing = {
+                            Switch(
+                                checked = settings.vpnTunnelEnabled,
+                                onCheckedChange = { viewModel.setVpnTunnelEnabled(it) }
                             )
                         }
-                        Switch(
-                            checked = settings.vpnTunnelEnabled,
-                            onCheckedChange = { viewModel.setVpnTunnelEnabled(it) }
-                        )
-                    }
+                    )
                 }
 
-                // Route All Apps Bulk Actions
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    FilledTonalButton(
+                    PrimaryButton(
+                        text = "Route All Apps",
                         onClick = { viewModel.setAllAppsVpnProxy(true) },
-                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Route All Apps", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    }
-                    OutlinedButton(
+                    )
+                    SecondaryButton(
+                        text = "Disable All",
                         onClick = { viewModel.setAllAppsVpnProxy(false) },
-                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Disable All", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    }
+                    )
                 }
 
-                // Exit Node Selector
-                Text(
-                    text = "Active Exit Node (${allServers.size})",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = scheme.onSurface,
-                    fontFamily = JakartaFontFamily
-                )
+                SectionHeader(title = "Active Exit Node (${allServers.size})")
 
                 allServers.forEach { server ->
                     val isSelected = settings.activeProxyServerId == server.id
-                    Surface(
-                        color = if (isSelected) M3SkyAccent.copy(alpha = 0.14f) else scheme.surfaceContainerLow,
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(
-                            1.dp,
-                            if (isSelected) M3SkyAccent else scheme.outlineVariant.copy(alpha = 0.35f)
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable { viewModel.selectActiveProxyServer(server.id) }
+                    ContentCard(
+                        onClick = { viewModel.selectActiveProxyServer(server.id) },
+                        borderColor = if (isSelected) scheme.primary else scheme.outlineVariant
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.padding(10.dp)
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "${server.protocol.badge} · ${server.name}",
-                                    fontSize = 12.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = scheme.onSurface,
-                                    fontFamily = JakartaFontFamily
-                                )
-                                Text(
-                                    text = "${server.exitIp} · TZ ${server.timezoneId} · ${server.latencyMs}ms",
-                                    fontSize = 11.sp,
-                                    color = scheme.onSurfaceVariant,
-                                    fontFamily = JakartaFontFamily
-                                )
-                            }
-                            if (server.id.startsWith("custom_")) {
-                                IconButton(
-                                    onClick = { viewModel.deleteCustomProxyServer(server.id) },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.DeleteOutline,
-                                        contentDescription = "Delete Node",
-                                        tint = M3RoseAccent,
-                                        modifier = Modifier.size(16.dp)
-                                    )
+                        ListRow(
+                            title = "${server.protocol.badge} · ${server.name}",
+                            monoSubtitle = "${server.exitIp} · TZ ${server.timezoneId} · ${server.latencyMs}ms",
+                            statusLabel = if (isSelected) "Active" else null,
+                            statusColor = scheme.secondary,
+                            trailing = if (server.id.startsWith("custom_")) {
+                                {
+                                    IconButton(
+                                        onClick = { viewModel.deleteCustomProxyServer(server.id) }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.DeleteOutline,
+                                            contentDescription = "Delete Node",
+                                            tint = scheme.error,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
                                 }
-                            } else if (isSelected) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = null,
-                                    tint = M3SkyAccent,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
+                            } else null
+                        )
                     }
                 }
 
-                // Import Custom URI
                 OutlinedTextField(
                     value = uriText,
                     onValueChange = { uriText = it },
-                    label = { Text("Import vless://, vmess://, ss://, socks5://") },
+                    label = {
+                        Text(
+                            text = "Import vless://, vmess://, ss://, socks5://",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    },
                     singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = MaterialTheme.shapes.extraSmall,
                     trailingIcon = {
                         IconButton(
                             onClick = {
@@ -1174,90 +806,89 @@ private fun GlobalVpnProxySuiteDialog(
                 if (importFeedback != null) {
                     Text(
                         text = importFeedback!!,
-                        fontSize = 11.sp,
-                        color = M3SkyAccent,
-                        fontFamily = JakartaFontFamily
+                        style = MaterialTheme.typography.bodySmall,
+                        color = scheme.primary
                     )
                 }
 
-                HorizontalDivider()
+                HorizontalDivider(color = scheme.outlineVariant)
 
-                Text(
-                    text = "Global Proxying & Anti-Leak Options",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = scheme.onSurface,
-                    fontFamily = JakartaFontFamily
-                )
+                SectionHeader(title = "Global Proxying & Anti-Leak Options")
 
-                DialogSwitchRow(
+                ListRow(
                     title = "Global VPN Kill Switch",
-                    checked = settings.vpnKillSwitchEnabled,
-                    onCheckedChange = { viewModel.updateProxyingSuiteOptions(vpnKillSwitch = it) }
+                    onClick = { viewModel.updateProxyingSuiteOptions(vpnKillSwitch = !settings.vpnKillSwitchEnabled) },
+                    trailing = {
+                        Switch(
+                            checked = settings.vpnKillSwitchEnabled,
+                            onCheckedChange = { viewModel.updateProxyingSuiteOptions(vpnKillSwitch = it) }
+                        )
+                    }
                 )
-                DialogSwitchRow(
+                ListRow(
                     title = "Auto-Match Timezone with Exit IP",
-                    checked = settings.matchTimezoneWithIpGlobal,
-                    onCheckedChange = { viewModel.updateProxyingSuiteOptions(matchTzWithIp = it) }
+                    onClick = { viewModel.updateProxyingSuiteOptions(matchTzWithIp = !settings.matchTimezoneWithIpGlobal) },
+                    trailing = {
+                        Switch(
+                            checked = settings.matchTimezoneWithIpGlobal,
+                            onCheckedChange = { viewModel.updateProxyingSuiteOptions(matchTzWithIp = it) }
+                        )
+                    }
                 )
-                DialogSwitchRow(
+                ListRow(
                     title = "SOCKS5 Local Bridge (10808)",
-                    checked = settings.socksProxyEnabled,
-                    onCheckedChange = { viewModel.updateProxyingSuiteOptions(socksProxy = it) }
+                    onClick = { viewModel.updateProxyingSuiteOptions(socksProxy = !settings.socksProxyEnabled) },
+                    trailing = {
+                        Switch(
+                            checked = settings.socksProxyEnabled,
+                            onCheckedChange = { viewModel.updateProxyingSuiteOptions(socksProxy = it) }
+                        )
+                    }
                 )
-                DialogSwitchRow(
+                ListRow(
                     title = "HTTP CONNECT Proxy Bridge",
-                    checked = settings.httpProxyEnabled,
-                    onCheckedChange = { viewModel.updateProxyingSuiteOptions(httpProxy = it) }
+                    onClick = { viewModel.updateProxyingSuiteOptions(httpProxy = !settings.httpProxyEnabled) },
+                    trailing = {
+                        Switch(
+                            checked = settings.httpProxyEnabled,
+                            onCheckedChange = { viewModel.updateProxyingSuiteOptions(httpProxy = it) }
+                        )
+                    }
                 )
-                DialogSwitchRow(
+                ListRow(
                     title = "Hook Chromium & WebView Sockets",
-                    checked = settings.webViewProxyEnabled,
-                    onCheckedChange = { viewModel.updateProxyingSuiteOptions(webViewProxy = it) }
+                    onClick = { viewModel.updateProxyingSuiteOptions(webViewProxy = !settings.webViewProxyEnabled) },
+                    trailing = {
+                        Switch(
+                            checked = settings.webViewProxyEnabled,
+                            onCheckedChange = { viewModel.updateProxyingSuiteOptions(webViewProxy = it) }
+                        )
+                    }
                 )
-                DialogSwitchRow(
+                ListRow(
                     title = "Hide VPN & Proxy State From Apps",
-                    checked = settings.hideVpnConnection,
-                    onCheckedChange = {
-                        viewModel.updateProxyingSuiteOptions(hideVpnConn = it, hideProxyConn = it)
+                    onClick = {
+                        val next = !settings.hideVpnConnection
+                        viewModel.updateProxyingSuiteOptions(hideVpnConn = next, hideProxyConn = next)
+                    },
+                    trailing = {
+                        Switch(
+                            checked = settings.hideVpnConnection,
+                            onCheckedChange = {
+                                viewModel.updateProxyingSuiteOptions(hideVpnConn = it, hideProxyConn = it)
+                            }
+                        )
                     }
                 )
             }
         },
         confirmButton = {
-            Button(onClick = onDismiss) {
-                Text("Done")
-            }
+            PrimaryButton(
+                text = "Done",
+                onClick = onDismiss
+            )
         }
     )
-}
-
-@Composable
-private fun DialogSwitchRow(
-    title: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onCheckedChange(!checked) }
-            .padding(vertical = 4.dp)
-    ) {
-        Text(
-            text = title,
-            fontSize = 12.5.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.weight(1f),
-            fontFamily = JakartaFontFamily
-        )
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange
-        )
-    }
 }
 
 @Composable
@@ -1274,111 +905,73 @@ private fun SavedPrivacyProfilesDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = MaterialTheme.shapes.extraLarge,
+        containerColor = scheme.surface,
         title = {
             Text(
                 text = "Reusable Privacy Profiles",
-                fontWeight = FontWeight.ExtraBold,
-                fontFamily = JakartaFontFamily
+                style = MaterialTheme.typography.titleLarge,
+                color = scheme.onSurface
             )
         },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
                     text = "Built-in and custom privacy templates can be applied to any app in 1 tap.",
-                    fontSize = 12.sp,
-                    color = scheme.onSurfaceVariant,
-                    fontFamily = JakartaFontFamily
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onSurfaceVariant
                 )
                 profiles.forEach { profile ->
-                    Surface(
-                        color = scheme.surfaceContainerLow,
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.padding(12.dp)
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = profile.name,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = scheme.onSurface,
-                                        fontFamily = JakartaFontFamily
-                                    )
-                                    if (profile.isBuiltIn) {
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Surface(
-                                            color = M3IndigoAccent.copy(alpha = 0.14f),
-                                            shape = RoundedCornerShape(6.dp)
-                                        ) {
-                                            Text(
-                                                text = "Built-in",
-                                                fontSize = 9.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = M3IndigoAccent,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                fontFamily = JakartaFontFamily
-                                            )
-                                        }
+                    ContentCard {
+                        ListRow(
+                            title = profile.name,
+                            subtitle = profile.description,
+                            statusLabel = if (profile.isBuiltIn) "Built-in" else null,
+                            statusColor = scheme.primary,
+                            trailing = if (!profile.isBuiltIn) {
+                                {
+                                    IconButton(onClick = { onDeleteProfile(profile.id) }) {
+                                        Icon(
+                                            imageVector = Icons.Default.DeleteOutline,
+                                            contentDescription = "Delete Profile",
+                                            tint = scheme.error
+                                        )
                                     }
                                 }
-                                Text(
-                                    text = profile.description,
-                                    fontSize = 11.sp,
-                                    color = scheme.onSurfaceVariant,
-                                    fontFamily = JakartaFontFamily
-                                )
-                            }
-                            if (!profile.isBuiltIn) {
-                                IconButton(onClick = { onDeleteProfile(profile.id) }) {
-                                    Icon(
-                                        imageVector = Icons.Default.DeleteOutline,
-                                        contentDescription = "Delete Profile",
-                                        tint = M3RoseAccent
-                                    )
-                                }
-                            }
-                        }
+                            } else null
+                        )
                     }
                 }
 
-                HorizontalDivider()
+                HorizontalDivider(color = scheme.outlineVariant)
 
-                Text(
-                    text = "Create New Custom Profile",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = scheme.onSurface,
-                    fontFamily = JakartaFontFamily
-                )
+                SectionHeader(title = "Create New Custom Profile")
                 OutlinedTextField(
                     value = newName,
                     onValueChange = { newName = it },
-                    label = { Text("Profile Name") },
+                    label = { Text("Profile Name", style = MaterialTheme.typography.bodySmall) },
                     singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = MaterialTheme.shapes.extraSmall,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = newDesc,
                     onValueChange = { newDesc = it },
-                    label = { Text("Description") },
+                    label = { Text("Description", style = MaterialTheme.typography.bodySmall) },
                     singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = MaterialTheme.shapes.extraSmall,
                     modifier = Modifier.fillMaxWidth()
                 )
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    FilledTonalButton(
+                    PrimaryButton(
+                        text = "Create Profile",
+                        icon = Icons.Default.Add,
                         onClick = {
                             if (newName.isNotBlank()) {
                                 onSaveProfile(
@@ -1394,25 +987,23 @@ private fun SavedPrivacyProfilesDialog(
                             }
                         },
                         modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(15.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Create Profile", fontSize = 12.sp)
-                    }
-                    OutlinedButton(
+                    )
+                    SecondaryButton(
+                        text = "Reset Defaults",
+                        icon = Icons.Default.RestartAlt,
                         onClick = onResetDefaults,
                         modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(15.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Reset Defaults", fontSize = 12.sp)
-                    }
+                    )
                 }
             }
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Close")
+                Text(
+                    text = "Close",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = scheme.onSurfaceVariant
+                )
             }
         }
     )

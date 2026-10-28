@@ -24,14 +24,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AddPhotoAlternate
@@ -52,9 +49,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
@@ -80,7 +74,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -90,12 +83,13 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.isolation.mount.FileKind
-import com.example.isolation.ui.viewmodel.GalleryAlbumSummary
+import com.example.isolation.ui.components.ContentCard
+import com.example.isolation.ui.components.EmptyState
+import com.example.isolation.ui.components.PrimaryButton
 import com.example.isolation.ui.viewmodel.GalleryLayoutMode
 import com.example.isolation.ui.viewmodel.GalleryMediaItem
 import com.example.isolation.ui.viewmodel.GallerySourceTab
@@ -103,7 +97,6 @@ import com.example.isolation.ui.viewmodel.GalleryViewModel
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
 import com.example.isolation.ui.viewmodel.MediaFilterKind
 import com.example.isolation.ui.viewmodel.PhotoFilterPreset
-import com.example.ui.theme.JakartaFontFamily
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -114,6 +107,8 @@ fun GalleryScreen(
     onBack: (() -> Unit)? = null
 ) {
     val scheme = MaterialTheme.colorScheme
+    val typography = MaterialTheme.typography
+    val shapes = MaterialTheme.shapes
     val proState by gallery.proState.collectAsState()
     val notice by gallery.notice.collectAsState()
 
@@ -195,11 +190,12 @@ fun GalleryScreen(
                 .fillMaxSize()
                 .padding(horizontal = 16.dp)
         ) {
-            // Clean Header Row (or Selection Bar when items are selected)
+            // Header Row (or Selection Bar when items are selected)
             if (proState.selectedIds.isNotEmpty()) {
                 Surface(
                     color = scheme.primaryContainer,
-                    shape = RoundedCornerShape(16.dp),
+                    shape = shapes.medium,
+                    border = BorderStroke(1.dp, scheme.outlineVariant),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 4.dp)
@@ -209,7 +205,7 @@ fun GalleryScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             IconButton(onClick = { gallery.clearSelection() }) {
@@ -217,9 +213,8 @@ fun GalleryScreen(
                             }
                             Text(
                                 text = "${proState.selectedIds.size} selected",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                fontFamily = JakartaFontFamily
+                                style = typography.titleSmall,
+                                fontWeight = FontWeight.Bold
                             )
                         }
                         Row {
@@ -270,16 +265,14 @@ fun GalleryScreen(
                         Column {
                             Text(
                                 text = proState.activeAlbum ?: "Photos & Media",
-                                fontSize = 18.sp,
+                                style = typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                fontFamily = JakartaFontFamily,
                                 color = scheme.onSurface
                             )
                             Text(
                                 text = "${proState.items.size} items",
-                                fontSize = 12.sp,
-                                color = scheme.onSurfaceVariant,
-                                fontFamily = JakartaFontFamily
+                                style = typography.bodySmall,
+                                color = scheme.onSurfaceVariant
                             )
                         }
                     }
@@ -306,7 +299,7 @@ fun GalleryScreen(
                 OutlinedTextField(
                     value = proState.searchQuery,
                     onValueChange = { gallery.setSearchQuery(it) },
-                    placeholder = { Text("Search photos...", fontSize = 13.sp, fontFamily = JakartaFontFamily) },
+                    placeholder = { Text("Search photos...", style = typography.bodyMedium) },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                     trailingIcon = {
                         if (proState.searchQuery.isNotEmpty()) {
@@ -316,14 +309,14 @@ fun GalleryScreen(
                         }
                     },
                     singleLine = true,
-                    shape = RoundedCornerShape(50),
+                    shape = shapes.small,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 8.dp)
                 )
             }
 
-            // Simple Google Photos / Google Files Filter Pills
+            // Filter Pills
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier
@@ -369,11 +362,11 @@ fun GalleryScreen(
                                 }
                             }
                         },
-                        label = { Text(label, fontFamily = JakartaFontFamily, fontSize = 12.sp) },
+                        label = { Text(label, style = typography.labelMedium) },
                         leadingIcon = {
                             Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(16.dp))
                         },
-                        shape = RoundedCornerShape(50),
+                        shape = shapes.extraSmall,
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = scheme.primaryContainer,
                             selectedLabelColor = scheme.onPrimaryContainer,
@@ -388,7 +381,7 @@ fun GalleryScreen(
             notice?.let { msg ->
                 Surface(
                     color = scheme.secondaryContainer,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = shapes.small,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 8.dp)
@@ -396,9 +389,8 @@ fun GalleryScreen(
                 ) {
                     Text(
                         text = msg,
-                        fontSize = 12.sp,
+                        style = typography.bodySmall,
                         color = scheme.onSecondaryContainer,
-                        fontFamily = JakartaFontFamily,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                     )
                 }
@@ -419,18 +411,59 @@ fun GalleryScreen(
                     columns = GridCells.Fixed(2),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    contentPadding = PaddingValues(bottom = 90.dp),
+                    contentPadding = PaddingValues(bottom = 32.dp),
                     modifier = Modifier.weight(1f)
                 ) {
                     items(proState.albums, key = { it.name }) { album ->
-                        CleanAlbumCard(
-                            album = album,
-                            gallery = gallery,
+                        val coverBitmap by produceState<ImageBitmap?>(initialValue = null, album.coverItem?.id) {
+                            value = album.coverItem?.let { gallery.loadMediaBitmap(it, fullRes = false)?.asImageBitmap() }
+                        }
+                        ContentCard(
                             onClick = {
                                 gallery.selectAlbum(album.name)
                                 activePill = "PHOTOS"
                             }
-                        )
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(1.25f)
+                                    .clip(shapes.small)
+                                    .background(scheme.surfaceContainerLow)
+                            ) {
+                                val bmp = coverBitmap
+                                if (bmp != null) {
+                                    Image(
+                                        bitmap = bmp,
+                                        contentDescription = album.name,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.PhotoAlbum,
+                                        contentDescription = null,
+                                        tint = scheme.primary,
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = album.name,
+                                style = typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = scheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "${album.itemCount} items • ${formatBytes(album.totalBytes)}",
+                                style = typography.bodySmall,
+                                color = scheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             } else if (proState.items.isEmpty()) {
@@ -440,47 +473,18 @@ fun GalleryScreen(
                         .fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(horizontal = 32.dp)
-                    ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(64.dp)
-                                .clip(CircleShape)
-                                .background(scheme.surfaceContainerLow)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Image,
-                                contentDescription = null,
-                                tint = scheme.primary,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "No photos here yet",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = JakartaFontFamily,
-                            color = scheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Tap 'Add Photos' below to import pictures into Hollow.",
-                            fontSize = 13.sp,
-                            color = scheme.onSurfaceVariant,
-                            fontFamily = JakartaFontFamily
-                        )
-                    }
+                    EmptyState(
+                        icon = Icons.Default.Image,
+                        title = "No photos here yet",
+                        message = "Tap 'Add Photos' below to import pictures into Hollow."
+                    )
                 }
             } else {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(3),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    contentPadding = PaddingValues(bottom = 96.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = 32.dp),
                     modifier = Modifier.weight(1f)
                 ) {
                     items(proState.items, key = { it.id }) { item ->
@@ -509,16 +513,16 @@ fun GalleryScreen(
             onClick = { importMediaLauncher.launch(arrayOf("image/*", "video/*")) },
             containerColor = scheme.primary,
             contentColor = scheme.onPrimary,
-            shape = RoundedCornerShape(16.dp),
+            shape = shapes.medium,
             icon = { Icon(Icons.Default.AddPhotoAlternate, contentDescription = null) },
-            text = { Text("Add Photos", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold) },
+            text = { Text("Add Photos", style = typography.labelLarge, fontWeight = FontWeight.SemiBold) },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(16.dp)
         )
     }
 
-    // Clean Full-Screen Photo Lightbox
+    // Full-Screen Photo Lightbox
     activeLightboxItem?.let { currentItem ->
         CleanPhotoLightbox(
             item = currentItem,
@@ -547,105 +551,37 @@ fun GalleryScreen(
         var albumName by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showCreateAlbumDialog = false },
-            shape = RoundedCornerShape(24.dp),
+            shape = shapes.extraLarge,
             title = {
-                Text("New Album", fontWeight = FontWeight.Bold, fontFamily = JakartaFontFamily)
+                Text("New Album", style = typography.titleMedium, fontWeight = FontWeight.Bold)
             },
             text = {
                 OutlinedTextField(
                     value = albumName,
                     onValueChange = { albumName = it },
-                    label = { Text("Album name", fontFamily = JakartaFontFamily) },
+                    label = { Text("Album name") },
                     singleLine = true,
-                    shape = RoundedCornerShape(14.dp),
+                    shape = shapes.small,
                     modifier = Modifier.fillMaxWidth()
                 )
             },
             confirmButton = {
-                Button(
+                PrimaryButton(
+                    text = "Create",
                     onClick = {
                         if (albumName.isNotBlank()) {
                             gallery.createNewAlbum(albumName.trim())
                             showCreateAlbumDialog = false
                         }
-                    },
-                    shape = RoundedCornerShape(50)
-                ) {
-                    Text("Create", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
-                }
+                    }
+                )
             },
             dismissButton = {
                 TextButton(onClick = { showCreateAlbumDialog = false }) {
-                    Text("Cancel", fontFamily = JakartaFontFamily)
+                    Text("Cancel")
                 }
             }
         )
-    }
-}
-
-@Composable
-private fun CleanAlbumCard(
-    album: GalleryAlbumSummary,
-    gallery: GalleryViewModel,
-    onClick: () -> Unit
-) {
-    val scheme = MaterialTheme.colorScheme
-    val coverBitmap by produceState<ImageBitmap?>(initialValue = null, album.coverItem?.id) {
-        value = album.coverItem?.let { gallery.loadMediaBitmap(it, fullRes = false)?.asImageBitmap() }
-    }
-
-    Card(
-        colors = CardDefaults.cardColors(containerColor = scheme.surface),
-        shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.dp, scheme.outlineVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-    ) {
-        Column {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(1.25f)
-                    .background(scheme.surfaceContainerLow)
-            ) {
-                val bmp = coverBitmap
-                if (bmp != null) {
-                    Image(
-                        bitmap = bmp,
-                        contentDescription = album.name,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.PhotoAlbum,
-                        contentDescription = null,
-                        tint = scheme.primary,
-                        modifier = Modifier.size(32.dp)
-                    )
-                }
-            }
-            Column(modifier = Modifier.padding(12.dp)) {
-                Text(
-                    text = album.name,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 14.sp,
-                    color = scheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontFamily = JakartaFontFamily
-                )
-                Text(
-                    text = "${album.itemCount} items • ${formatBytes(album.totalBytes)}",
-                    fontSize = 12.sp,
-                    color = scheme.onSurfaceVariant,
-                    fontFamily = JakartaFontFamily
-                )
-            }
-        }
     }
 }
 
@@ -659,6 +595,7 @@ private fun CleanPhotoTile(
     onLongClick: () -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
+    val shapes = MaterialTheme.shapes
     val thumb by produceState<ImageBitmap?>(initialValue = null, item.id, item.modifiedMillis) {
         if (item.kind == FileKind.IMAGE) {
             value = gallery.loadMediaBitmap(item, fullRes = false)?.asImageBitmap()
@@ -668,10 +605,10 @@ private fun CleanPhotoTile(
     Box(
         modifier = Modifier
             .aspectRatio(1f)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(shapes.small)
             .background(scheme.surfaceContainerLow)
             .then(
-                if (isSelected) Modifier.border(3.dp, scheme.primary, RoundedCornerShape(12.dp))
+                if (isSelected) Modifier.border(2.dp, scheme.primary, shapes.small)
                 else Modifier
             )
             .combinedClickable(
@@ -700,7 +637,7 @@ private fun CleanPhotoTile(
                     },
                     contentDescription = null,
                     tint = scheme.primary,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(24.dp)
                 )
             }
         }
@@ -709,10 +646,10 @@ private fun CleanPhotoTile(
             Icon(
                 imageVector = Icons.Default.Favorite,
                 contentDescription = "Favorite",
-                tint = Color(0xFFFF4D6D),
+                tint = scheme.error,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(6.dp)
+                    .padding(8.dp)
                     .size(16.dp)
             )
         }
@@ -721,11 +658,11 @@ private fun CleanPhotoTile(
             Icon(
                 imageVector = Icons.Default.Lock,
                 contentDescription = "Locked",
-                tint = Color.White,
+                tint = scheme.onPrimary,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(6.dp)
-                    .size(14.dp)
+                    .padding(8.dp)
+                    .size(16.dp)
             )
         }
 
@@ -734,8 +671,8 @@ private fun CleanPhotoTile(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(6.dp)
-                    .size(22.dp)
+                    .padding(8.dp)
+                    .size(24.dp)
                     .clip(CircleShape)
                     .background(scheme.primary)
             ) {
@@ -760,6 +697,8 @@ private fun CleanPhotoLightbox(
     onExport: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val scheme = MaterialTheme.colorScheme
+    val typography = MaterialTheme.typography
     var refreshTrigger by remember { mutableIntStateOf(0) }
     val fullBitmap by produceState<ImageBitmap?>(initialValue = null, item.id, refreshTrigger) {
         value = gallery.loadMediaBitmap(item, fullRes = true)?.asImageBitmap()
@@ -775,7 +714,7 @@ private fun CleanPhotoLightbox(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF0E1210))
+                .background(scheme.surfaceContainerLowest)
         ) {
             // Photo Canvas with Pinch-to-Zoom & Double-Tap
             Box(
@@ -818,43 +757,41 @@ private fun CleanPhotoLightbox(
                             )
                     )
                 } else {
-                    CircularProgressIndicator(color = Color.White)
+                    CircularProgressIndicator(color = scheme.primary)
                 }
             }
 
-            // Simple Top Bar
+            // Top Bar
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.TopCenter)
-                    .background(Color.Black.copy(alpha = 0.45f))
-                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                    .background(scheme.surface.copy(alpha = 0.88f))
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onDismiss) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
-                            tint = Color.White
+                            tint = scheme.onSurface
                         )
                     }
                     Column {
                         Text(
                             text = item.name,
-                            color = Color.White,
-                            fontSize = 15.sp,
+                            color = scheme.onSurface,
+                            style = typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            fontFamily = JakartaFontFamily
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = "${item.albumName} • ${formatBytes(item.sizeBytes)}",
-                            color = Color.White.copy(alpha = 0.75f),
-                            fontSize = 12.sp,
-                            fontFamily = JakartaFontFamily
+                            color = scheme.onSurfaceVariant,
+                            style = typography.bodySmall
                         )
                     }
                 }
@@ -862,19 +799,19 @@ private fun CleanPhotoLightbox(
                     Icon(
                         imageVector = if (item.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                         contentDescription = "Star",
-                        tint = if (item.isFavorite) Color(0xFFFF4D6D) else Color.White
+                        tint = if (item.isFavorite) scheme.error else scheme.onSurface
                     )
                 }
             }
 
-            // Clean Bottom Action Bar
+            // Bottom Action Bar
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter)
-                    .background(Color.Black.copy(alpha = 0.6f))
+                    .background(scheme.surface.copy(alpha = 0.92f))
                     .padding(vertical = 12.dp, horizontal = 16.dp)
             ) {
                 if (item.localFile != null) {
@@ -921,15 +858,18 @@ private fun LightboxBottomButton(
     label: String,
     onClick: () -> Unit
 ) {
+    val scheme = MaterialTheme.colorScheme
+    val typography = MaterialTheme.typography
+    val shapes = MaterialTheme.shapes
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(shapes.small)
             .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
     ) {
-        Icon(imageVector = icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(22.dp))
+        Icon(imageVector = icon, contentDescription = label, tint = scheme.onSurface, modifier = Modifier.size(24.dp))
         Spacer(modifier = Modifier.height(4.dp))
-        Text(text = label, color = Color.White, fontSize = 11.sp, fontFamily = JakartaFontFamily)
+        Text(text = label, color = scheme.onSurface, style = typography.labelMedium)
     }
 }

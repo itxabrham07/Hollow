@@ -5,17 +5,19 @@
 # For more details, see
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+-keepattributes SourceFile,LineNumberTable,Signature
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
-
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Preserve all Core classes, ViewModels, UI components, and data models
+# referenced at runtime by standalone dynamically loaded .dex modules via DexClassLoader parent delegation.
+-keep class com.example.isolation.core.module.** { *; }
+-keep class com.example.isolation.core.root.** { *; }
+-keep class com.example.isolation.core.license.** { *; }
+-keep class com.example.isolation.core.security.** { *; }
+-keep class com.example.isolation.ui.viewmodel.** { *; }
+-keep class com.example.isolation.ui.screens.** { *; }
+-keep class com.example.isolation.ui.theme.** { *; }
+-keep class com.example.isolation.model.** { *; }
+-keep class com.example.isolation.data.entity.** { *; }
+-keep class com.example.isolation.pkg.** { *; }
+-keep class com.example.isolation.mount.** { *; }
+-keep class com.example.isolation.service.** { *; }

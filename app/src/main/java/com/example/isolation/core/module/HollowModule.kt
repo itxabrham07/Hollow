@@ -39,7 +39,7 @@ interface HollowModule {
     fun RenderPrimaryScreen(
         viewModel: IsoVaultViewModel,
         onBack: () -> Unit,
-        onDetailOpenChanged: (Boolean) -> Unit = {}
+        onDetailOpenChanged: (Boolean) -> Unit
     )
 }
 

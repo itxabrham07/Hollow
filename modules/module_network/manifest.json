@@ -3,7 +3,7 @@
   "name": "Proxy & V2Ray Suite",
   "version": 2,
   "minCoreVersion": 1,
-  "sizeKb": 540,
+  "sizeKb": 10,
   "entryClass": "com.example.isolation.module.network.VpnProxyModule",
   "primaryRoute": "VPN_PROXY",
   "contributesBottomNavTab": false,
@@ -20,5 +20,8 @@
     "android.net.ConnectivityManager",
     "android.net.NetworkCapabilities",
     "javax.net.ssl.SSLContext"
-  ]
+  ],
+  "sha256": "322f92cb683a2a2dd968dfcf3e228d8feaec2360950f9b6324dd071995c8d539",
+  "sha256Checksum": "322f92cb683a2a2dd968dfcf3e228d8feaec2360950f9b6324dd071995c8d539",
+  "signatureB64": "hFIyjQPl3HloFDk8N0ea+sxqJ7UCVC/3q7N5EWOUB5NIFG7nGlCl9sml83TDXvZsDtj8zCcDFOK1+rClDOj2Bw=="
 }

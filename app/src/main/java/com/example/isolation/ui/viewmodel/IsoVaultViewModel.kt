@@ -1687,7 +1687,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
         return MountManager.generateBootService(app, isolatedPkgs)
     }
 
-    private fun appendTerminalLog(log: String) {
+    fun appendTerminalLog(log: String) {
         val stamp = android.text.format.DateFormat.format("HH:mm:ss", System.currentTimeMillis())
         _terminalLogs.update { (it + "[$stamp] $log").takeLast(150) }
     }
@@ -1865,9 +1865,16 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             val bundleJson = resp?.toString()
                 ?: HollowSecureClient.buildSignedSimulatedModuleBundle(app, moduleId)
 
+            if (bundleJson.isBlank()) {
+                withContext(Dispatchers.Main) {
+                    _statusMessage.value = "Rejected $moduleId: missing or invalid Ed25519 module signature."
+                }
+                return@launch
+            }
+
             val saved = RootLicenseVaultManager.saveDownloadedModuleToVault(app, moduleId, bundleJson)
             if (saved) {
-                appendTerminalLog("[RootVault] Downloaded & encrypted $moduleId.dex.enc into /data/adb/.hollow_vault/modules/")
+                appendTerminalLog("[RootVault] Verified Ed25519 & encrypted $moduleId.dex.enc into /data/adb/.hollow_vault/modules/")
             }
             withContext(Dispatchers.Main) {
                 refreshVaultAndModuleState()
@@ -1880,14 +1887,24 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch(Dispatchers.IO) {
             val current = RootLicenseVaultManager.readVaultRecord(app)
             val pending = current.allowedModules - current.downloadedModules
+            var mountedCount = 0
             for (moduleId in pending) {
-                val bundleJson = HollowSecureClient.buildSignedSimulatedModuleBundle(app, moduleId)
-                RootLicenseVaultManager.saveDownloadedModuleToVault(app, moduleId, bundleJson)
-                appendTerminalLog("[RootVault] Mounted $moduleId.dex.enc into /data/adb/.hollow_vault/modules/")
+                val resp = HollowSecureClient.downloadEncryptedModule(
+                    context = app,
+                    serverBaseUrl = _settings.value.cloudServerUrl,
+                    moduleId = moduleId
+                )
+                val bundleJson = resp?.toString()
+                    ?: HollowSecureClient.buildSignedSimulatedModuleBundle(app, moduleId)
+                if (bundleJson.isNotBlank()) {
+                    RootLicenseVaultManager.saveDownloadedModuleToVault(app, moduleId, bundleJson)
+                    appendTerminalLog("[RootVault] Verified Ed25519 & mounted $moduleId.dex.enc into /data/adb/.hollow_vault/modules/")
+                    mountedCount++
+                }
             }
             withContext(Dispatchers.Main) {
                 refreshVaultAndModuleState()
-                _statusMessage.value = "All ${current.allowedModules.size} authorized modules downloaded & bound to /data/adb/.hollow_vault!"
+                _statusMessage.value = "Verified & mounted $mountedCount authorized modules into /data/adb/.hollow_vault!"
             }
         }
     }

@@ -4,7 +4,6 @@ import android.graphics.BitmapFactory
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -30,7 +29,6 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
@@ -56,7 +54,6 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NoteAdd
-import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
@@ -65,20 +62,16 @@ import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.VideoFile
 import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -92,17 +85,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.isolation.model.IsolationMode
+import com.example.isolation.ui.components.ContentCard
+import com.example.isolation.ui.components.EmptyState
+import com.example.isolation.ui.components.ListRow
+import com.example.isolation.ui.components.PrimaryButton
+import com.example.isolation.ui.components.SecondaryButton
+import com.example.isolation.ui.components.SectionHeader
 import com.example.isolation.ui.viewmodel.ClipboardMode
 import com.example.isolation.ui.viewmodel.FileCategory
 import com.example.isolation.ui.viewmodel.FileEntryItem
@@ -110,7 +107,6 @@ import com.example.isolation.ui.viewmodel.FileManagerViewModel
 import com.example.isolation.ui.viewmodel.FileSortField
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
 import com.example.isolation.ui.viewmodel.StorageRootType
-import com.example.ui.theme.JakartaFontFamily
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
@@ -123,7 +119,7 @@ private enum class GoogleFilesSubView {
 }
 
 /**
- * Clean, Google Files-inspired Browse & Storage Hub.
+ * Unified Browse & Storage Hub.
  */
 @Composable
 fun FilesScreen(
@@ -253,247 +249,240 @@ private fun GoogleFilesBrowseHome(
         }
     }
 
+    val categoryRows = remember(breakdown, isolatedCount) {
+        listOf(
+            listOf(
+                Triple("Downloads", "Saved files", Icons.Default.Download) to { onOpenFolder(StorageRootType.WORKSPACE, "Downloads") },
+                Triple("Images", formatBytes(breakdown.imagesBytes), Icons.Default.Image) to { onOpenCategoryGallery("PHOTOS") }
+            ),
+            listOf(
+                Triple("Videos", formatBytes(breakdown.videosBytes), Icons.Default.VideoFile) to { onOpenCategoryGallery("VIDEOS") },
+                Triple("Audio", formatBytes(breakdown.audioBytes), Icons.Default.AudioFile) to { onOpenCategoryGallery("AUDIO") }
+            ),
+            listOf(
+                Triple("Documents", formatBytes(breakdown.docsAndCodeBytes), Icons.Default.Description) to { onOpenFolder(StorageRootType.WORKSPACE, "Documents") },
+                Triple("Apps", "$isolatedCount protected", Icons.Default.Apps) to onOpenApps
+            )
+        )
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = PaddingValues(top = 6.dp, bottom = 88.dp)
+            verticalArrangement = Arrangement.spacedBy(24.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 32.dp)
         ) {
             if (notice != null) {
                 item {
-                    Surface(
-                        color = scheme.primaryContainer,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { fmViewModel.clearNotice() }
+                    ContentCard(
+                        onClick = { fmViewModel.clearNotice() },
+                        containerColor = scheme.primaryContainer,
+                        borderColor = scheme.primary
                     ) {
                         Text(
                             text = notice ?: "",
-                            fontSize = 12.sp,
-                            color = scheme.onPrimaryContainer,
-                            fontFamily = JakartaFontFamily,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                            style = MaterialTheme.typography.bodySmall,
+                            color = scheme.onPrimaryContainer
                         )
                     }
                 }
             }
-        // 1. Google Files Pill Search Bar
-        item {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { query ->
-                    searchQuery = query
-                    if (query.isNotBlank()) {
-                        fmViewModel.switchStorageRoot(StorageRootType.WORKSPACE)
-                        fmViewModel.setSearchQuery(query)
-                        onOpenFolder(StorageRootType.WORKSPACE, null)
-                    }
-                },
-                placeholder = {
-                    Text(
-                        text = "Search files and folders",
-                        fontSize = 14.sp,
-                        color = scheme.onSurfaceVariant,
-                        fontFamily = JakartaFontFamily
-                    )
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = "Search",
-                        tint = scheme.onSurfaceVariant
-                    )
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(50),
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
 
-        // 2. Categories Section (Google Files 2x3 Grid)
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = "Categories",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = scheme.onSurface,
-                    fontFamily = JakartaFontFamily
-                )
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    GoogleFilesCategoryTile(
-                        title = "Downloads",
-                        subtitle = "Saved files",
-                        icon = Icons.Default.Download,
-                        iconTint = Color(0xFF0B57D0),
-                        onClick = { onOpenFolder(StorageRootType.WORKSPACE, "Downloads") },
-                        modifier = Modifier.weight(1f)
-                    )
-                    GoogleFilesCategoryTile(
-                        title = "Images",
-                        subtitle = formatBytes(breakdown.imagesBytes),
-                        icon = Icons.Default.Image,
-                        iconTint = Color(0xFFD93025),
-                        onClick = { onOpenCategoryGallery("PHOTOS") },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    GoogleFilesCategoryTile(
-                        title = "Videos",
-                        subtitle = formatBytes(breakdown.videosBytes),
-                        icon = Icons.Default.VideoFile,
-                        iconTint = Color(0xFF188038),
-                        onClick = { onOpenCategoryGallery("VIDEOS") },
-                        modifier = Modifier.weight(1f)
-                    )
-                    GoogleFilesCategoryTile(
-                        title = "Audio",
-                        subtitle = formatBytes(breakdown.audioBytes),
-                        icon = Icons.Default.AudioFile,
-                        iconTint = Color(0xFFE37400),
-                        onClick = { onOpenCategoryGallery("AUDIO") },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    GoogleFilesCategoryTile(
-                        title = "Documents",
-                        subtitle = formatBytes(breakdown.docsAndCodeBytes),
-                        icon = Icons.Default.Description,
-                        iconTint = Color(0xFF7627BB),
-                        onClick = { onOpenFolder(StorageRootType.WORKSPACE, "Documents") },
-                        modifier = Modifier.weight(1f)
-                    )
-                    GoogleFilesCategoryTile(
-                        title = "Apps",
-                        subtitle = "$isolatedCount protected",
-                        icon = Icons.Default.Apps,
-                        iconTint = scheme.primary,
-                        onClick = onOpenApps,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-        }
-
-        // 3. Collections Section (Safe Folder & Starred — just like Google Files!)
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = "Collections",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = scheme.onSurface,
-                    fontFamily = JakartaFontFamily
-                )
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    GoogleFilesCollectionCard(
-                        title = "Safe folder",
-                        subtitle = "${vaultFiles.size} items • ${formatBytes(totalEncryptedBytes)}",
-                        icon = Icons.Default.Lock,
-                        accent = scheme.primary,
-                        onClick = onOpenSafeFolder,
-                        modifier = Modifier.weight(1f)
-                    )
-                    GoogleFilesCollectionCard(
-                        title = "Starred",
-                        subtitle = "Favorites",
-                        icon = Icons.Default.Star,
-                        accent = Color(0xFFE37400),
-                        onClick = { onOpenCategoryGallery("STARRED") },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-        }
-
-        // 4. Storage Devices: Internal Storage (Hollow Drive) & External Storage (Assigned App Drives)
-        item {
-            val allApps by isoViewModel.allInstalledApps.collectAsState()
-            val separateDriveApps = allApps.filter {
-                it.isIsolated && it.isolationMode != com.example.isolation.model.IsolationMode.SHARED_WORKSPACE
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = "Storage devices",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = scheme.onSurface,
-                    fontFamily = JakartaFontFamily
-                )
-
-                val workspaceUsedBytes = breakdown.imagesBytes +
-                        breakdown.videosBytes +
-                        breakdown.audioBytes +
-                        breakdown.docsAndCodeBytes +
-                        breakdown.archivesBytes
-
-                // Main Internal Storage: Hollow Drive
-                GoogleFilesStorageDeviceCard(
-                    title = "Hollow Drive (Internal Storage)",
-                    subtitle = "${formatBytes(workspaceUsedBytes)} • Zero-exposure private storage (Hidden from Google Files)",
-                    icon = Icons.Default.Folder,
-                    progressFraction = 0.28f,
-                    onClick = { onOpenFolder(StorageRootType.WORKSPACE, null) }
-                )
-
-                // Assigned App Drives (Appearing like SD Cards / External Storage below Hollow Drive)
-                if (separateDriveApps.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Assigned drives (External storage)",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = scheme.onSurfaceVariant,
-                        fontFamily = JakartaFontFamily
-                    )
-                    separateDriveApps.forEach { app ->
-                        GoogleFilesStorageDeviceCard(
-                            title = "${app.appName} Drive",
-                            subtitle = "Dedicated isolated storage volume • Tap to explore",
-                            icon = Icons.AutoMirrored.Filled.InsertDriveFile,
-                            progressFraction = 0.15f,
-                            onClick = { onOpenSeparateDrive(app.packageName, app.appName) }
+            // 1. Search Bar
+            item {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { query ->
+                        searchQuery = query
+                        if (query.isNotBlank()) {
+                            fmViewModel.switchStorageRoot(StorageRootType.WORKSPACE)
+                            fmViewModel.setSearchQuery(query)
+                            onOpenFolder(StorageRootType.WORKSPACE, null)
+                        }
+                    },
+                    placeholder = {
+                        Text(
+                            text = "Search files and folders",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = scheme.onSurfaceVariant
                         )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search",
+                            tint = scheme.onSurfaceVariant
+                        )
+                    },
+                    textStyle = MaterialTheme.typography.bodyMedium,
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.extraSmall,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            // 2. Categories Section (2x3 Grid using ContentCard + ListRow)
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SectionHeader(title = "Categories")
+
+                    categoryRows.forEach { rowItems ->
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            rowItems.forEach { (meta, action) ->
+                                ContentCard(
+                                    onClick = action,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    ListRow(
+                                        title = meta.first,
+                                        subtitle = meta.second,
+                                        leadingIcon = meta.third,
+                                        modifier = Modifier.padding(vertical = 0.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
-                } else {
-                    Surface(
-                        color = scheme.surfaceContainerLow,
-                        shape = RoundedCornerShape(12.dp),
+                }
+            }
+
+            // 3. Collections Section (Safe Folder & Starred)
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SectionHeader(title = "Collections")
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            text = "All apps use unified Hollow Drive by default. Per-app assigned drives appear here like SD cards.",
-                            fontSize = 12.sp,
-                            color = scheme.onSurfaceVariant,
-                            fontFamily = JakartaFontFamily,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
-                        )
+                        ContentCard(
+                            onClick = onOpenSafeFolder,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            ListRow(
+                                title = "Safe folder",
+                                subtitle = "${vaultFiles.size} items • ${formatBytes(totalEncryptedBytes)}",
+                                leadingIcon = Icons.Default.Lock,
+                                tintLeadingIcon = true,
+                                modifier = Modifier.padding(vertical = 0.dp)
+                            )
+                        }
+                        ContentCard(
+                            onClick = { onOpenCategoryGallery("STARRED") },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            ListRow(
+                                title = "Starred",
+                                subtitle = "Favorites",
+                                leadingIcon = Icons.Default.Star,
+                                modifier = Modifier.padding(vertical = 0.dp)
+                            )
+                        }
                     }
                 }
             }
-        }
+
+            // 4. Storage Devices: Internal Storage (Hollow Drive) & External Storage (Assigned App Drives)
+            item {
+                val allApps by isoViewModel.allInstalledApps.collectAsState()
+                val separateDriveApps = allApps.filter {
+                    it.isIsolated && it.isolationMode != IsolationMode.SHARED_WORKSPACE
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SectionHeader(title = "Storage devices")
+
+                    val workspaceUsedBytes = breakdown.imagesBytes +
+                            breakdown.videosBytes +
+                            breakdown.audioBytes +
+                            breakdown.docsAndCodeBytes +
+                            breakdown.archivesBytes
+
+                    // Main Internal Storage: Hollow Drive
+                    ContentCard(
+                        onClick = { onOpenFolder(StorageRootType.WORKSPACE, null) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        ListRow(
+                            title = "Hollow Drive (Internal Storage)",
+                            subtitle = "${formatBytes(workspaceUsedBytes)} • Zero-exposure private storage",
+                            leadingIcon = Icons.Default.Folder,
+                            tintLeadingIcon = true,
+                            showNavigationChevron = true
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp)
+                                .clip(CircleShape)
+                                .background(scheme.surfaceVariant)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(0.28f)
+                                    .clip(CircleShape)
+                                    .background(scheme.primary)
+                            )
+                        }
+                    }
+
+                    // Assigned App Drives
+                    if (separateDriveApps.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        SectionHeader(
+                            title = "Assigned drives",
+                            subtitle = "Dedicated per-app isolated volumes"
+                        )
+                        separateDriveApps.forEach { app ->
+                            ContentCard(
+                                onClick = { onOpenSeparateDrive(app.packageName, app.appName) },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                ListRow(
+                                    title = "${app.appName} Drive",
+                                    subtitle = "Dedicated isolated storage volume • Tap to explore",
+                                    leadingIcon = Icons.AutoMirrored.Filled.InsertDriveFile,
+                                    showNavigationChevron = true
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(4.dp)
+                                        .clip(CircleShape)
+                                        .background(scheme.surfaceVariant)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxHeight()
+                                            .fillMaxWidth(0.15f)
+                                            .clip(CircleShape)
+                                            .background(scheme.primary)
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        ContentCard(
+                            containerColor = scheme.surfaceContainerLow,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "All apps use unified Hollow Drive by default. Per-app assigned drives appear here as dedicated storage volumes.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = scheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         // "+ New" button on Browse Home for quick file/folder import into Hollow Workspace
@@ -506,9 +495,10 @@ private fun GoogleFilesBrowseHome(
                 onClick = { showHomeNewMenu = true },
                 containerColor = scheme.primary,
                 contentColor = scheme.onPrimary,
-                shape = RoundedCornerShape(16.dp),
+                shape = MaterialTheme.shapes.medium,
+                elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("New", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold) }
+                text = { Text("New", style = MaterialTheme.typography.labelLarge) }
             )
 
             DropdownMenu(
@@ -516,7 +506,7 @@ private fun GoogleFilesBrowseHome(
                 onDismissRequest = { showHomeNewMenu = false }
             ) {
                 DropdownMenuItem(
-                    text = { Text("Import folder", fontFamily = JakartaFontFamily) },
+                    text = { Text("Import folder", style = MaterialTheme.typography.bodyMedium) },
                     leadingIcon = { Icon(Icons.Default.CreateNewFolder, contentDescription = null) },
                     onClick = {
                         showHomeNewMenu = false
@@ -524,7 +514,7 @@ private fun GoogleFilesBrowseHome(
                     }
                 )
                 DropdownMenuItem(
-                    text = { Text("Import files", fontFamily = JakartaFontFamily) },
+                    text = { Text("Import files", style = MaterialTheme.typography.bodyMedium) },
                     leadingIcon = { Icon(Icons.Default.UploadFile, contentDescription = null) },
                     onClick = {
                         showHomeNewMenu = false
@@ -532,7 +522,7 @@ private fun GoogleFilesBrowseHome(
                     }
                 )
                 DropdownMenuItem(
-                    text = { Text("Open Hollow workspace", fontFamily = JakartaFontFamily) },
+                    text = { Text("Open Hollow workspace", style = MaterialTheme.typography.bodyMedium) },
                     leadingIcon = { Icon(Icons.Default.Folder, contentDescription = null) },
                     onClick = {
                         showHomeNewMenu = false
@@ -540,203 +530,6 @@ private fun GoogleFilesBrowseHome(
                     }
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun GoogleFilesCategoryTile(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    iconTint: Color,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val scheme = MaterialTheme.colorScheme
-    Card(
-        colors = CardDefaults.cardColors(containerColor = scheme.surface),
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, scheme.outlineVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        modifier = modifier.clickable { onClick() }
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp)
-        ) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(iconTint.copy(alpha = 0.12f))
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = iconTint,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = scheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontFamily = JakartaFontFamily
-                )
-                Text(
-                    text = subtitle,
-                    fontSize = 11.sp,
-                    color = scheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontFamily = JakartaFontFamily
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun GoogleFilesCollectionCard(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    accent: Color,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val scheme = MaterialTheme.colorScheme
-    Card(
-        colors = CardDefaults.cardColors(containerColor = scheme.surfaceContainerLow),
-        shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.dp, scheme.outlineVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        modifier = modifier.clickable { onClick() }
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(14.dp)
-        ) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(accent.copy(alpha = 0.14f))
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = accent,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = scheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontFamily = JakartaFontFamily
-                )
-                Text(
-                    text = subtitle,
-                    fontSize = 11.sp,
-                    color = scheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontFamily = JakartaFontFamily
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun GoogleFilesStorageDeviceCard(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    progressFraction: Float,
-    onClick: () -> Unit
-) {
-    val scheme = MaterialTheme.colorScheme
-    Card(
-        colors = CardDefaults.cardColors(containerColor = scheme.surface),
-        shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.dp, scheme.outlineVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .background(scheme.primaryContainer)
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = scheme.onPrimaryContainer,
-                    modifier = Modifier.size(21.dp)
-                )
-            }
-            Spacer(modifier = Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = scheme.onSurface,
-                    fontFamily = JakartaFontFamily
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(scheme.surfaceContainerHigh)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth(progressFraction)
-                            .clip(RoundedCornerShape(50))
-                            .background(scheme.primary)
-                    )
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = subtitle,
-                    fontSize = 12.sp,
-                    color = scheme.onSurfaceVariant,
-                    fontFamily = JakartaFontFamily
-                )
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = scheme.onSurfaceVariant
-            )
         }
     }
 }
@@ -806,9 +599,10 @@ private fun CleanFolderExplorerView(
         ) {
             // Top Header or Multi-Select Action Bar
             if (uiState.selectedPaths.isNotEmpty()) {
-                Surface(
-                    color = scheme.primaryContainer,
-                    shape = RoundedCornerShape(16.dp),
+                ContentCard(
+                    containerColor = scheme.primaryContainer,
+                    borderColor = scheme.primary,
+                    contentPadding = PaddingValues(8.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 4.dp)
@@ -816,9 +610,7 @@ private fun CleanFolderExplorerView(
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             IconButton(onClick = { fmViewModel.clearSelection() }) {
@@ -826,9 +618,8 @@ private fun CleanFolderExplorerView(
                             }
                             Text(
                                 text = "${uiState.selectedPaths.size} selected",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                fontFamily = JakartaFontFamily
+                                style = MaterialTheme.typography.titleSmall,
+                                color = scheme.onPrimaryContainer
                             )
                         }
                         Row {
@@ -882,18 +673,15 @@ private fun CleanFolderExplorerView(
                             val folderTitle = uiState.breadcrumbs.lastOrNull()?.label ?: uiState.activeRoot.title
                             Text(
                                 text = folderTitle,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleLarge,
                                 color = scheme.onSurface,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                fontFamily = JakartaFontFamily
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
                                 text = "${uiState.entries.size} items",
-                                fontSize = 12.sp,
-                                color = scheme.onSurfaceVariant,
-                                fontFamily = JakartaFontFamily
+                                style = MaterialTheme.typography.bodySmall,
+                                color = scheme.onSurfaceVariant
                             )
                         }
                     }
@@ -918,7 +706,7 @@ private fun CleanFolderExplorerView(
                             ) {
                                 FileSortField.values().forEach { field ->
                                     DropdownMenuItem(
-                                        text = { Text("Sort by ${field.label}", fontFamily = JakartaFontFamily) },
+                                        text = { Text("Sort by ${field.label}", style = MaterialTheme.typography.bodyMedium) },
                                         onClick = {
                                             fmViewModel.setSort(field)
                                             showSortMenu = false
@@ -938,7 +726,7 @@ private fun CleanFolderExplorerView(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 6.dp)
+                        .padding(bottom = 8.dp)
                 ) {
                     items(uiState.breadcrumbs.size) { index ->
                         val crumb = uiState.breadcrumbs[index]
@@ -946,21 +734,21 @@ private fun CleanFolderExplorerView(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = crumb.label,
-                                fontSize = 12.sp,
-                                fontWeight = if (isLast) FontWeight.Bold else FontWeight.Medium,
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = if (isLast) FontWeight.Bold else FontWeight.Medium
+                                ),
                                 color = if (isLast) scheme.primary else scheme.onSurfaceVariant,
-                                fontFamily = JakartaFontFamily,
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
+                                    .clip(MaterialTheme.shapes.extraSmall)
                                     .clickable { fmViewModel.navigateToPath(crumb.absolutePath) }
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
                             )
                             if (!isLast) {
                                 Icon(
                                     imageVector = Icons.Default.ChevronRight,
                                     contentDescription = null,
                                     tint = scheme.onSurfaceVariant,
-                                    modifier = Modifier.size(14.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
                         }
@@ -972,7 +760,7 @@ private fun CleanFolderExplorerView(
                 OutlinedTextField(
                     value = uiState.searchQuery,
                     onValueChange = { fmViewModel.setSearchQuery(it) },
-                    placeholder = { Text("Search in folder...", fontSize = 13.sp, fontFamily = JakartaFontFamily) },
+                    placeholder = { Text("Search in folder...", style = MaterialTheme.typography.bodyMedium) },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                     trailingIcon = {
                         if (uiState.searchQuery.isNotEmpty()) {
@@ -981,8 +769,9 @@ private fun CleanFolderExplorerView(
                             }
                         }
                     },
+                    textStyle = MaterialTheme.typography.bodyMedium,
                     singleLine = true,
-                    shape = RoundedCornerShape(50),
+                    shape = MaterialTheme.shapes.extraSmall,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 8.dp)
@@ -991,9 +780,10 @@ private fun CleanFolderExplorerView(
 
             // Clipboard Paste Banner
             if (uiState.clipboardPaths.isNotEmpty()) {
-                Surface(
-                    color = scheme.secondaryContainer,
-                    shape = RoundedCornerShape(14.dp),
+                ContentCard(
+                    containerColor = scheme.surfaceContainerLow,
+                    borderColor = scheme.primary,
+                    contentPadding = PaddingValues(12.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 8.dp)
@@ -1001,50 +791,45 @@ private fun CleanFolderExplorerView(
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
                             text = "${uiState.clipboardPaths.size} item(s) ready to ${if (uiState.clipboardMode == ClipboardMode.COPY) "copy" else "move"}",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = scheme.onSecondaryContainer,
-                            fontFamily = JakartaFontFamily
+                            style = MaterialTheme.typography.bodySmall,
+                            color = scheme.onSurface,
+                            modifier = Modifier.weight(1f)
                         )
-                        Row {
-                            TextButton(onClick = { fmViewModel.clearClipboard() }) {
-                                Text("Cancel", fontSize = 12.sp)
-                            }
-                            Button(
-                                onClick = { fmViewModel.pasteClipboardHere() },
-                                shape = RoundedCornerShape(50),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                            ) {
-                                Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Paste here", fontSize = 12.sp)
-                            }
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            SecondaryButton(
+                                text = "Cancel",
+                                onClick = { fmViewModel.clearClipboard() }
+                            )
+                            PrimaryButton(
+                                text = "Paste here",
+                                icon = Icons.Default.ContentPaste,
+                                onClick = { fmViewModel.pasteClipboardHere() }
+                            )
                         }
                     }
                 }
             }
 
             notice?.let { msg ->
-                Surface(
-                    color = scheme.primaryContainer,
-                    shape = RoundedCornerShape(12.dp),
+                ContentCard(
+                    onClick = { fmViewModel.clearNotice() },
+                    containerColor = scheme.primaryContainer,
+                    borderColor = scheme.primary,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 8.dp)
-                        .clickable { fmViewModel.clearNotice() }
                 ) {
                     Text(
                         text = msg,
-                        fontSize = 12.sp,
-                        color = scheme.onPrimaryContainer,
-                        fontFamily = JakartaFontFamily,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                        style = MaterialTheme.typography.bodySmall,
+                        color = scheme.onPrimaryContainer
                     )
                 }
             }
@@ -1066,49 +851,23 @@ private fun CleanFolderExplorerView(
                         .fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(64.dp)
-                                .clip(CircleShape)
-                                .background(scheme.surfaceContainerLow)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Folder,
-                                contentDescription = null,
-                                tint = scheme.primary,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "This folder is empty",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = JakartaFontFamily,
-                            color = scheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Tap '+ New' below to add a folder, note, or file.",
-                            fontSize = 13.sp,
-                            color = scheme.onSurfaceVariant,
-                            fontFamily = JakartaFontFamily
-                        )
-                    }
+                    EmptyState(
+                        icon = Icons.Default.Folder,
+                        title = "This folder is empty",
+                        message = "Tap '+ New' below to add a folder, note, or file."
+                    )
                 }
             } else if (uiState.isGridView) {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(2),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(bottom = 96.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(bottom = 32.dp),
                     modifier = Modifier.weight(1f)
                 ) {
                     items(uiState.entries, key = { it.path }) { entry ->
                         val isSelected = entry.path in uiState.selectedPaths
-                        CleanFileRowCard(
+                        FileEntryCardItem(
                             entry = entry,
                             isSelected = isSelected,
                             onClick = {
@@ -1151,12 +910,12 @@ private fun CleanFolderExplorerView(
             } else {
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(bottom = 96.dp),
+                    contentPadding = PaddingValues(bottom = 32.dp),
                     modifier = Modifier.weight(1f)
                 ) {
                     items(uiState.entries, key = { it.path }) { entry ->
                         val isSelected = entry.path in uiState.selectedPaths
-                        CleanFileRowCard(
+                        FileEntryCardItem(
                             entry = entry,
                             isSelected = isSelected,
                             onClick = {
@@ -1199,7 +958,7 @@ private fun CleanFolderExplorerView(
             }
         }
 
-        // Clean Google Files "+ New" Button
+        // "+ New" Button
         Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -1209,9 +968,10 @@ private fun CleanFolderExplorerView(
                 onClick = { showCreateMenu = true },
                 containerColor = scheme.primary,
                 contentColor = scheme.onPrimary,
-                shape = RoundedCornerShape(16.dp),
+                shape = MaterialTheme.shapes.medium,
+                elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("New", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold) }
+                text = { Text("New", style = MaterialTheme.typography.labelLarge) }
             )
 
             DropdownMenu(
@@ -1219,7 +979,7 @@ private fun CleanFolderExplorerView(
                 onDismissRequest = { showCreateMenu = false }
             ) {
                 DropdownMenuItem(
-                    text = { Text("New folder", fontFamily = JakartaFontFamily) },
+                    text = { Text("New folder", style = MaterialTheme.typography.bodyMedium) },
                     leadingIcon = { Icon(Icons.Default.CreateNewFolder, contentDescription = null) },
                     onClick = {
                         showCreateMenu = false
@@ -1227,7 +987,7 @@ private fun CleanFolderExplorerView(
                     }
                 )
                 DropdownMenuItem(
-                    text = { Text("New text note", fontFamily = JakartaFontFamily) },
+                    text = { Text("New text note", style = MaterialTheme.typography.bodyMedium) },
                     leadingIcon = { Icon(Icons.Default.NoteAdd, contentDescription = null) },
                     onClick = {
                         showCreateMenu = false
@@ -1235,7 +995,7 @@ private fun CleanFolderExplorerView(
                     }
                 )
                 DropdownMenuItem(
-                    text = { Text("Import files", fontFamily = JakartaFontFamily) },
+                    text = { Text("Import files", style = MaterialTheme.typography.bodyMedium) },
                     leadingIcon = { Icon(Icons.Default.UploadFile, contentDescription = null) },
                     onClick = {
                         showCreateMenu = false
@@ -1243,7 +1003,7 @@ private fun CleanFolderExplorerView(
                     }
                 )
                 DropdownMenuItem(
-                    text = { Text("Import folder", fontFamily = JakartaFontFamily) },
+                    text = { Text("Import folder", style = MaterialTheme.typography.bodyMedium) },
                     leadingIcon = { Icon(Icons.Default.Folder, contentDescription = null) },
                     onClick = {
                         showCreateMenu = false
@@ -1259,34 +1019,33 @@ private fun CleanFolderExplorerView(
         var folderName by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showNewFolderDialog = false },
-            shape = RoundedCornerShape(24.dp),
-            title = { Text("New folder", fontWeight = FontWeight.Bold, fontFamily = JakartaFontFamily) },
+            shape = MaterialTheme.shapes.extraLarge,
+            title = { Text("New folder", style = MaterialTheme.typography.titleMedium) },
             text = {
                 OutlinedTextField(
                     value = folderName,
                     onValueChange = { folderName = it },
-                    label = { Text("Folder name", fontFamily = JakartaFontFamily) },
+                    label = { Text("Folder name", style = MaterialTheme.typography.bodySmall) },
+                    textStyle = MaterialTheme.typography.bodyMedium,
                     singleLine = true,
-                    shape = RoundedCornerShape(14.dp),
+                    shape = MaterialTheme.shapes.extraSmall,
                     modifier = Modifier.fillMaxWidth()
                 )
             },
             confirmButton = {
-                Button(
+                PrimaryButton(
+                    text = "Create",
                     onClick = {
                         if (folderName.isNotBlank()) {
                             fmViewModel.createNewFolder(folderName)
                             showNewFolderDialog = false
                         }
-                    },
-                    shape = RoundedCornerShape(50)
-                ) {
-                    Text("Create", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
-                }
+                    }
+                )
             },
             dismissButton = {
                 TextButton(onClick = { showNewFolderDialog = false }) {
-                    Text("Cancel", fontFamily = JakartaFontFamily)
+                    Text("Cancel", style = MaterialTheme.typography.labelLarge)
                 }
             }
         )
@@ -1297,46 +1056,46 @@ private fun CleanFolderExplorerView(
         var content by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showNewNoteDialog = false },
-            shape = RoundedCornerShape(24.dp),
-            title = { Text("New text note", fontWeight = FontWeight.Bold, fontFamily = JakartaFontFamily) },
+            shape = MaterialTheme.shapes.extraLarge,
+            title = { Text("New text note", style = MaterialTheme.typography.titleMedium) },
             text = {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     OutlinedTextField(
                         value = fileName,
                         onValueChange = { fileName = it },
-                        label = { Text("File name", fontFamily = JakartaFontFamily) },
+                        label = { Text("File name", style = MaterialTheme.typography.bodySmall) },
+                        textStyle = MaterialTheme.typography.bodyMedium,
                         singleLine = true,
-                        shape = RoundedCornerShape(14.dp),
+                        shape = MaterialTheme.shapes.extraSmall,
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                     OutlinedTextField(
                         value = content,
                         onValueChange = { content = it },
-                        label = { Text("Content", fontFamily = JakartaFontFamily) },
+                        label = { Text("Content", style = MaterialTheme.typography.bodySmall) },
+                        textStyle = MaterialTheme.typography.bodyMedium,
                         minLines = 4,
                         maxLines = 8,
-                        shape = RoundedCornerShape(14.dp),
+                        shape = MaterialTheme.shapes.extraSmall,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
             },
             confirmButton = {
-                Button(
+                PrimaryButton(
+                    text = "Save",
                     onClick = {
                         if (fileName.isNotBlank()) {
                             fmViewModel.createNewTextFile(fileName, content)
                             showNewNoteDialog = false
                         }
-                    },
-                    shape = RoundedCornerShape(50)
-                ) {
-                    Text("Save", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
-                }
+                    }
+                )
             },
             dismissButton = {
                 TextButton(onClick = { showNewNoteDialog = false }) {
-                    Text("Cancel", fontFamily = JakartaFontFamily)
+                    Text("Cancel", style = MaterialTheme.typography.labelLarge)
                 }
             }
         )
@@ -1346,33 +1105,32 @@ private fun CleanFolderExplorerView(
         var newName by remember(target.path) { mutableStateOf(target.name) }
         AlertDialog(
             onDismissRequest = { renameTarget = null },
-            shape = RoundedCornerShape(24.dp),
-            title = { Text("Rename", fontWeight = FontWeight.Bold, fontFamily = JakartaFontFamily) },
+            shape = MaterialTheme.shapes.extraLarge,
+            title = { Text("Rename", style = MaterialTheme.typography.titleMedium) },
             text = {
                 OutlinedTextField(
                     value = newName,
                     onValueChange = { newName = it },
+                    textStyle = MaterialTheme.typography.bodyMedium,
                     singleLine = true,
-                    shape = RoundedCornerShape(14.dp),
+                    shape = MaterialTheme.shapes.extraSmall,
                     modifier = Modifier.fillMaxWidth()
                 )
             },
             confirmButton = {
-                Button(
+                PrimaryButton(
+                    text = "Rename",
                     onClick = {
                         if (newName.isNotBlank()) {
                             fmViewModel.renameEntry(target, newName)
                             renameTarget = null
                         }
-                    },
-                    shape = RoundedCornerShape(50)
-                ) {
-                    Text("Rename", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
-                }
+                    }
+                )
             },
             dismissButton = {
                 TextButton(onClick = { renameTarget = null }) {
-                    Text("Cancel", fontFamily = JakartaFontFamily)
+                    Text("Cancel", style = MaterialTheme.typography.labelLarge)
                 }
             }
         )
@@ -1382,32 +1140,31 @@ private fun CleanFolderExplorerView(
         var zipName by remember { mutableStateOf("Archive.zip") }
         AlertDialog(
             onDismissRequest = { showZipDialogForPaths = null },
-            shape = RoundedCornerShape(24.dp),
-            title = { Text("Compress to ZIP", fontWeight = FontWeight.Bold, fontFamily = JakartaFontFamily) },
+            shape = MaterialTheme.shapes.extraLarge,
+            title = { Text("Compress to ZIP", style = MaterialTheme.typography.titleMedium) },
             text = {
                 OutlinedTextField(
                     value = zipName,
                     onValueChange = { zipName = it },
-                    label = { Text("Archive name", fontFamily = JakartaFontFamily) },
+                    label = { Text("Archive name", style = MaterialTheme.typography.bodySmall) },
+                    textStyle = MaterialTheme.typography.bodyMedium,
                     singleLine = true,
-                    shape = RoundedCornerShape(14.dp),
+                    shape = MaterialTheme.shapes.extraSmall,
                     modifier = Modifier.fillMaxWidth()
                 )
             },
             confirmButton = {
-                Button(
+                PrimaryButton(
+                    text = "Compress",
                     onClick = {
                         fmViewModel.compressToZip(paths, zipName)
                         showZipDialogForPaths = null
-                    },
-                    shape = RoundedCornerShape(50)
-                ) {
-                    Text("Compress", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
-                }
+                    }
+                )
             },
             dismissButton = {
                 TextButton(onClick = { showZipDialogForPaths = null }) {
-                    Text("Cancel", fontFamily = JakartaFontFamily)
+                    Text("Cancel", style = MaterialTheme.typography.labelLarge)
                 }
             }
         )
@@ -1416,26 +1173,24 @@ private fun CleanFolderExplorerView(
     deleteTargets?.let { paths ->
         AlertDialog(
             onDismissRequest = { deleteTargets = null },
-            shape = RoundedCornerShape(24.dp),
-            title = { Text("Delete ${paths.size} item(s)?", fontWeight = FontWeight.Bold, fontFamily = JakartaFontFamily) },
+            shape = MaterialTheme.shapes.extraLarge,
+            title = { Text("Delete ${paths.size} item(s)?", style = MaterialTheme.typography.titleMedium) },
             text = {
-                Text("This will permanently remove the selected items.", fontFamily = JakartaFontFamily)
+                Text("This will permanently remove the selected items.", style = MaterialTheme.typography.bodyMedium)
             },
             confirmButton = {
-                Button(
+                PrimaryButton(
+                    text = "Delete",
+                    isDestructive = true,
                     onClick = {
                         fmViewModel.deleteEntries(paths)
                         deleteTargets = null
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = scheme.error),
-                    shape = RoundedCornerShape(50)
-                ) {
-                    Text("Delete", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
-                }
+                    }
+                )
             },
             dismissButton = {
                 TextButton(onClick = { deleteTargets = null }) {
-                    Text("Cancel", fontFamily = JakartaFontFamily)
+                    Text("Cancel", style = MaterialTheme.typography.labelLarge)
                 }
             }
         )
@@ -1448,32 +1203,31 @@ private fun CleanFolderExplorerView(
         var editedText by remember(loadedText) { mutableStateOf(loadedText ?: "") }
         AlertDialog(
             onDismissRequest = { textEditorTarget = null },
-            shape = RoundedCornerShape(24.dp),
-            title = { Text(target.name, fontWeight = FontWeight.Bold, fontFamily = JakartaFontFamily) },
+            shape = MaterialTheme.shapes.extraLarge,
+            title = { Text(target.name, style = MaterialTheme.typography.titleMedium) },
             text = {
                 OutlinedTextField(
                     value = editedText,
                     onValueChange = { editedText = it },
+                    textStyle = MaterialTheme.typography.bodyMedium,
                     minLines = 6,
                     maxLines = 12,
-                    shape = RoundedCornerShape(14.dp),
+                    shape = MaterialTheme.shapes.extraSmall,
                     modifier = Modifier.fillMaxWidth()
                 )
             },
             confirmButton = {
-                Button(
+                PrimaryButton(
+                    text = "Save",
                     onClick = {
                         fmViewModel.saveTextFileContent(target.path, editedText)
                         textEditorTarget = null
-                    },
-                    shape = RoundedCornerShape(50)
-                ) {
-                    Text("Save", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
-                }
+                    }
+                )
             },
             dismissButton = {
                 TextButton(onClick = { textEditorTarget = null }) {
-                    Text("Close", fontFamily = JakartaFontFamily)
+                    Text("Close", style = MaterialTheme.typography.labelLarge)
                 }
             }
         )
@@ -1487,16 +1241,16 @@ private fun CleanFolderExplorerView(
         }
         AlertDialog(
             onDismissRequest = { imagePreviewTarget = null },
-            shape = RoundedCornerShape(24.dp),
-            title = { Text(target.name, fontWeight = FontWeight.Bold, fontFamily = JakartaFontFamily) },
+            shape = MaterialTheme.shapes.extraLarge,
+            title = { Text(target.name, style = MaterialTheme.typography.titleMedium) },
             text = {
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(300.dp)
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(MaterialTheme.shapes.medium)
                         .background(scheme.surfaceContainerLow)
+                        .padding(16.dp)
                 ) {
                     val image = bmp
                     if (image != null) {
@@ -1504,7 +1258,7 @@ private fun CleanFolderExplorerView(
                             bitmap = image,
                             contentDescription = target.name,
                             contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxWidth()
                         )
                     } else {
                         CircularProgressIndicator()
@@ -1512,21 +1266,18 @@ private fun CleanFolderExplorerView(
                 }
             },
             confirmButton = {
-                Button(
+                PrimaryButton(
+                    text = "Move to Safe Folder",
+                    icon = Icons.Default.Lock,
                     onClick = {
                         fmViewModel.encryptEntriesToLocker(listOf(target.path), shredOriginals = false)
                         imagePreviewTarget = null
-                    },
-                    shape = RoundedCornerShape(50)
-                ) {
-                    Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Move to Safe Folder", fontFamily = JakartaFontFamily)
-                }
+                    }
+                )
             },
             dismissButton = {
                 TextButton(onClick = { imagePreviewTarget = null }) {
-                    Text("Close", fontFamily = JakartaFontFamily)
+                    Text("Close", style = MaterialTheme.typography.labelLarge)
                 }
             }
         )
@@ -1549,7 +1300,7 @@ private fun handleFileOpen(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun CleanFileRowCard(
+private fun FileEntryCardItem(
     entry: FileEntryItem,
     isSelected: Boolean,
     onClick: () -> Unit,
@@ -1566,27 +1317,31 @@ private fun CleanFileRowCard(
     val scheme = MaterialTheme.colorScheme
     var showMenu by remember { mutableStateOf(false) }
 
-    val (icon, tint) = when {
-        entry.isDirectory -> Icons.Default.Folder to scheme.primary
-        entry.category == FileCategory.IMAGE -> Icons.Default.Image to Color(0xFFD93025)
-        entry.category == FileCategory.VIDEO -> Icons.Default.VideoFile to Color(0xFF188038)
-        entry.category == FileCategory.AUDIO -> Icons.Default.AudioFile to Color(0xFFE37400)
-        entry.category == FileCategory.ARCHIVE -> Icons.Default.FolderZip to Color(0xFF0B57D0)
+    val icon = when {
+        entry.isDirectory -> Icons.Default.Folder
+        entry.category == FileCategory.IMAGE -> Icons.Default.Image
+        entry.category == FileCategory.VIDEO -> Icons.Default.VideoFile
+        entry.category == FileCategory.AUDIO -> Icons.Default.AudioFile
+        entry.category == FileCategory.ARCHIVE -> Icons.Default.FolderZip
         entry.category == FileCategory.CODE_OR_TEXT || entry.category == FileCategory.PDF_OR_DOC ->
-            Icons.Default.Description to Color(0xFF7627BB)
-        else -> Icons.AutoMirrored.Filled.InsertDriveFile to scheme.onSurfaceVariant
+            Icons.Default.Description
+        else -> Icons.AutoMirrored.Filled.InsertDriveFile
     }
 
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) scheme.primaryContainer.copy(alpha = 0.45f) else scheme.surface
-        ),
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(
-            1.dp,
-            if (isSelected) scheme.primary else scheme.outlineVariant
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    val dateStr = remember(entry.lastModified) {
+        if (entry.lastModified > 0L) {
+            DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(entry.lastModified))
+        } else ""
+    }
+    val metaText = if (entry.isDirectory) {
+        "${entry.childCount} items • $dateStr"
+    } else {
+        "${formatBytes(entry.sizeBytes)} • $dateStr"
+    }
+
+    ContentCard(
+        containerColor = if (isSelected) scheme.primaryContainer else scheme.surface,
+        borderColor = if (isSelected) scheme.primary else scheme.outlineVariant,
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
@@ -1594,145 +1349,102 @@ private fun CleanFileRowCard(
                 onLongClick = onLongClick
             )
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
-        ) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(tint.copy(alpha = 0.12f))
-            ) {
-                Icon(
-                    imageVector = if (isSelected) Icons.Default.CheckCircle else icon,
-                    contentDescription = null,
-                    tint = if (isSelected) scheme.primary else tint,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
+        ListRow(
+            title = entry.name,
+            subtitle = metaText,
+            leadingIcon = if (isSelected) Icons.Default.CheckCircle else icon,
+            tintLeadingIcon = entry.isDirectory || isSelected,
+            modifier = Modifier.padding(vertical = 0.dp),
+            trailing = {
+                Box {
+                    IconButton(onClick = { showMenu = true }) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "Options",
+                            tint = scheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
 
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = entry.name,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = scheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontFamily = JakartaFontFamily
-                )
-                val dateStr = remember(entry.lastModified) {
-                    if (entry.lastModified > 0L) {
-                        DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(entry.lastModified))
-                    } else ""
-                }
-                val metaText = if (entry.isDirectory) {
-                    "${entry.childCount} items • $dateStr"
-                } else {
-                    "${formatBytes(entry.sizeBytes)} • $dateStr"
-                }
-                Text(
-                    text = metaText,
-                    fontSize = 12.sp,
-                    color = scheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontFamily = JakartaFontFamily
-                )
-            }
-
-            Box {
-                IconButton(onClick = { showMenu = true }) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = "Options",
-                        tint = scheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                DropdownMenu(
-                    expanded = showMenu,
-                    onDismissRequest = { showMenu = false }
-                ) {
-                    if (!entry.isDirectory) {
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        if (!entry.isDirectory) {
+                            DropdownMenuItem(
+                                text = { Text("Move to Safe Folder", style = MaterialTheme.typography.bodyMedium) },
+                                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                                onClick = {
+                                    showMenu = false
+                                    onMoveToSafeFolder()
+                                }
+                            )
+                        }
                         DropdownMenuItem(
-                            text = { Text("Move to Safe Folder", fontFamily = JakartaFontFamily) },
-                            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                            text = { Text("Copy", style = MaterialTheme.typography.bodyMedium) },
+                            leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
                             onClick = {
                                 showMenu = false
-                                onMoveToSafeFolder()
+                                onCopy()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Move", style = MaterialTheme.typography.bodyMedium) },
+                            leadingIcon = { Icon(Icons.Default.ContentCut, contentDescription = null) },
+                            onClick = {
+                                showMenu = false
+                                onMove()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Rename", style = MaterialTheme.typography.bodyMedium) },
+                            leadingIcon = { Icon(Icons.Default.DriveFileRenameOutline, contentDescription = null) },
+                            onClick = {
+                                showMenu = false
+                                onRename()
+                            }
+                        )
+                        if (entry.extension == "zip") {
+                            DropdownMenuItem(
+                                text = { Text("Extract ZIP here", style = MaterialTheme.typography.bodyMedium) },
+                                leadingIcon = { Icon(Icons.Default.Unarchive, contentDescription = null) },
+                                onClick = {
+                                    showMenu = false
+                                    onExtractZip()
+                                }
+                            )
+                        } else {
+                            DropdownMenuItem(
+                                text = { Text("Compress to ZIP", style = MaterialTheme.typography.bodyMedium) },
+                                leadingIcon = { Icon(Icons.Default.FolderZip, contentDescription = null) },
+                                onClick = {
+                                    showMenu = false
+                                    onCompressZip()
+                                }
+                            )
+                        }
+                        if (!entry.isDirectory) {
+                            DropdownMenuItem(
+                                text = { Text("Save / Share", style = MaterialTheme.typography.bodyMedium) },
+                                leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
+                                onClick = {
+                                    showMenu = false
+                                    onExport()
+                                }
+                            )
+                        }
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text("Delete", color = scheme.error, style = MaterialTheme.typography.bodyMedium) },
+                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = scheme.error) },
+                            onClick = {
+                                showMenu = false
+                                onDelete()
                             }
                         )
                     }
-                    DropdownMenuItem(
-                        text = { Text("Copy", fontFamily = JakartaFontFamily) },
-                        leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
-                        onClick = {
-                            showMenu = false
-                            onCopy()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Move", fontFamily = JakartaFontFamily) },
-                        leadingIcon = { Icon(Icons.Default.ContentCut, contentDescription = null) },
-                        onClick = {
-                            showMenu = false
-                            onMove()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Rename", fontFamily = JakartaFontFamily) },
-                        leadingIcon = { Icon(Icons.Default.DriveFileRenameOutline, contentDescription = null) },
-                        onClick = {
-                            showMenu = false
-                            onRename()
-                        }
-                    )
-                    if (entry.extension == "zip") {
-                        DropdownMenuItem(
-                            text = { Text("Extract ZIP here", fontFamily = JakartaFontFamily) },
-                            leadingIcon = { Icon(Icons.Default.Unarchive, contentDescription = null) },
-                            onClick = {
-                                showMenu = false
-                                onExtractZip()
-                            }
-                        )
-                    } else {
-                        DropdownMenuItem(
-                            text = { Text("Compress to ZIP", fontFamily = JakartaFontFamily) },
-                            leadingIcon = { Icon(Icons.Default.FolderZip, contentDescription = null) },
-                            onClick = {
-                                showMenu = false
-                                onCompressZip()
-                            }
-                        )
-                    }
-                    if (!entry.isDirectory) {
-                        DropdownMenuItem(
-                            text = { Text("Save / Share", fontFamily = JakartaFontFamily) },
-                            leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
-                            onClick = {
-                                showMenu = false
-                                onExport()
-                            }
-                        )
-                    }
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        text = { Text("Delete", color = scheme.error, fontFamily = JakartaFontFamily) },
-                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = scheme.error) },
-                        onClick = {
-                            showMenu = false
-                            onDelete()
-                        }
-                    )
                 }
             }
-        }
+        )
     }
 }

@@ -2,16 +2,15 @@ package com.example.isolation.ui.screens
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,7 +21,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -37,9 +35,6 @@ import androidx.compose.material.icons.filled.NoteAdd
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -65,13 +60,14 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.isolation.data.entity.VaultFileItem
 import com.example.isolation.ui.components.DecryptedPreviewDialog
+import com.example.isolation.ui.components.EmptyState
+import com.example.isolation.ui.components.ListRow
+import com.example.isolation.ui.components.PrimaryButton
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
-import com.example.ui.theme.JakartaFontFamily
+import com.example.ui.theme.FrauncesFontFamily
 
 @Composable
 fun VaultScreen(
@@ -79,6 +75,8 @@ fun VaultScreen(
     onBack: (() -> Unit)? = null
 ) {
     val scheme = MaterialTheme.colorScheme
+    val typography = MaterialTheme.typography
+    val shapes = MaterialTheme.shapes
     val vaultFiles by viewModel.vaultFiles.collectAsState()
     val totalBytes by viewModel.totalEncryptedBytes.collectAsState()
     val previewItem by viewModel.previewDecryptedText.collectAsState()
@@ -117,12 +115,12 @@ fun VaultScreen(
                 .fillMaxSize()
                 .padding(horizontal = 16.dp)
         ) {
-            // Clean Google Files Safe Folder Header
+            // Safe Folder Header
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 6.dp)
+                    .padding(vertical = 8.dp)
             ) {
                 if (onBack != null) {
                     IconButton(onClick = onBack) {
@@ -152,23 +150,22 @@ fun VaultScreen(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Safe Folder",
+                        style = typography.headlineMedium,
+                        fontFamily = FrauncesFontFamily,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp,
-                        fontFamily = JakartaFontFamily,
                         color = scheme.onSurface
                     )
                     Text(
                         text = "${vaultFiles.size} locked items • ${formatBytes(totalBytes)}",
-                        fontSize = 12.sp,
-                        color = scheme.onSurfaceVariant,
-                        fontFamily = JakartaFontFamily
+                        style = typography.bodySmall,
+                        color = scheme.onSurfaceVariant
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // Simple Filter Chips
+            // Filter Chips
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth()
@@ -183,8 +180,8 @@ fun VaultScreen(
                         FilterChip(
                             selected = isSelected,
                             onClick = { selectedTypeFilter = key },
-                            label = { Text(label, fontFamily = JakartaFontFamily, fontSize = 12.sp) },
-                            shape = RoundedCornerShape(50),
+                            label = { Text(label, style = typography.labelMedium) },
+                            shape = shapes.extraSmall,
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = scheme.primaryContainer,
                                 selectedLabelColor = scheme.onPrimaryContainer,
@@ -196,7 +193,7 @@ fun VaultScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             if (filteredFiles.isEmpty()) {
                 Box(
@@ -205,45 +202,16 @@ fun VaultScreen(
                         .fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(horizontal = 32.dp)
-                    ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(64.dp)
-                                .clip(CircleShape)
-                                .background(scheme.surfaceContainerLow)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Lock,
-                                contentDescription = null,
-                                tint = scheme.primary,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(14.dp))
-                        Text(
-                            text = "Safe Folder is empty",
-                            color = scheme.onSurface,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = JakartaFontFamily
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Keep private photos, documents, and notes locked away from other apps.",
-                            color = scheme.onSurfaceVariant,
-                            fontSize = 13.sp,
-                            fontFamily = JakartaFontFamily
-                        )
-                    }
+                    EmptyState(
+                        icon = Icons.Default.Lock,
+                        title = "Safe Folder is empty",
+                        message = "Keep private photos, documents, and notes locked away from other apps."
+                    )
                 }
             } else {
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(bottom = 96.dp),
+                    contentPadding = PaddingValues(bottom = 32.dp),
                     modifier = Modifier.weight(1f)
                 ) {
                     items(filteredFiles, key = { it.id }) { fileItem ->
@@ -262,9 +230,9 @@ fun VaultScreen(
             }
         }
 
-        // Clean Google Files Floating Action Buttons
+        // Floating Action Buttons
         Row(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -274,7 +242,7 @@ fun VaultScreen(
                 onClick = { showCreateDialog = true },
                 containerColor = scheme.secondaryContainer,
                 contentColor = scheme.onSecondaryContainer,
-                shape = RoundedCornerShape(16.dp),
+                shape = shapes.medium,
                 modifier = Modifier.testTag("fab_add_vault_file")
             ) {
                 Icon(imageVector = Icons.Default.NoteAdd, contentDescription = "New Note")
@@ -284,9 +252,9 @@ fun VaultScreen(
                 onClick = { importLauncher.launch(arrayOf("*/*")) },
                 containerColor = scheme.primary,
                 contentColor = scheme.onPrimary,
-                shape = RoundedCornerShape(16.dp),
+                shape = shapes.medium,
                 icon = { Icon(imageVector = Icons.Default.Add, contentDescription = null) },
-                text = { Text("Add File", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold) },
+                text = { Text("Add File", style = typography.labelLarge, fontWeight = FontWeight.SemiBold) },
                 modifier = Modifier.testTag("fab_import_vault_file")
             )
         }
@@ -313,14 +281,13 @@ fun VaultScreen(
     previewBitmap?.let { (title, bmp) ->
         AlertDialog(
             onDismissRequest = { viewModel.clearPreview() },
-            shape = RoundedCornerShape(24.dp),
+            shape = shapes.extraLarge,
             containerColor = scheme.surface,
             title = {
                 Text(
                     text = title.substringAfterLast('/'),
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = JakartaFontFamily
+                    style = typography.titleMedium,
+                    fontWeight = FontWeight.Bold
                 )
             },
             text = {
@@ -328,8 +295,8 @@ fun VaultScreen(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(320.dp)
-                        .clip(RoundedCornerShape(16.dp))
+                        .aspectRatio(1.25f)
+                        .clip(shapes.medium)
                         .background(scheme.surfaceContainerLow)
                 ) {
                     Image(
@@ -342,7 +309,7 @@ fun VaultScreen(
             },
             confirmButton = {
                 TextButton(onClick = { viewModel.clearPreview() }) {
-                    Text("Close", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
+                    Text("Close", style = typography.labelLarge, fontWeight = FontWeight.SemiBold)
                 }
             }
         )
@@ -371,117 +338,76 @@ fun VaultFileCard(
 
     val fileName = fileItem.relativePath.substringAfterLast('/')
 
-    Card(
-        colors = CardDefaults.cardColors(containerColor = scheme.surface),
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, scheme.outlineVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onPreview() }
-            .testTag("vault_item_${fileItem.id}")
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(14.dp)
-        ) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .background(scheme.primaryContainer)
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = scheme.onPrimaryContainer,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = fileName,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 15.sp,
-                    color = scheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontFamily = JakartaFontFamily
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "${formatBytes(fileItem.originalSizeBytes)} • Locked",
-                    fontSize = 12.sp,
-                    color = scheme.onSurfaceVariant,
-                    fontFamily = JakartaFontFamily
-                )
-            }
-
-            IconButton(
-                onClick = onPreview,
-                modifier = Modifier.testTag("btn_preview_${fileItem.id}")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Visibility,
-                    contentDescription = "View",
-                    tint = scheme.primary,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            Box {
-                IconButton(onClick = { showMenu = true }) {
+    ListRow(
+        title = fileName,
+        subtitle = "${formatBytes(fileItem.originalSizeBytes)} • Locked",
+        leadingIcon = icon,
+        onClick = onPreview,
+        modifier = Modifier.testTag("vault_item_${fileItem.id}"),
+        trailing = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = onPreview,
+                    modifier = Modifier.testTag("btn_preview_${fileItem.id}")
+                ) {
                     Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = "More options",
-                        tint = scheme.onSurfaceVariant,
+                        imageVector = Icons.Default.Visibility,
+                        contentDescription = "View",
+                        tint = scheme.primary,
                         modifier = Modifier.size(20.dp)
                     )
                 }
-                DropdownMenu(
-                    expanded = showMenu,
-                    onDismissRequest = { showMenu = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("View", fontFamily = JakartaFontFamily) },
-                        leadingIcon = { Icon(Icons.Default.Visibility, contentDescription = null) },
-                        onClick = {
-                            showMenu = false
-                            onPreview()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Move out of Safe Folder", fontFamily = JakartaFontFamily) },
-                        leadingIcon = { Icon(Icons.Default.LockOpen, contentDescription = null) },
-                        onClick = {
-                            showMenu = false
-                            onDecryptToWorkspace()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Save to phone", fontFamily = JakartaFontFamily) },
-                        leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
-                        onClick = {
-                            showMenu = false
-                            onExport()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Delete", color = scheme.error, fontFamily = JakartaFontFamily) },
-                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = scheme.error) },
-                        onClick = {
-                            showMenu = false
-                            onDelete()
-                        }
-                    )
+
+                Box {
+                    IconButton(onClick = { showMenu = true }) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "More options",
+                            tint = scheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("View") },
+                            leadingIcon = { Icon(Icons.Default.Visibility, contentDescription = null) },
+                            onClick = {
+                                showMenu = false
+                                onPreview()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Move out of Safe Folder") },
+                            leadingIcon = { Icon(Icons.Default.LockOpen, contentDescription = null) },
+                            onClick = {
+                                showMenu = false
+                                onDecryptToWorkspace()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Save to phone") },
+                            leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
+                            onClick = {
+                                showMenu = false
+                                onExport()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Delete", color = scheme.error) },
+                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = scheme.error) },
+                            onClick = {
+                                showMenu = false
+                                onDelete()
+                            }
+                        )
+                    }
                 }
             }
         }
-    }
+    )
 }
 
 @Composable
@@ -490,19 +416,20 @@ fun CreateEncryptedNoteDialog(
     onCreate: (fileName: String, content: String) -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
+    val typography = MaterialTheme.typography
+    val shapes = MaterialTheme.shapes
     var fileName by remember { mutableStateOf("Private_Note.txt") }
     var content by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(24.dp),
+        shape = shapes.extraLarge,
         containerColor = scheme.surface,
         title = {
             Text(
                 text = "New Safe Folder Note",
+                style = typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                fontSize = 18.sp,
-                fontFamily = JakartaFontFamily,
                 color = scheme.onSurface
             )
         },
@@ -511,22 +438,22 @@ fun CreateEncryptedNoteDialog(
                 OutlinedTextField(
                     value = fileName,
                     onValueChange = { fileName = it },
-                    label = { Text("Title", fontFamily = JakartaFontFamily) },
+                    label = { Text("Title") },
                     singleLine = true,
-                    shape = RoundedCornerShape(14.dp),
+                    shape = shapes.small,
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("input_vault_filename")
                 )
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(12.dp))
                 OutlinedTextField(
                     value = content,
                     onValueChange = { content = it },
-                    label = { Text("Note", fontFamily = JakartaFontFamily) },
+                    label = { Text("Note") },
                     placeholder = { Text("Write something private...") },
                     minLines = 4,
                     maxLines = 7,
-                    shape = RoundedCornerShape(14.dp),
+                    shape = shapes.small,
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("input_vault_content")
@@ -534,21 +461,19 @@ fun CreateEncryptedNoteDialog(
             }
         },
         confirmButton = {
-            Button(
+            PrimaryButton(
+                text = "Save to Safe Folder",
                 onClick = {
                     if (fileName.isNotBlank() && content.isNotBlank()) {
                         onCreate(fileName.trim(), content)
                     }
                 },
-                shape = RoundedCornerShape(50),
                 modifier = Modifier.testTag("btn_confirm_encrypt")
-            ) {
-                Text("Save to Safe Folder", fontFamily = JakartaFontFamily, fontWeight = FontWeight.SemiBold)
-            }
+            )
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = scheme.onSurfaceVariant, fontFamily = JakartaFontFamily)
+                Text("Cancel", color = scheme.onSurfaceVariant)
             }
         }
     )

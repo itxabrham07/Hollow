@@ -4,13 +4,9 @@ import android.graphics.BitmapFactory
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -18,7 +14,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,8 +21,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -50,18 +43,12 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
@@ -81,16 +68,21 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import com.example.isolation.model.DisguiseIconPreset
+import com.example.isolation.model.IsolationRuleManager
 import com.example.isolation.model.LauncherVisibilityMode
 import com.example.isolation.pkg.InstalledAppInfo
+import com.example.isolation.ui.components.ContentCard
+import com.example.isolation.ui.components.EmptyState
+import com.example.isolation.ui.components.ListRow
+import com.example.isolation.ui.components.PrimaryButton
+import com.example.isolation.ui.components.SecondaryButton
+import com.example.isolation.ui.components.SectionHeader
+import com.example.isolation.ui.components.rememberAppIconBitmap
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
-import com.example.ui.theme.JakartaFontFamily
 
 @Composable
 fun AppHiderScreen(
@@ -135,9 +127,9 @@ fun AppHiderScreen(
             .padding(horizontal = 16.dp)
             .testTag("app_hider_screen")
     ) {
-        Spacer(modifier = Modifier.height(2.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        // Compact Top Header
+        // Top Header
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -148,10 +140,7 @@ fun AppHiderScreen(
                 modifier = Modifier.weight(1f)
             ) {
                 if (onBack != null) {
-                    IconButton(
-                        onClick = onBack,
-                        modifier = Modifier.size(36.dp)
-                    ) {
+                    IconButton(onClick = onBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
@@ -163,12 +152,10 @@ fun AppHiderScreen(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = if (showAllAppsMode) "Select Apps" else "Hide App",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleLarge,
                         color = scheme.onBackground,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        fontFamily = JakartaFontFamily
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = if (showAllAppsMode) {
@@ -176,77 +163,47 @@ fun AppHiderScreen(
                         } else {
                             "${activeStealthApps.size} app${if (activeStealthApps.size == 1) "" else "s"} hidden or disguised"
                         },
-                        fontSize = 11.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         color = scheme.onSurfaceVariant,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        fontFamily = JakartaFontFamily
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
 
             IconButton(
                 onClick = { viewModel.refreshLauncherNow() },
-                modifier = Modifier
-                    .size(36.dp)
-                    .testTag("btn_refresh_launcher")
+                modifier = Modifier.testTag("btn_refresh_launcher")
             ) {
                 Icon(
                     imageVector = Icons.Default.Refresh,
                     contentDescription = "Refresh Home Screen & Icon Cache",
-                    tint = scheme.primary,
-                    modifier = Modifier.size(18.dp)
+                    tint = scheme.primary
                 )
             }
 
             Spacer(modifier = Modifier.width(4.dp))
 
             if (!showAllAppsMode) {
-                FilledTonalButton(
+                PrimaryButton(
+                    text = "Add Apps",
+                    icon = Icons.Default.Add,
                     onClick = { showAllAppsMode = true },
-                    shape = RoundedCornerShape(50),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                     modifier = Modifier.testTag("btn_add_stealth_apps")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Add Apps",
-                        fontSize = 13.sp,
-                        fontFamily = JakartaFontFamily,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
+                )
             } else {
-                OutlinedButton(
+                SecondaryButton(
+                    text = "Done",
+                    icon = Icons.Default.Check,
                     onClick = {
                         showAllAppsMode = false
                         searchQuery = ""
-                    },
-                    shape = RoundedCornerShape(50),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Check,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Done",
-                        fontSize = 13.sp,
-                        fontFamily = JakartaFontFamily,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
+                    }
+                )
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         if (showAllAppsMode || activeStealthApps.isNotEmpty() || searchQuery.isNotBlank()) {
             OutlinedTextField(
@@ -256,18 +213,16 @@ fun AppHiderScreen(
                     Text(
                         text = "Search apps...",
                         color = scheme.onSurfaceVariant,
-                        fontSize = 13.sp,
+                        style = MaterialTheme.typography.bodyMedium,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        fontFamily = JakartaFontFamily
+                        overflow = TextOverflow.Ellipsis
                     )
                 },
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = "Search",
-                        tint = scheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
+                        tint = scheme.onSurfaceVariant
                     )
                 },
                 trailingIcon = {
@@ -276,14 +231,14 @@ fun AppHiderScreen(
                             Icon(
                                 imageVector = Icons.Default.Clear,
                                 contentDescription = "Clear",
-                                tint = scheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp)
+                                tint = scheme.onSurfaceVariant
                             )
                         }
                     }
                 },
+                textStyle = MaterialTheme.typography.bodyMedium,
                 singleLine = true,
-                shape = RoundedCornerShape(50),
+                shape = MaterialTheme.shapes.extraSmall,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = scheme.primary,
                     unfocusedBorderColor = scheme.outlineVariant,
@@ -294,7 +249,7 @@ fun AppHiderScreen(
                     .fillMaxWidth()
                     .testTag("stealth_search_input")
             )
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
         }
 
         if (showAllAppsMode) {
@@ -309,12 +264,11 @@ fun AppHiderScreen(
                         label = {
                             Text(
                                 text = "Downloaded",
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                                fontFamily = JakartaFontFamily
+                                style = MaterialTheme.typography.labelMedium,
+                                maxLines = 1
                             )
                         },
-                        shape = RoundedCornerShape(50),
+                        shape = MaterialTheme.shapes.extraSmall,
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = scheme.primaryContainer,
                             selectedLabelColor = scheme.onPrimaryContainer
@@ -328,12 +282,11 @@ fun AppHiderScreen(
                         label = {
                             Text(
                                 text = "Include System",
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                                fontFamily = JakartaFontFamily
+                                style = MaterialTheme.typography.labelMedium,
+                                maxLines = 1
                             )
                         },
-                        shape = RoundedCornerShape(50),
+                        shape = MaterialTheme.shapes.extraSmall,
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = scheme.primaryContainer,
                             selectedLabelColor = scheme.onPrimaryContainer
@@ -341,87 +294,114 @@ fun AppHiderScreen(
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
         }
 
         LazyColumn(
             modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(bottom = 24.dp),
+            contentPadding = PaddingValues(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (displayedApps.isEmpty()) {
                 item {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = scheme.surface),
-                        shape = RoundedCornerShape(20.dp),
-                        border = BorderStroke(1.dp, scheme.outlineVariant),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp)
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.padding(24.dp)
-                        ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .size(52.dp)
-                                    .clip(CircleShape)
-                                    .background(scheme.primaryContainer)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.VisibilityOff,
-                                    contentDescription = null,
-                                    tint = scheme.onPrimaryContainer,
-                                    modifier = Modifier.size(26.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = if (searchQuery.isNotBlank()) {
-                                    "No matching apps found"
-                                } else {
-                                    "No hidden or disguised apps yet"
-                                },
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = scheme.onSurface,
-                                fontFamily = JakartaFontFamily
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Hide apps from launchers & Play Store, or spoof their name & custom icon in Launcher and Settings.",
-                                fontSize = 12.sp,
-                                color = scheme.onSurfaceVariant,
-                                fontFamily = JakartaFontFamily
-                            )
-                            if (!showAllAppsMode) {
-                                Spacer(modifier = Modifier.height(14.dp))
-                                Button(
-                                    onClick = { showAllAppsMode = true },
-                                    shape = RoundedCornerShape(50)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Add,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Select Apps to Hide / Disguise", fontFamily = JakartaFontFamily)
-                                }
-                            }
-                        }
-                    }
+                    EmptyState(
+                        icon = Icons.Default.VisibilityOff,
+                        title = if (searchQuery.isNotBlank()) "No matching apps found" else "No hidden or disguised apps yet",
+                        message = "Hide apps from launchers & Play Store, or spoof their name & custom icon in Launcher and Settings.",
+                        actionLabel = if (!showAllAppsMode) "Select Apps to Hide / Disguise" else null,
+                        onAction = if (!showAllAppsMode) { { showAllAppsMode = true } } else null
+                    )
                 }
             } else {
                 items(displayedApps, key = { it.packageName }) { appInfo ->
-                    StealthAppCard(
-                        appInfo = appInfo,
-                        onConfigure = { selectedAppForStealth = appInfo },
-                        onLaunch = { viewModel.launchAppFromHollow(appInfo) }
+                    val isActive = (appInfo.isHiddenOrDisguised && appInfo.launcherVisibilityMode != LauncherVisibilityMode.VISIBLE) ||
+                            appInfo.hideFromPlayStore
+
+                    val customPreviewBitmap: ImageBitmap? = remember(appInfo.customIconBase64) {
+                        decodeBase64ToImageBitmap(appInfo.customIconBase64)
+                    }
+                    val iconBitmap = rememberAppIconBitmap(
+                        packageName = appInfo.packageName,
+                        drawable = appInfo.icon,
+                        sizePx = 96
                     )
+                    val displayBitmap = if (appInfo.launcherVisibilityMode == LauncherVisibilityMode.DISGUISED && customPreviewBitmap != null) {
+                        customPreviewBitmap
+                    } else {
+                        iconBitmap
+                    }
+
+                    val statusSummary = buildString {
+                        when (appInfo.launcherVisibilityMode) {
+                            LauncherVisibilityMode.HIDDEN -> append("Hidden from launchers")
+                            LauncherVisibilityMode.DISGUISED -> {
+                                val shownName = appInfo.customLauncherLabel.ifBlank {
+                                    appInfo.disguiseIconPreset.suggestedName.ifBlank { "Calculator" }
+                                }
+                                append("As \"$shownName\"")
+                                if (appInfo.spoofInSettings) append(" • Settings")
+                            }
+                            LauncherVisibilityMode.VISIBLE -> {
+                                if (appInfo.hideFromPlayStore) {
+                                    append("Visible in launcher")
+                                } else {
+                                    append("Visible • Tap to hide or disguise")
+                                }
+                            }
+                        }
+                        if (appInfo.hideFromPlayStore) {
+                            append(" • Hidden in Play Store")
+                        }
+                    }
+
+                    val statusLabel = if (isActive) {
+                        if (appInfo.launcherVisibilityMode == LauncherVisibilityMode.VISIBLE && appInfo.hideFromPlayStore) {
+                            "Play Store"
+                        } else {
+                            appInfo.launcherVisibilityMode.badge
+                        }
+                    } else null
+
+                    ContentCard(
+                        onClick = { selectedAppForStealth = appInfo },
+                        borderColor = if (isActive) scheme.secondary else scheme.outlineVariant,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        ListRow(
+                            title = appInfo.appName,
+                            subtitle = statusSummary,
+                            monoSubtitle = appInfo.packageName,
+                            leadingBitmap = displayBitmap,
+                            leadingIcon = Icons.Default.VisibilityOff,
+                            statusLabel = statusLabel,
+                            statusColor = scheme.secondary,
+                            modifier = Modifier.padding(vertical = 0.dp),
+                            trailing = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    if (isActive) {
+                                        IconButton(
+                                            onClick = { viewModel.launchAppFromHollow(appInfo) },
+                                            modifier = Modifier.testTag("btn_launch_${appInfo.packageName}")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                                                contentDescription = "Launch ${appInfo.appName}",
+                                                tint = scheme.primary
+                                            )
+                                        }
+                                    }
+                                    SecondaryButton(
+                                        text = if (isActive) "Edit" else "Set",
+                                        icon = Icons.Default.Tune,
+                                        onClick = { selectedAppForStealth = appInfo }
+                                    )
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -448,164 +428,6 @@ fun AppHiderScreen(
                 selectedAppForStealth = null
             }
         )
-    }
-}
-
-@Composable
-private fun StealthAppCard(
-    appInfo: InstalledAppInfo,
-    onConfigure: () -> Unit,
-    onLaunch: () -> Unit
-) {
-    val scheme = MaterialTheme.colorScheme
-    val isActive = (appInfo.isHiddenOrDisguised && appInfo.launcherVisibilityMode != LauncherVisibilityMode.VISIBLE) ||
-            appInfo.hideFromPlayStore
-
-    Card(
-        colors = CardDefaults.cardColors(containerColor = scheme.surface),
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (isActive) scheme.primary.copy(alpha = 0.45f) else scheme.outlineVariant
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onConfigure() }
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp)
-        ) {
-            val customPreviewBitmap: ImageBitmap? = remember(appInfo.customIconBase64) {
-                decodeBase64ToImageBitmap(appInfo.customIconBase64)
-            }
-            val iconBitmap = remember(appInfo.packageName, appInfo.icon) {
-                try {
-                    appInfo.icon?.toBitmap(width = 96, height = 96)?.asImageBitmap()
-                } catch (_: Exception) {
-                    null
-                }
-            }
-
-            val displayBitmap = if (appInfo.launcherVisibilityMode == LauncherVisibilityMode.DISGUISED && customPreviewBitmap != null) {
-                customPreviewBitmap
-            } else {
-                iconBitmap
-            }
-
-            if (displayBitmap != null) {
-                Image(
-                    bitmap = displayBitmap,
-                    contentDescription = appInfo.appName,
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                )
-            } else {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(scheme.primaryContainer)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.VisibilityOff,
-                        contentDescription = null,
-                        tint = scheme.onPrimaryContainer,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(10.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = appInfo.appName,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = scheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontFamily = JakartaFontFamily
-                )
-                val statusSummary = buildString {
-                    when (appInfo.launcherVisibilityMode) {
-                        LauncherVisibilityMode.HIDDEN -> append("Hidden from launchers")
-                        LauncherVisibilityMode.DISGUISED -> {
-                            val shownName = appInfo.customLauncherLabel.ifBlank {
-                                appInfo.disguiseIconPreset.suggestedName.ifBlank { "Calculator" }
-                            }
-                            append("As \"$shownName\"")
-                            if (appInfo.spoofInSettings) append(" • Settings")
-                        }
-                        LauncherVisibilityMode.VISIBLE -> {
-                            if (appInfo.hideFromPlayStore) {
-                                append("Visible in launcher")
-                            } else {
-                                append("Visible • Tap to hide or disguise")
-                            }
-                        }
-                    }
-                    if (appInfo.hideFromPlayStore) {
-                        append(" • Hidden in Play Store")
-                    }
-                }
-                Text(
-                    text = statusSummary,
-                    fontSize = 11.sp,
-                    color = if (isActive) scheme.primary else scheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontFamily = JakartaFontFamily
-                )
-            }
-
-            if (isActive) {
-                IconButton(
-                    onClick = onLaunch,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .testTag("btn_launch_${appInfo.packageName}")
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                        contentDescription = "Launch ${appInfo.appName}",
-                        tint = scheme.primary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-
-            FilledTonalButton(
-                onClick = onConfigure,
-                shape = RoundedCornerShape(50),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Tune,
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = if (isActive) {
-                        if (appInfo.launcherVisibilityMode == LauncherVisibilityMode.VISIBLE && appInfo.hideFromPlayStore) {
-                            "Play Store"
-                        } else {
-                            appInfo.launcherVisibilityMode.badge
-                        }
-                    } else "Set",
-                    fontSize = 11.sp,
-                    fontFamily = JakartaFontFamily,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-        }
     }
 }
 
@@ -667,19 +489,17 @@ private fun AppStealthConfigDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = MaterialTheme.shapes.extraLarge,
         title = {
             Column {
                 Text(
                     text = appInfo.appName,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    fontFamily = JakartaFontFamily
+                    style = MaterialTheme.typography.titleMedium
                 )
                 Text(
                     text = "Launcher, Play Store & System Settings Stealth",
-                    fontSize = 12.sp,
-                    color = scheme.onSurfaceVariant,
-                    fontFamily = JakartaFontFamily
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onSurfaceVariant
                 )
             }
         },
@@ -688,99 +508,62 @@ private fun AppStealthConfigDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 LauncherVisibilityMode.entries.forEach { option ->
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (mode == option) scheme.primaryContainer.copy(alpha = 0.35f)
-                            else scheme.surfaceContainerLow
-                        ),
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(
-                            1.dp,
-                            if (mode == option) scheme.primary else scheme.outlineVariant
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { mode = option }
+                    ContentCard(
+                        onClick = { mode = option },
+                        containerColor = if (mode == option) scheme.primaryContainer else scheme.surfaceContainerLow,
+                        borderColor = if (mode == option) scheme.primary else scheme.outlineVariant,
+                        contentPadding = PaddingValues(12.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(10.dp)
-                        ) {
-                            RadioButton(
-                                selected = mode == option,
-                                onClick = { mode = option }
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = option.title,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    fontFamily = JakartaFontFamily
-                                )
-                                Text(
-                                    text = option.description,
-                                    fontSize = 11.sp,
-                                    color = scheme.onSurfaceVariant,
-                                    fontFamily = JakartaFontFamily
+                        ListRow(
+                            title = option.title,
+                            subtitle = option.description,
+                            modifier = Modifier.padding(vertical = 0.dp),
+                            trailing = {
+                                RadioButton(
+                                    selected = mode == option,
+                                    onClick = { mode = option }
                                 )
                             }
-                        }
+                        )
                     }
                 }
 
                 // Play Store Hiding Toggle (Always available)
                 HorizontalDivider(color = scheme.outlineVariant)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Hide from Google Play Store",
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp,
-                            fontFamily = JakartaFontFamily
-                        )
-                        Text(
-                            text = "Hides app from Play Store's installed apps list, updates & Play Protect.",
-                            fontSize = 11.sp,
-                            color = scheme.onSurfaceVariant,
-                            fontFamily = JakartaFontFamily
+                ListRow(
+                    title = "Hide from Google Play Store",
+                    subtitle = "Hides app from Play Store's installed apps list, updates & Play Protect.",
+                    onClick = { hideFromPlayStore = !hideFromPlayStore },
+                    trailing = {
+                        Switch(
+                            checked = hideFromPlayStore,
+                            onCheckedChange = { hideFromPlayStore = it },
+                            modifier = Modifier.testTag("switch_hide_play_store")
                         )
                     }
-                    Switch(
-                        checked = hideFromPlayStore,
-                        onCheckedChange = { hideFromPlayStore = it },
-                        modifier = Modifier.testTag("switch_hide_play_store")
-                    )
-                }
+                )
 
                 if (mode == LauncherVisibilityMode.DISGUISED) {
                     HorizontalDivider(color = scheme.outlineVariant)
-                    Text(
-                        text = "Custom App Name",
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 13.sp,
-                        fontFamily = JakartaFontFamily
-                    )
+                    SectionHeader(title = "Custom App Name")
                     OutlinedTextField(
                         value = customName,
                         onValueChange = { customName = it },
-                        label = { Text("Spoofed Name in Launcher & Settings") },
+                        label = { Text("Spoofed Name in Launcher & Settings", style = MaterialTheme.typography.bodySmall) },
+                        textStyle = MaterialTheme.typography.bodyMedium,
                         singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
+                        shape = MaterialTheme.shapes.extraSmall,
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("input_custom_launcher_name")
                     )
 
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState())
@@ -788,69 +571,36 @@ private fun AppStealthConfigDialog(
                         quickSuggestions.forEach { presetName ->
                             AssistChip(
                                 onClick = { customName = presetName },
-                                label = { Text(presetName, fontSize = 11.sp, fontFamily = JakartaFontFamily) }
+                                label = { Text(presetName, style = MaterialTheme.typography.labelMedium) },
+                                shape = MaterialTheme.shapes.extraSmall
                             )
                         }
                     }
 
-                    Text(
-                        text = "Custom Icon Source",
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 13.sp,
-                        fontFamily = JakartaFontFamily
-                    )
+                    SectionHeader(title = "Custom Icon Source")
 
-                    // Custom Image & Clone App Icon buttons
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        FilledTonalButton(
+                        SecondaryButton(
+                            text = "Custom Image",
+                            icon = Icons.Default.Image,
                             onClick = { imagePickerLauncher.launch("image/*") },
-                            shape = RoundedCornerShape(12.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
                             modifier = Modifier
                                 .weight(1f)
                                 .testTag("btn_pick_custom_icon_image")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Image,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Custom Image",
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                fontFamily = JakartaFontFamily
-                            )
-                        }
+                        )
 
-                        FilledTonalButton(
+                        SecondaryButton(
+                            text = "Clone App Icon",
+                            icon = Icons.Default.Apps,
                             onClick = { showDonorAppPicker = !showDonorAppPicker },
-                            shape = RoundedCornerShape(12.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
                             modifier = Modifier
                                 .weight(1f)
                                 .testTag("btn_clone_app_icon")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Apps,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Clone App Icon",
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                fontFamily = JakartaFontFamily
-                            )
-                        }
+                        )
                     }
 
                     // Show preview if Custom Image or Cloned App is active
@@ -860,136 +610,80 @@ private fun AppStealthConfigDialog(
                     if ((iconPreset == DisguiseIconPreset.CUSTOM_IMAGE || iconPreset == DisguiseIconPreset.CLONED_APP) &&
                         (customPreview != null || customIconDonorPkg.isNotBlank())
                     ) {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = scheme.primaryContainer.copy(alpha = 0.25f)),
-                            shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, scheme.primary),
+                        ContentCard(
+                            containerColor = scheme.surfaceContainerLow,
+                            borderColor = scheme.primary,
+                            contentPadding = PaddingValues(12.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(10.dp)
-                            ) {
-                                if (customPreview != null) {
-                                    Image(
-                                        bitmap = customPreview,
-                                        contentDescription = "Selected Custom Icon",
-                                        modifier = Modifier
-                                            .size(38.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                }
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = if (iconPreset == DisguiseIconPreset.CUSTOM_IMAGE) {
-                                            "Custom Gallery Icon Selected"
-                                        } else {
-                                            "Cloned Icon: ${customIconDonorPkg.substringAfterLast('.')}"
-                                        },
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp,
-                                        fontFamily = JakartaFontFamily
-                                    )
-                                    Text(
-                                        text = "Applied to Launcher, System Settings & Recents",
-                                        fontSize = 11.sp,
-                                        color = scheme.onSurfaceVariant,
-                                        fontFamily = JakartaFontFamily
-                                    )
-                                }
-                            }
+                            ListRow(
+                                title = if (iconPreset == DisguiseIconPreset.CUSTOM_IMAGE) {
+                                    "Custom Gallery Icon Selected"
+                                } else {
+                                    "Cloned Icon: ${customIconDonorPkg.substringAfterLast('.')}"
+                                },
+                                subtitle = "Applied to Launcher, System Settings & Recents",
+                                leadingBitmap = customPreview,
+                                leadingIcon = Icons.Default.Image,
+                                modifier = Modifier.padding(vertical = 0.dp)
+                            )
                         }
                     }
 
                     // Expandable Donor App Picker
                     if (showDonorAppPicker) {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = scheme.surfaceContainerLow),
-                            shape = RoundedCornerShape(14.dp),
-                            border = BorderStroke(1.dp, scheme.outlineVariant),
+                        ContentCard(
+                            containerColor = scheme.surfaceContainerLow,
+                            contentPadding = PaddingValues(12.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                OutlinedTextField(
-                                    value = donorSearch,
-                                    onValueChange = { donorSearch = it },
-                                    placeholder = { Text("Search installed app to copy icon...", fontSize = 12.sp) },
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(50),
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                val donorCandidates = remember(allInstalledApps, donorSearch) {
-                                    allInstalledApps.filter {
-                                        it.packageName != appInfo.packageName &&
-                                                (donorSearch.isBlank() ||
-                                                        it.appName.contains(donorSearch, ignoreCase = true) ||
-                                                        it.packageName.contains(donorSearch, ignoreCase = true))
-                                    }.take(25)
-                                }
-                                LazyColumn(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .heightIn(max = 160.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    items(donorCandidates, key = { it.packageName }) { candidate ->
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .clickable {
-                                                    customIconDonorPkg = candidate.packageName
-                                                    iconPreset = DisguiseIconPreset.CLONED_APP
-                                                    customName = candidate.appName
-                                                    customIconBase64 = com.example.isolation.model.IsolationRuleManager
-                                                        .drawableToBase64Png(candidate.icon, 144)
-                                                    showDonorAppPicker = false
-                                                }
-                                                .padding(6.dp)
-                                        ) {
-                                            val bmp = remember(candidate.packageName, candidate.icon) {
-                                                try {
-                                                    candidate.icon?.toBitmap(64, 64)?.asImageBitmap()
-                                                } catch (_: Exception) {
-                                                    null
-                                                }
-                                            }
-                                            if (bmp != null) {
-                                                Image(
-                                                    bitmap = bmp,
-                                                    contentDescription = candidate.appName,
-                                                    modifier = Modifier
-                                                        .size(28.dp)
-                                                        .clip(RoundedCornerShape(6.dp))
-                                                )
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                            }
-                                            Text(
-                                                text = candidate.appName,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Medium,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                fontFamily = JakartaFontFamily,
-                                                modifier = Modifier.weight(1f)
-                                            )
+                            OutlinedTextField(
+                                value = donorSearch,
+                                onValueChange = { donorSearch = it },
+                                placeholder = { Text("Search installed app to copy icon...", style = MaterialTheme.typography.bodySmall) },
+                                textStyle = MaterialTheme.typography.bodyMedium,
+                                singleLine = true,
+                                shape = MaterialTheme.shapes.extraSmall,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            val donorCandidates = remember(allInstalledApps, donorSearch) {
+                                allInstalledApps.filter {
+                                    it.packageName != appInfo.packageName &&
+                                            (donorSearch.isBlank() ||
+                                                    it.appName.contains(donorSearch, ignoreCase = true) ||
+                                                    it.packageName.contains(donorSearch, ignoreCase = true))
+                                }.take(8)
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                donorCandidates.forEach { candidate ->
+                                    val bmp = remember(candidate.packageName, candidate.icon) {
+                                        try {
+                                            candidate.icon?.toBitmap(64, 64)?.asImageBitmap()
+                                        } catch (_: Exception) {
+                                            null
                                         }
                                     }
+                                    ListRow(
+                                        title = candidate.appName,
+                                        monoSubtitle = candidate.packageName,
+                                        leadingBitmap = bmp,
+                                        leadingIcon = Icons.Default.Apps,
+                                        onClick = {
+                                            customIconDonorPkg = candidate.packageName
+                                            iconPreset = DisguiseIconPreset.CLONED_APP
+                                            customName = candidate.appName
+                                            customIconBase64 = IsolationRuleManager
+                                                .drawableToBase64Png(candidate.icon, 144)
+                                            showDonorAppPicker = false
+                                        }
+                                    )
                                 }
                             }
                         }
                     }
 
-                    Text(
-                        text = "Or Built-in Icon Presets",
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 12.sp,
-                        color = scheme.onSurfaceVariant,
-                        fontFamily = JakartaFontFamily
-                    )
+                    SectionHeader(title = "Or Built-in Icon Presets")
 
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1016,8 +710,9 @@ private fun AppStealthConfigDialog(
                                         )
                                     },
                                     label = {
-                                        Text(preset.label, fontSize = 12.sp, fontFamily = JakartaFontFamily)
-                                    }
+                                        Text(preset.label, style = MaterialTheme.typography.labelMedium)
+                                    },
+                                    shape = MaterialTheme.shapes.extraSmall
                                 )
                             }
                     }
@@ -1025,62 +720,37 @@ private fun AppStealthConfigDialog(
                     HorizontalDivider(color = scheme.outlineVariant)
 
                     // Spoof in System Settings / App Management List
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Spoof in System Settings (App List)",
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 13.sp,
-                                fontFamily = JakartaFontFamily
-                            )
-                            Text(
-                                text = "Replaces name and icon inside Android Settings → Apps / App Management.",
-                                fontSize = 11.sp,
-                                color = scheme.onSurfaceVariant,
-                                fontFamily = JakartaFontFamily
+                    ListRow(
+                        title = "Spoof in System Settings (App List)",
+                        subtitle = "Replaces name and icon inside Android Settings → Apps / App Management.",
+                        onClick = { spoofInSettings = !spoofInSettings },
+                        trailing = {
+                            Switch(
+                                checked = spoofInSettings,
+                                onCheckedChange = { spoofInSettings = it },
+                                modifier = Modifier.testTag("switch_spoof_settings")
                             )
                         }
-                        Switch(
-                            checked = spoofInSettings,
-                            onCheckedChange = { spoofInSettings = it },
-                            modifier = Modifier.testTag("switch_spoof_settings")
-                        )
-                    }
+                    )
 
                     // Disguise in SystemUI Recents
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Disguise in SystemUI Recents",
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 13.sp,
-                                fontFamily = JakartaFontFamily
-                            )
-                            Text(
-                                text = "Shows the spoofed name and icon in the Recents switcher.",
-                                fontSize = 11.sp,
-                                color = scheme.onSurfaceVariant,
-                                fontFamily = JakartaFontFamily
+                    ListRow(
+                        title = "Disguise in SystemUI Recents",
+                        subtitle = "Shows the spoofed name and icon in the Recents switcher.",
+                        onClick = { hideInRecents = !hideInRecents },
+                        trailing = {
+                            Switch(
+                                checked = hideInRecents,
+                                onCheckedChange = { hideInRecents = it }
                             )
                         }
-                        Switch(
-                            checked = hideInRecents,
-                            onCheckedChange = { hideInRecents = it }
-                        )
-                    }
+                    )
                 }
             }
         },
         confirmButton = {
-            Button(
+            PrimaryButton(
+                text = "Apply Stealth",
                 onClick = {
                     onSave(
                         mode,
@@ -1092,15 +762,12 @@ private fun AppStealthConfigDialog(
                         customIconBase64,
                         customIconDonorPkg
                     )
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = scheme.primary)
-            ) {
-                Text("Apply Stealth", fontFamily = JakartaFontFamily, fontWeight = FontWeight.Bold)
-            }
+                }
+            )
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", fontFamily = JakartaFontFamily)
+                Text("Cancel", style = MaterialTheme.typography.labelLarge)
             }
         }
     )
@@ -1143,19 +810,17 @@ internal fun HollowSelfStealthDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = MaterialTheme.shapes.extraLarge,
         title = {
             Column {
                 Text(
                     text = "Hollow Stealth & SystemUI Entry",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    fontFamily = JakartaFontFamily
+                    style = MaterialTheme.typography.titleMedium
                 )
                 Text(
                     text = "Hide or disguise Hollow itself and open it directly from SystemUI",
-                    fontSize = 12.sp,
-                    color = scheme.onSurfaceVariant,
-                    fontFamily = JakartaFontFamily
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onSurfaceVariant
                 )
             }
         },
@@ -1164,79 +829,46 @@ internal fun HollowSelfStealthDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = scheme.surfaceContainerLow),
-                    shape = RoundedCornerShape(14.dp),
+                ContentCard(
+                    containerColor = scheme.surfaceContainerLow,
+                    contentPadding = PaddingValues(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.padding(12.dp)
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Direct SystemUI Trigger",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                fontFamily = JakartaFontFamily
-                            )
-                            Text(
-                                text = "Long-press the Date in SystemUI Quick Settings, tap 'Quick Calc' tile, or dial *#*#465569#*#* to open Hollow when hidden.",
-                                fontSize = 11.sp,
-                                color = scheme.onSurfaceVariant,
-                                fontFamily = JakartaFontFamily
+                    ListRow(
+                        title = "Direct SystemUI Trigger",
+                        subtitle = "Long-press the Date in SystemUI Quick Settings, tap 'Quick Calc' tile, or dial *#*#465569#*#* to open Hollow when hidden.",
+                        onClick = { sysUiTrigger = !sysUiTrigger },
+                        modifier = Modifier.padding(vertical = 0.dp),
+                        trailing = {
+                            Switch(
+                                checked = sysUiTrigger,
+                                onCheckedChange = { sysUiTrigger = it }
                             )
                         }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Switch(
-                            checked = sysUiTrigger,
-                            onCheckedChange = { sysUiTrigger = it }
-                        )
-                    }
+                    )
                 }
 
                 LauncherVisibilityMode.entries.forEach { option ->
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (mode == option) scheme.primaryContainer.copy(alpha = 0.35f)
-                            else scheme.surfaceContainerLow
-                        ),
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(
-                            1.dp,
-                            if (mode == option) scheme.primary else scheme.outlineVariant
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { mode = option }
+                    ContentCard(
+                        onClick = { mode = option },
+                        containerColor = if (mode == option) scheme.primaryContainer else scheme.surfaceContainerLow,
+                        borderColor = if (mode == option) scheme.primary else scheme.outlineVariant,
+                        contentPadding = PaddingValues(12.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(12.dp)
-                        ) {
-                            RadioButton(
-                                selected = mode == option,
-                                onClick = { mode = option }
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = option.title,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    fontFamily = JakartaFontFamily
-                                )
-                                Text(
-                                    text = option.description,
-                                    fontSize = 11.sp,
-                                    color = scheme.onSurfaceVariant,
-                                    fontFamily = JakartaFontFamily
+                        ListRow(
+                            title = option.title,
+                            subtitle = option.description,
+                            modifier = Modifier.padding(vertical = 0.dp),
+                            trailing = {
+                                RadioButton(
+                                    selected = mode == option,
+                                    onClick = { mode = option }
                                 )
                             }
-                        }
+                        )
                     }
                 }
 
@@ -1244,22 +876,20 @@ internal fun HollowSelfStealthDialog(
                     OutlinedTextField(
                         value = customName,
                         onValueChange = { customName = it },
-                        label = { Text("Custom Name for Hollow in Launchers & Settings") },
+                        label = { Text("Custom Name for Hollow in Launchers & Settings", style = MaterialTheme.typography.bodySmall) },
+                        textStyle = MaterialTheme.typography.bodyMedium,
                         singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
+                        shape = MaterialTheme.shapes.extraSmall,
                         modifier = Modifier.fillMaxWidth()
                     )
 
                     if (onDecodeImageUri != null) {
-                        FilledTonalButton(
+                        SecondaryButton(
+                            text = "Pick Custom Icon Image from Gallery",
+                            icon = Icons.Default.Image,
                             onClick = { imagePickerLauncher.launch("image/*") },
-                            shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Pick Custom Icon Image from Gallery", fontSize = 12.sp, fontFamily = JakartaFontFamily)
-                        }
+                        )
                     }
 
                     Row(
@@ -1287,49 +917,36 @@ internal fun HollowSelfStealthDialog(
                                         )
                                     },
                                     label = {
-                                        Text(preset.label, fontSize = 12.sp, fontFamily = JakartaFontFamily)
-                                    }
+                                        Text(preset.label, style = MaterialTheme.typography.labelMedium)
+                                    },
+                                    shape = MaterialTheme.shapes.extraSmall
                                 )
                             }
                     }
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Spoof Hollow in System Settings",
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 13.sp,
-                                fontFamily = JakartaFontFamily
-                            )
-                            Text(
-                                text = "Also disguises Hollow inside Settings → Apps.",
-                                fontSize = 11.sp,
-                                color = scheme.onSurfaceVariant,
-                                fontFamily = JakartaFontFamily
+                    ListRow(
+                        title = "Spoof Hollow in System Settings",
+                        subtitle = "Also disguises Hollow inside Settings → Apps.",
+                        onClick = { spoofSettings = !spoofSettings },
+                        trailing = {
+                            Switch(
+                                checked = spoofSettings,
+                                onCheckedChange = { spoofSettings = it }
                             )
                         }
-                        Switch(
-                            checked = spoofSettings,
-                            onCheckedChange = { spoofSettings = it }
-                        )
-                    }
+                    )
                 }
             }
         },
         confirmButton = {
-            Button(
+            PrimaryButton(
+                text = "Save",
                 onClick = { onSave(mode, customName, iconPreset, sysUiTrigger, customIconB64, donorPkg, spoofSettings) }
-            ) {
-                Text("Save", fontFamily = JakartaFontFamily, fontWeight = FontWeight.Bold)
-            }
+            )
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", fontFamily = JakartaFontFamily)
+                Text("Cancel", style = MaterialTheme.typography.labelLarge)
             }
         }
     )

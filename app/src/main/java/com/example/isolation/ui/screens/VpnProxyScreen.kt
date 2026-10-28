@@ -2,8 +2,6 @@ package com.example.isolation.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,14 +22,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
@@ -46,17 +40,12 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
@@ -68,7 +57,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -76,21 +64,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.core.graphics.drawable.toBitmap
 import com.example.isolation.model.VpnProtocol
-import com.example.isolation.model.VpnProxyPresets
 import com.example.isolation.model.VpnProxyServer
-import com.example.isolation.pkg.InstalledAppInfo
+import com.example.isolation.ui.components.ContentCard
+import com.example.isolation.ui.components.EmptyState
+import com.example.isolation.ui.components.ListRow
+import com.example.isolation.ui.components.MonoDataText
+import com.example.isolation.ui.components.PrimaryButton
+import com.example.isolation.ui.components.SecondaryButton
+import com.example.isolation.ui.components.SectionHeader
+import com.example.isolation.ui.components.StatusIndicator
+import com.example.isolation.ui.components.rememberAppIconBitmap
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
-import com.example.ui.theme.JakartaFontFamily
+import com.example.ui.theme.JetBrainsMonoFontFamily
 
 private enum class VpnSuiteTab(val title: String) {
     SERVERS("Servers"),
@@ -184,7 +174,7 @@ fun VpnProxyScreen(
             .padding(horizontal = 16.dp)
             .testTag("vpn_proxy_screen")
     ) {
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         // Top Bar
         Row(
@@ -198,9 +188,7 @@ fun VpnProxyScreen(
             ) {
                 IconButton(
                     onClick = onBack,
-                    modifier = Modifier
-                        .size(38.dp)
-                        .testTag("vpn_proxy_back_button")
+                    modifier = Modifier.testTag("vpn_proxy_back_button")
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -212,12 +200,10 @@ fun VpnProxyScreen(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Proxy & V2Ray Suite",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleLarge,
                         color = scheme.onBackground,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        fontFamily = JakartaFontFamily
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = if (settings.vpnTunnelEnabled) {
@@ -225,37 +211,29 @@ fun VpnProxyScreen(
                         } else {
                             "Configure SOCKS5, HTTP & V2Ray per-app or whole device"
                         },
-                        fontSize = 12.sp,
-                        color = if (settings.vpnTunnelEnabled) scheme.primary else scheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (settings.vpnTunnelEnabled) scheme.secondary else scheme.onSurfaceVariant,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        fontFamily = JakartaFontFamily
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
 
-            // Quick Connect / Disconnect Pill in Header
-            Button(
-                onClick = { viewModel.setVpnTunnelEnabled(!settings.vpnTunnelEnabled) },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (settings.vpnTunnelEnabled) scheme.primary else scheme.surfaceVariant,
-                    contentColor = if (settings.vpnTunnelEnabled) scheme.onPrimary else scheme.onSurfaceVariant
-                ),
-                shape = RoundedCornerShape(50),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                modifier = Modifier.testTag("vpn_header_connect_btn")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PowerSettingsNew,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp)
+            Spacer(modifier = Modifier.width(8.dp))
+
+            if (settings.vpnTunnelEnabled) {
+                PrimaryButton(
+                    text = "Connected",
+                    icon = Icons.Default.PowerSettingsNew,
+                    onClick = { viewModel.setVpnTunnelEnabled(false) },
+                    modifier = Modifier.testTag("vpn_header_connect_btn")
                 )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = if (settings.vpnTunnelEnabled) "Connected" else "Connect",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = JakartaFontFamily
+            } else {
+                SecondaryButton(
+                    text = "Connect",
+                    icon = Icons.Default.PowerSettingsNew,
+                    onClick = { viewModel.setVpnTunnelEnabled(true) },
+                    modifier = Modifier.testTag("vpn_header_connect_btn")
                 )
             }
         }
@@ -266,9 +244,9 @@ fun VpnProxyScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
+                .clip(MaterialTheme.shapes.small)
                 .background(scheme.surface)
-                .border(1.dp, scheme.outlineVariant, RoundedCornerShape(14.dp))
+                .border(1.dp, scheme.outlineVariant, MaterialTheme.shapes.small)
                 .padding(4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
@@ -283,107 +261,50 @@ fun VpnProxyScreen(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(MaterialTheme.shapes.extraSmall)
                         .background(if (isSelected) scheme.primary else Color.Transparent)
                         .clickable { selectedTab = tab }
-                        .padding(vertical = 10.dp)
+                        .padding(vertical = 8.dp, horizontal = 8.dp)
                         .testTag("vpn_tab_${tab.name.lowercase()}")
                 ) {
                     Text(
                         text = labelText,
-                        fontSize = 12.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                        ),
                         color = if (isSelected) scheme.onPrimary else scheme.onSurfaceVariant,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        fontFamily = JakartaFontFamily
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         when (selectedTab) {
             VpnSuiteTab.SERVERS -> {
                 LazyColumn(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
-                    contentPadding = PaddingValues(bottom = 28.dp)
+                    contentPadding = PaddingValues(bottom = 32.dp)
                 ) {
-                    // 1. Active Connection & Routing Scope Card
+                    // 1. Active Connection & Routing Scope Hero Card
                     item {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = scheme.surface),
-                            shape = RoundedCornerShape(20.dp),
-                            border = BorderStroke(
-                                1.dp,
-                                if (settings.vpnTunnelEnabled) scheme.primary.copy(alpha = 0.5f) else scheme.outlineVariant
-                            ),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                        ContentCard(
+                            borderColor = if (settings.vpnTunnelEnabled) scheme.secondary else scheme.outlineVariant,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Box(
-                                            contentAlignment = Alignment.Center,
-                                            modifier = Modifier
-                                                .size(44.dp)
-                                                .clip(RoundedCornerShape(12.dp))
-                                                .background(
-                                                    if (settings.vpnTunnelEnabled) scheme.primaryContainer
-                                                    else scheme.surfaceVariant
-                                                )
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Public,
-                                                contentDescription = null,
-                                                tint = if (settings.vpnTunnelEnabled) scheme.onPrimaryContainer else scheme.onSurfaceVariant
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Text(
-                                                    text = activeServer.name,
-                                                    fontSize = 15.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = scheme.onSurface,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                    fontFamily = JakartaFontFamily
-                                                )
-                                            }
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                            Text(
-                                                text = "${activeServer.protocol.badge} • ${activeServer.host}:${activeServer.port} • Exit IP ${activeServer.exitIp}",
-                                                fontSize = 11.sp,
-                                                fontFamily = FontFamily.Monospace,
-                                                color = scheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Text(
-                                                text = "Timezone: ${activeServer.timezoneId} (${activeServer.localeTag}) • ${activeServer.latencyMs} ms",
-                                                fontSize = 11.sp,
-                                                color = scheme.primary,
-                                                fontFamily = JakartaFontFamily
-                                            )
-                                        }
-                                    }
-
+                            ListRow(
+                                title = activeServer.name,
+                                subtitle = "Timezone: ${activeServer.timezoneId} (${activeServer.localeTag}) • ${activeServer.latencyMs} ms",
+                                monoSubtitle = "${activeServer.protocol.badge} • ${activeServer.host}:${activeServer.port} • Exit IP ${activeServer.exitIp}",
+                                leadingIcon = Icons.Default.Public,
+                                tintLeadingIcon = true,
+                                statusLabel = if (settings.vpnTunnelEnabled) "Active" else "Standby",
+                                statusColor = if (settings.vpnTunnelEnabled) scheme.secondary else scheme.onSurfaceVariant,
+                                modifier = Modifier.padding(vertical = 0.dp),
+                                trailing = {
                                     Switch(
                                         checked = settings.vpnTunnelEnabled,
                                         onCheckedChange = { viewModel.setVpnTunnelEnabled(it) },
@@ -394,96 +315,62 @@ fun VpnProxyScreen(
                                         modifier = Modifier.testTag("vpn_master_switch")
                                     )
                                 }
+                            )
 
-                                Spacer(modifier = Modifier.height(14.dp))
-                                HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
-                                Spacer(modifier = Modifier.height(12.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
+                            HorizontalDivider(color = scheme.outlineVariant)
+                            Spacer(modifier = Modifier.height(12.dp))
 
-                                Text(
-                                    text = "ROUTING SCOPE (CONNECT WHOLE DEVICE OR PER-APP)",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = scheme.onSurfaceVariant,
-                                    fontFamily = JakartaFontFamily
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
+                            SectionHeader(
+                                title = "Routing scope",
+                                subtitle = "Route whole device or selected apps"
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
 
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    // Whole Device Button
-                                    OutlinedButton(
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (isWholeDeviceRouted && settings.vpnTunnelEnabled) {
+                                    PrimaryButton(
+                                        text = "Whole Device (${allApps.size})",
                                         onClick = {
                                             viewModel.setVpnTunnelEnabled(true)
                                             viewModel.setAllAppsVpnProxy(true)
                                         },
-                                        shape = RoundedCornerShape(12.dp),
-                                        border = BorderStroke(
-                                            1.dp,
-                                            if (isWholeDeviceRouted && settings.vpnTunnelEnabled) scheme.primary else scheme.outlineVariant
-                                        ),
-                                        colors = ButtonDefaults.outlinedButtonColors(
-                                            containerColor = if (isWholeDeviceRouted && settings.vpnTunnelEnabled)
-                                                scheme.primaryContainer.copy(alpha = 0.35f)
-                                            else Color.Transparent
-                                        ),
                                         modifier = Modifier
                                             .weight(1f)
                                             .testTag("mode_whole_device")
-                                    ) {
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Text(
-                                                text = "Whole Device",
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = if (isWholeDeviceRouted && settings.vpnTunnelEnabled) scheme.primary else scheme.onSurface,
-                                                fontFamily = JakartaFontFamily
-                                            )
-                                            Text(
-                                                text = "Route all ${allApps.size} apps",
-                                                fontSize = 10.sp,
-                                                color = scheme.onSurfaceVariant,
-                                                fontFamily = JakartaFontFamily
-                                            )
-                                        }
-                                    }
-
-                                    // Per-App Routing Button
-                                    OutlinedButton(
+                                    )
+                                } else {
+                                    SecondaryButton(
+                                        text = "Whole Device (${allApps.size})",
                                         onClick = {
-                                            selectedTab = VpnSuiteTab.PER_APP_ROUTING
+                                            viewModel.setVpnTunnelEnabled(true)
+                                            viewModel.setAllAppsVpnProxy(true)
                                         },
-                                        shape = RoundedCornerShape(12.dp),
-                                        border = BorderStroke(
-                                            1.dp,
-                                            if (!isWholeDeviceRouted && routedAppsCount > 0) scheme.primary else scheme.outlineVariant
-                                        ),
-                                        colors = ButtonDefaults.outlinedButtonColors(
-                                            containerColor = if (!isWholeDeviceRouted && routedAppsCount > 0)
-                                                scheme.primaryContainer.copy(alpha = 0.35f)
-                                            else Color.Transparent
-                                        ),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("mode_whole_device")
+                                    )
+                                }
+
+                                if (!isWholeDeviceRouted && routedAppsCount > 0) {
+                                    PrimaryButton(
+                                        text = "Per-App ($routedAppsCount)",
+                                        onClick = { selectedTab = VpnSuiteTab.PER_APP_ROUTING },
                                         modifier = Modifier
                                             .weight(1f)
                                             .testTag("mode_per_app")
-                                    ) {
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Text(
-                                                text = "Per-App Routing",
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = if (!isWholeDeviceRouted && routedAppsCount > 0) scheme.primary else scheme.onSurface,
-                                                fontFamily = JakartaFontFamily
-                                            )
-                                            Text(
-                                                text = "$routedAppsCount app${if (routedAppsCount == 1) "" else "s"} selected",
-                                                fontSize = 10.sp,
-                                                color = scheme.onSurfaceVariant,
-                                                fontFamily = JakartaFontFamily
-                                            )
-                                        }
-                                    }
+                                    )
+                                } else {
+                                    SecondaryButton(
+                                        text = "Per-App ($routedAppsCount)",
+                                        onClick = { selectedTab = VpnSuiteTab.PER_APP_ROUTING },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("mode_per_app")
+                                    )
                                 }
                             }
                         }
@@ -495,47 +382,23 @@ fun VpnProxyScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Button(
+                            PrimaryButton(
+                                text = "Add Proxy / V2Ray",
+                                icon = Icons.Default.Add,
                                 onClick = { showManualServerDialog = true },
-                                shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("btn_add_custom_server")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Add,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Add Proxy / V2Ray",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = JakartaFontFamily
-                                )
-                            }
+                            )
 
-                            OutlinedButton(
+                            SecondaryButton(
+                                text = "Paste URI Link",
+                                icon = Icons.Default.ContentPaste,
                                 onClick = { showUriImportDialog = true },
-                                shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("btn_import_v2ray_uri")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.ContentPaste,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Paste URI Link",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontFamily = JakartaFontFamily
-                                )
-                            }
+                            )
                         }
                     }
 
@@ -552,11 +415,10 @@ fun VpnProxyScreen(
                                     label = {
                                         Text(
                                             text = filter.label,
-                                            fontSize = 12.sp,
-                                            fontFamily = JakartaFontFamily
+                                            style = MaterialTheme.typography.labelMedium
                                         )
                                     },
-                                    shape = RoundedCornerShape(50),
+                                    shape = MaterialTheme.shapes.extraSmall,
                                     colors = FilterChipDefaults.filterChipColors(
                                         selectedContainerColor = scheme.primaryContainer,
                                         selectedLabelColor = scheme.onPrimaryContainer,
@@ -572,15 +434,48 @@ fun VpnProxyScreen(
                     items(filteredServers, key = { it.id }) { server ->
                         val isSelected = server.id == activeServer.id
                         val isCustom = server.id.startsWith("custom_")
-                        ProxyServerNodeCard(
-                            server = server,
-                            isSelected = isSelected,
-                            isCustom = isCustom,
-                            onSelect = { viewModel.selectActiveProxyServer(server.id) },
-                            onDelete = if (isCustom) {
-                                { viewModel.deleteCustomProxyServer(server.id) }
-                            } else null
-                        )
+
+                        ContentCard(
+                            onClick = { viewModel.selectActiveProxyServer(server.id) },
+                            borderColor = if (isSelected) scheme.primary else scheme.outlineVariant,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("server_node_${server.id}")
+                        ) {
+                            ListRow(
+                                title = "[${server.countryCode}] ${server.name}",
+                                subtitle = "TZ: ${server.timezoneId} (${server.localeTag})",
+                                monoSubtitle = "${server.host}:${server.port} • Exit ${server.exitIp} • ${server.latencyMs}ms",
+                                statusLabel = server.protocol.badge,
+                                statusColor = if (isSelected) scheme.secondary else scheme.primary,
+                                modifier = Modifier.padding(vertical = 0.dp),
+                                trailing = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (isCustom) {
+                                            IconButton(
+                                                onClick = { viewModel.deleteCustomProxyServer(server.id) },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Delete,
+                                                    contentDescription = "Delete Custom Server",
+                                                    tint = scheme.error,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        }
+                                        RadioButton(
+                                            selected = isSelected,
+                                            onClick = { viewModel.selectActiveProxyServer(server.id) },
+                                            colors = RadioButtonDefaults.colors(
+                                                selectedColor = scheme.primary,
+                                                unselectedColor = scheme.onSurfaceVariant
+                                            )
+                                        )
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -594,9 +489,8 @@ fun VpnProxyScreen(
                         placeholder = {
                             Text(
                                 text = "Search apps to route via Proxy / V2Ray...",
-                                fontSize = 13.sp,
-                                color = scheme.onSurfaceVariant,
-                                fontFamily = JakartaFontFamily
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = scheme.onSurfaceVariant
                             )
                         },
                         leadingIcon = {
@@ -617,8 +511,9 @@ fun VpnProxyScreen(
                                 }
                             }
                         },
+                        textStyle = MaterialTheme.typography.bodyMedium,
                         singleLine = true,
-                        shape = RoundedCornerShape(50),
+                        shape = MaterialTheme.shapes.extraSmall,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = scheme.primary,
                             unfocusedBorderColor = scheme.outlineVariant,
@@ -639,7 +534,7 @@ fun VpnProxyScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.weight(1f)
                         ) {
                             items(VpnAppRoutingFilter.entries) { filter ->
@@ -649,11 +544,10 @@ fun VpnProxyScreen(
                                     label = {
                                         Text(
                                             text = if (filter == VpnAppRoutingFilter.ROUTED) "Routed ($routedAppsCount)" else filter.label,
-                                            fontSize = 11.sp,
-                                            fontFamily = JakartaFontFamily
+                                            style = MaterialTheme.typography.labelMedium
                                         )
                                     },
-                                    shape = RoundedCornerShape(50),
+                                    shape = MaterialTheme.shapes.extraSmall,
                                     colors = FilterChipDefaults.filterChipColors(
                                         selectedContainerColor = scheme.primaryContainer,
                                         selectedLabelColor = scheme.onPrimaryContainer,
@@ -664,7 +558,7 @@ fun VpnProxyScreen(
                             }
                         }
 
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
 
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             TextButton(
@@ -675,7 +569,7 @@ fun VpnProxyScreen(
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                                 modifier = Modifier.testTag("vpn_route_all_btn")
                             ) {
-                                Text("Route All", fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = JakartaFontFamily)
+                                Text("Route All", style = MaterialTheme.typography.labelMedium, color = scheme.primary)
                             }
                             if (routedAppsCount > 0) {
                                 TextButton(
@@ -683,48 +577,164 @@ fun VpnProxyScreen(
                                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                                     modifier = Modifier.testTag("vpn_clear_all_btn")
                                 ) {
-                                    Text("Clear", fontSize = 11.sp, color = scheme.error, fontFamily = JakartaFontFamily)
+                                    Text("Clear", style = MaterialTheme.typography.labelMedium, color = scheme.error)
                                 }
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                    LazyColumn(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(bottom = 28.dp)
-                    ) {
-                        items(filteredApps, key = { it.packageName }) { appInfo ->
-                            PerAppVpnRoutingCard(
-                                appInfo = appInfo,
-                                allServers = allServers,
-                                defaultServer = activeServer,
-                                onToggleRouting = { enabled ->
-                                    viewModel.toggleAppVpnProxy(
-                                        appInfo = appInfo,
-                                        enabled = enabled,
-                                        serverId = appInfo.proxyServerId.ifBlank { activeServer.id }
-                                    )
-                                },
-                                onSelectServer = { serverId ->
-                                    viewModel.toggleAppVpnProxy(
-                                        appInfo = appInfo,
-                                        enabled = true,
-                                        serverId = serverId
-                                    )
-                                },
-                                onUpdateOptions = { killSwitch, syncTz ->
-                                    viewModel.toggleAppVpnProxy(
-                                        appInfo = appInfo,
-                                        enabled = appInfo.vpnProxyEnabled,
-                                        serverId = appInfo.proxyServerId.ifBlank { activeServer.id },
-                                        requireVpnForNetwork = killSwitch,
-                                        matchTimezoneWithIp = syncTz
-                                    )
+                    if (filteredApps.isEmpty()) {
+                        EmptyState(
+                            icon = Icons.Default.PhoneAndroid,
+                            title = "No matching apps",
+                            message = "Try adjusting your search or filter selection."
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(bottom = 32.dp)
+                        ) {
+                            items(filteredApps, key = { it.packageName }) { appInfo ->
+                                val isRouted = appInfo.vpnProxyEnabled
+                                val currentServer = remember(appInfo.proxyServerId, allServers, activeServer) {
+                                    allServers.firstOrNull { it.id == appInfo.proxyServerId } ?: activeServer
                                 }
-                            )
+                                val iconBitmap = rememberAppIconBitmap(
+                                    packageName = appInfo.packageName,
+                                    drawable = appInfo.icon,
+                                    sizePx = 88
+                                )
+
+                                ContentCard(
+                                    borderColor = if (isRouted) scheme.secondary else scheme.outlineVariant,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("vpn_app_card_${appInfo.packageName}")
+                                ) {
+                                    ListRow(
+                                        title = appInfo.appName,
+                                        subtitle = if (isRouted) {
+                                            "Routed via [${currentServer.countryCode}] ${currentServer.protocol.badge} (${currentServer.exitIp})"
+                                        } else {
+                                            "Direct connection • Toggle switch to route via Proxy/V2Ray"
+                                        },
+                                        monoSubtitle = appInfo.packageName,
+                                        leadingBitmap = iconBitmap,
+                                        leadingIcon = Icons.Default.PhoneAndroid,
+                                        statusLabel = if (isRouted) "Routed" else null,
+                                        statusColor = scheme.secondary,
+                                        modifier = Modifier.padding(vertical = 0.dp),
+                                        trailing = {
+                                            Switch(
+                                                checked = isRouted,
+                                                onCheckedChange = { enabled ->
+                                                    viewModel.toggleAppVpnProxy(
+                                                        appInfo = appInfo,
+                                                        enabled = enabled,
+                                                        serverId = appInfo.proxyServerId.ifBlank { activeServer.id }
+                                                    )
+                                                },
+                                                colors = SwitchDefaults.colors(
+                                                    checkedThumbColor = scheme.onPrimary,
+                                                    checkedTrackColor = scheme.primary
+                                                ),
+                                                modifier = Modifier.testTag("switch_vpn_app_${appInfo.packageName}")
+                                            )
+                                        }
+                                    )
+
+                                    AnimatedVisibility(visible = isRouted) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(top = 12.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            HorizontalDivider(color = scheme.outlineVariant)
+                                            Text(
+                                                text = "Exit Server Override for ${appInfo.appName}",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = scheme.onSurfaceVariant
+                                            )
+                                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                items(allServers, key = { it.id }) { srv ->
+                                                    val selected = srv.id == currentServer.id
+                                                    FilterChip(
+                                                        selected = selected,
+                                                        onClick = {
+                                                            viewModel.toggleAppVpnProxy(
+                                                                appInfo = appInfo,
+                                                                enabled = true,
+                                                                serverId = srv.id
+                                                            )
+                                                        },
+                                                        label = {
+                                                            Text(
+                                                                text = "[${srv.countryCode}] ${srv.protocol.badge} · ${srv.exitIp}",
+                                                                style = MaterialTheme.typography.labelMedium
+                                                            )
+                                                        },
+                                                        shape = MaterialTheme.shapes.extraSmall,
+                                                        colors = FilterChipDefaults.filterChipColors(
+                                                            selectedContainerColor = scheme.primary,
+                                                            selectedLabelColor = scheme.onPrimary,
+                                                            containerColor = scheme.surfaceVariant,
+                                                            labelColor = scheme.onSurfaceVariant
+                                                        )
+                                                    )
+                                                }
+                                            }
+
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                FilterChip(
+                                                    selected = appInfo.requireVpnForNetwork,
+                                                    onClick = {
+                                                        viewModel.toggleAppVpnProxy(
+                                                            appInfo = appInfo,
+                                                            enabled = appInfo.vpnProxyEnabled,
+                                                            serverId = appInfo.proxyServerId.ifBlank { activeServer.id },
+                                                            requireVpnForNetwork = !appInfo.requireVpnForNetwork,
+                                                            matchTimezoneWithIp = appInfo.matchTimezoneWithIp
+                                                        )
+                                                    },
+                                                    label = {
+                                                        Text(
+                                                            text = "Kill-Switch if VPN Off",
+                                                            style = MaterialTheme.typography.labelMedium
+                                                        )
+                                                    },
+                                                    shape = MaterialTheme.shapes.extraSmall
+                                                )
+                                                FilterChip(
+                                                    selected = appInfo.matchTimezoneWithIp,
+                                                    onClick = {
+                                                        viewModel.toggleAppVpnProxy(
+                                                            appInfo = appInfo,
+                                                            enabled = appInfo.vpnProxyEnabled,
+                                                            serverId = appInfo.proxyServerId.ifBlank { activeServer.id },
+                                                            requireVpnForNetwork = appInfo.requireVpnForNetwork,
+                                                            matchTimezoneWithIp = !appInfo.matchTimezoneWithIp
+                                                        )
+                                                    },
+                                                    label = {
+                                                        Text(
+                                                            text = "Sync TZ (${currentServer.timezoneId})",
+                                                            style = MaterialTheme.typography.labelMedium
+                                                        )
+                                                    },
+                                                    shape = MaterialTheme.shapes.extraSmall
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -733,116 +743,118 @@ fun VpnProxyScreen(
             VpnSuiteTab.ADVANCED_PROXY -> {
                 LazyColumn(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(bottom = 28.dp)
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    contentPadding = PaddingValues(bottom = 32.dp)
                 ) {
                     item {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = scheme.surface),
-                            shape = RoundedCornerShape(18.dp),
-                            border = BorderStroke(1.dp, scheme.outlineVariant),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(14.dp)
-                            ) {
-                                Text(
-                                    text = "GLOBAL PROXY & ANTI-LEAK ENGINE",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = scheme.primary,
-                                    fontFamily = JakartaFontFamily
-                                )
+                        ContentCard(modifier = Modifier.fillMaxWidth()) {
+                            SectionHeader(
+                                title = "Global Proxy & Anti-Leak Engine",
+                                subtitle = "Socket redirection, WebView proxying, and interface stealth"
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
 
-                                AdvancedProxyOptionRow(
-                                    icon = Icons.Default.Lock,
-                                    title = "Strict VPN Kill Switch",
-                                    subtitle = "Block all outgoing sockets if the Proxy or V2Ray tunnel drops",
-                                    checked = settings.vpnKillSwitchEnabled,
-                                    onCheckedChange = {
-                                        viewModel.updateProxyingSuiteOptions(vpnKillSwitch = it)
-                                    }
-                                )
+                            ListRow(
+                                title = "Strict VPN Kill Switch",
+                                subtitle = "Block all outgoing sockets if the Proxy or V2Ray tunnel drops",
+                                leadingIcon = Icons.Default.Lock,
+                                onClick = { viewModel.updateProxyingSuiteOptions(vpnKillSwitch = !settings.vpnKillSwitchEnabled) },
+                                trailing = {
+                                    Switch(
+                                        checked = settings.vpnKillSwitchEnabled,
+                                        onCheckedChange = { viewModel.updateProxyingSuiteOptions(vpnKillSwitch = it) }
+                                    )
+                                }
+                            )
+                            HorizontalDivider(color = scheme.outlineVariant)
 
-                                HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.45f))
+                            ListRow(
+                                title = "Auto-Sync Timezone & Locale with Exit IP",
+                                subtitle = "Automatically align TimeZone.getDefault() and Locale with the active server's country",
+                                leadingIcon = Icons.Default.Schedule,
+                                onClick = { viewModel.updateProxyingSuiteOptions(matchTzWithIp = !settings.matchTimezoneWithIpGlobal) },
+                                trailing = {
+                                    Switch(
+                                        checked = settings.matchTimezoneWithIpGlobal,
+                                        onCheckedChange = { viewModel.updateProxyingSuiteOptions(matchTzWithIp = it) }
+                                    )
+                                }
+                            )
+                            HorizontalDivider(color = scheme.outlineVariant)
 
-                                AdvancedProxyOptionRow(
-                                    icon = Icons.Default.Schedule,
-                                    title = "Auto-Sync Timezone & Locale with Exit IP",
-                                    subtitle = "Automatically align TimeZone.getDefault() and Locale with the active server's country",
-                                    checked = settings.matchTimezoneWithIpGlobal,
-                                    onCheckedChange = {
-                                        viewModel.updateProxyingSuiteOptions(matchTzWithIp = it)
-                                    }
-                                )
+                            ListRow(
+                                title = "SOCKS5 Socket Hook (Java & Native)",
+                                subtitle = "Redirect java.net.Socket and OkHttp connections through the SOCKS5/V2Ray endpoint",
+                                leadingIcon = Icons.Default.Dns,
+                                onClick = { viewModel.updateProxyingSuiteOptions(socksProxy = !settings.socksProxyEnabled) },
+                                trailing = {
+                                    Switch(
+                                        checked = settings.socksProxyEnabled,
+                                        onCheckedChange = { viewModel.updateProxyingSuiteOptions(socksProxy = it) }
+                                    )
+                                }
+                            )
+                            HorizontalDivider(color = scheme.outlineVariant)
 
-                                HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.45f))
+                            ListRow(
+                                title = "HTTP / HTTPS CONNECT Proxy Hook",
+                                subtitle = "Inject System http.proxyHost / https.proxyHost properties into routed apps",
+                                leadingIcon = Icons.Default.Public,
+                                onClick = { viewModel.updateProxyingSuiteOptions(httpProxy = !settings.httpProxyEnabled) },
+                                trailing = {
+                                    Switch(
+                                        checked = settings.httpProxyEnabled,
+                                        onCheckedChange = { viewModel.updateProxyingSuiteOptions(httpProxy = it) }
+                                    )
+                                }
+                            )
+                            HorizontalDivider(color = scheme.outlineVariant)
 
-                                AdvancedProxyOptionRow(
-                                    icon = Icons.Default.Dns,
-                                    title = "SOCKS5 Socket Hook (Java & Native)",
-                                    subtitle = "Redirect java.net.Socket and OkHttp connections through the SOCKS5/V2Ray endpoint",
-                                    checked = settings.socksProxyEnabled,
-                                    onCheckedChange = {
-                                        viewModel.updateProxyingSuiteOptions(socksProxy = it)
-                                    }
-                                )
+                            ListRow(
+                                title = "Chromium WebView Traffic Proxy",
+                                subtitle = "Force embedded Android WebViews & custom tabs through the active proxy",
+                                leadingIcon = Icons.Default.Tune,
+                                onClick = { viewModel.updateProxyingSuiteOptions(webViewProxy = !settings.webViewProxyEnabled) },
+                                trailing = {
+                                    Switch(
+                                        checked = settings.webViewProxyEnabled,
+                                        onCheckedChange = { viewModel.updateProxyingSuiteOptions(webViewProxy = it) }
+                                    )
+                                }
+                            )
+                            HorizontalDivider(color = scheme.outlineVariant)
 
-                                HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.45f))
+                            ListRow(
+                                title = "Hide VPN & Proxy Interfaces (tun0 / ppp0)",
+                                subtitle = "Scrub TRANSPORT_VPN, NetworkInterface tun0, and proxy properties from detection SDKs",
+                                leadingIcon = Icons.Default.Security,
+                                onClick = {
+                                    val next = !settings.hideVpnConnection
+                                    viewModel.updateProxyingSuiteOptions(hideVpnConn = next, hideProxyConn = next)
+                                },
+                                trailing = {
+                                    Switch(
+                                        checked = settings.hideVpnConnection,
+                                        onCheckedChange = {
+                                            viewModel.updateProxyingSuiteOptions(hideVpnConn = it, hideProxyConn = it)
+                                        }
+                                    )
+                                }
+                            )
+                            HorizontalDivider(color = scheme.outlineVariant)
 
-                                AdvancedProxyOptionRow(
-                                    icon = Icons.Default.Public,
-                                    title = "HTTP / HTTPS CONNECT Proxy Hook",
-                                    subtitle = "Inject System http.proxyHost / https.proxyHost properties into routed apps",
-                                    checked = settings.httpProxyEnabled,
-                                    onCheckedChange = {
-                                        viewModel.updateProxyingSuiteOptions(httpProxy = it)
-                                    }
-                                )
-
-                                HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.45f))
-
-                                AdvancedProxyOptionRow(
-                                    icon = Icons.Default.Tune,
-                                    title = "Chromium WebView Traffic Proxy",
-                                    subtitle = "Force embedded Android WebViews & custom tabs through the active proxy",
-                                    checked = settings.webViewProxyEnabled,
-                                    onCheckedChange = {
-                                        viewModel.updateProxyingSuiteOptions(webViewProxy = it)
-                                    }
-                                )
-
-                                HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.45f))
-
-                                AdvancedProxyOptionRow(
-                                    icon = Icons.Default.Security,
-                                    title = "Hide VPN & Proxy Interfaces (tun0 / ppp0)",
-                                    subtitle = "Scrub TRANSPORT_VPN, NetworkInterface tun0, and proxy properties from detection SDKs",
-                                    checked = settings.hideVpnConnection,
-                                    onCheckedChange = {
-                                        viewModel.updateProxyingSuiteOptions(
-                                            hideVpnConn = it,
-                                            hideProxyConn = it
-                                        )
-                                    }
-                                )
-
-                                HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.45f))
-
-                                AdvancedProxyOptionRow(
-                                    icon = Icons.Default.VpnKey,
-                                    title = "Trust Custom SSL/TLS Certificates",
-                                    subtitle = "Bypass SSL pinning in routed apps when inspecting traffic with a custom MITM proxy",
-                                    checked = settings.trustAllCertificates,
-                                    onCheckedChange = {
-                                        viewModel.updateProxyingSuiteOptions(trustAllCerts = it)
-                                    }
-                                )
-                            }
+                            ListRow(
+                                title = "Trust Custom SSL/TLS Certificates",
+                                subtitle = "Bypass SSL pinning in routed apps when inspecting traffic with a custom MITM proxy",
+                                leadingIcon = Icons.Default.VpnKey,
+                                onClick = { viewModel.updateProxyingSuiteOptions(trustAllCerts = !settings.trustAllCertificates) },
+                                trailing = {
+                                    Switch(
+                                        checked = settings.trustAllCertificates,
+                                        onCheckedChange = { viewModel.updateProxyingSuiteOptions(trustAllCerts = it) }
+                                    )
+                                }
+                            )
                         }
                     }
                 }
@@ -857,20 +869,19 @@ fun VpnProxyScreen(
 
         AlertDialog(
             onDismissRequest = { showUriImportDialog = false },
+            shape = MaterialTheme.shapes.extraLarge,
             title = {
                 Text(
                     text = "Import V2Ray / Proxy URI",
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = JakartaFontFamily
+                    style = MaterialTheme.typography.titleMedium
                 )
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         text = "Paste a vless://, vmess://, ss://, trojan://, socks://, or host:port link:",
-                        fontSize = 12.sp,
-                        color = scheme.onSurfaceVariant,
-                        fontFamily = JakartaFontFamily
+                        style = MaterialTheme.typography.bodySmall,
+                        color = scheme.onSurfaceVariant
                     )
                     OutlinedTextField(
                         value = uriInput,
@@ -879,12 +890,13 @@ fun VpnProxyScreen(
                             errorMsg = null
                         },
                         placeholder = {
-                            Text(
+                            MonoDataText(
                                 text = "vless://uuid@host:443#US-NewYork",
-                                fontSize = 12.sp,
-                                fontFamily = FontFamily.Monospace
+                                color = scheme.onSurfaceVariant
                             )
                         },
+                        textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = JetBrainsMonoFontFamily),
+                        shape = MaterialTheme.shapes.extraSmall,
                         singleLine = false,
                         maxLines = 4,
                         modifier = Modifier
@@ -892,17 +904,16 @@ fun VpnProxyScreen(
                             .testTag("input_v2ray_uri")
                     )
                     errorMsg?.let {
-                        Text(
-                            text = it,
-                            fontSize = 12.sp,
-                            color = scheme.error,
-                            fontFamily = JakartaFontFamily
+                        StatusIndicator(
+                            label = it,
+                            color = scheme.error
                         )
                     }
                 }
             },
             confirmButton = {
-                Button(
+                PrimaryButton(
+                    text = "Import & Connect",
                     onClick = {
                         val ok = viewModel.importProxyServerFromUri(uriInput)
                         if (ok) {
@@ -912,13 +923,11 @@ fun VpnProxyScreen(
                         }
                     },
                     modifier = Modifier.testTag("confirm_import_v2ray_uri")
-                ) {
-                    Text("Import & Connect", fontFamily = JakartaFontFamily, fontWeight = FontWeight.Bold)
-                }
+                )
             },
             dismissButton = {
                 TextButton(onClick = { showUriImportDialog = false }) {
-                    Text("Cancel", fontFamily = JakartaFontFamily)
+                    Text("Cancel", style = MaterialTheme.typography.labelLarge)
                 }
             }
         )
@@ -938,11 +947,11 @@ fun VpnProxyScreen(
 
         AlertDialog(
             onDismissRequest = { showManualServerDialog = false },
+            shape = MaterialTheme.shapes.extraLarge,
             title = {
                 Text(
                     text = "Add Proxy / V2Ray Server",
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = JakartaFontFamily
+                    style = MaterialTheme.typography.titleMedium
                 )
             },
             text = {
@@ -954,16 +963,14 @@ fun VpnProxyScreen(
                 ) {
                     Text(
                         text = "Protocol",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = scheme.onSurfaceVariant,
-                        fontFamily = JakartaFontFamily
+                        style = MaterialTheme.typography.labelMedium,
+                        color = scheme.onSurfaceVariant
                     )
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         VpnProtocol.entries.forEach { proto ->
                             FilterChip(
@@ -972,7 +979,8 @@ fun VpnProxyScreen(
                                     selectedProto = proto
                                     portText = proto.defaultPort.toString()
                                 },
-                                label = { Text(proto.badge, fontSize = 11.sp, fontFamily = JakartaFontFamily) }
+                                label = { Text(proto.badge, style = MaterialTheme.typography.labelMedium) },
+                                shape = MaterialTheme.shapes.extraSmall
                             )
                         }
                     }
@@ -980,7 +988,9 @@ fun VpnProxyScreen(
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it },
-                        label = { Text("Server Label (e.g. Local V2Ray SOCKS5)", fontSize = 12.sp) },
+                        label = { Text("Server Label (e.g. Local V2Ray SOCKS5)", style = MaterialTheme.typography.bodySmall) },
+                        textStyle = MaterialTheme.typography.bodyMedium,
+                        shape = MaterialTheme.shapes.extraSmall,
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -989,14 +999,18 @@ fun VpnProxyScreen(
                         OutlinedTextField(
                             value = host,
                             onValueChange = { host = it },
-                            label = { Text("Host / IP", fontSize = 12.sp) },
+                            label = { Text("Host / IP", style = MaterialTheme.typography.bodySmall) },
+                            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = JetBrainsMonoFontFamily),
+                            shape = MaterialTheme.shapes.extraSmall,
                             singleLine = true,
                             modifier = Modifier.weight(2f)
                         )
                         OutlinedTextField(
                             value = portText,
                             onValueChange = { portText = it.filter { ch -> ch.isDigit() } },
-                            label = { Text("Port", fontSize = 12.sp) },
+                            label = { Text("Port", style = MaterialTheme.typography.bodySmall) },
+                            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = JetBrainsMonoFontFamily),
+                            shape = MaterialTheme.shapes.extraSmall,
                             singleLine = true,
                             modifier = Modifier.weight(1f)
                         )
@@ -1010,9 +1024,11 @@ fun VpnProxyScreen(
                                 if (selectedProto in listOf(VpnProtocol.VLESS, VpnProtocol.VMESS))
                                     "UUID / User ID"
                                 else "Username (Optional)",
-                                fontSize = 12.sp
+                                style = MaterialTheme.typography.bodySmall
                             )
                         },
+                        textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = JetBrainsMonoFontFamily),
+                        shape = MaterialTheme.shapes.extraSmall,
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1020,7 +1036,9 @@ fun VpnProxyScreen(
                     OutlinedTextField(
                         value = passwordOrSec,
                         onValueChange = { passwordOrSec = it },
-                        label = { Text("Password / TLS Key (Optional)", fontSize = 12.sp) },
+                        label = { Text("Password / TLS Key (Optional)", style = MaterialTheme.typography.bodySmall) },
+                        textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = JetBrainsMonoFontFamily),
+                        shape = MaterialTheme.shapes.extraSmall,
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1029,14 +1047,18 @@ fun VpnProxyScreen(
                         OutlinedTextField(
                             value = exitIp,
                             onValueChange = { exitIp = it },
-                            label = { Text("Exit IP", fontSize = 12.sp) },
+                            label = { Text("Exit IP", style = MaterialTheme.typography.bodySmall) },
+                            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = JetBrainsMonoFontFamily),
+                            shape = MaterialTheme.shapes.extraSmall,
                             singleLine = true,
                             modifier = Modifier.weight(2f)
                         )
                         OutlinedTextField(
                             value = countryCode,
                             onValueChange = { countryCode = it.uppercase().take(2) },
-                            label = { Text("Country", fontSize = 12.sp) },
+                            label = { Text("Country", style = MaterialTheme.typography.bodySmall) },
+                            textStyle = MaterialTheme.typography.bodyMedium,
+                            shape = MaterialTheme.shapes.extraSmall,
                             singleLine = true,
                             modifier = Modifier.weight(1f)
                         )
@@ -1045,14 +1067,17 @@ fun VpnProxyScreen(
                     OutlinedTextField(
                         value = timezoneId,
                         onValueChange = { timezoneId = it },
-                        label = { Text("IANA Timezone (e.g. America/New_York)", fontSize = 12.sp) },
+                        label = { Text("IANA Timezone (e.g. America/New_York)", style = MaterialTheme.typography.bodySmall) },
+                        textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = JetBrainsMonoFontFamily),
+                        shape = MaterialTheme.shapes.extraSmall,
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
             },
             confirmButton = {
-                Button(
+                PrimaryButton(
+                    text = "Save & Activate",
                     onClick = {
                         val portNum = portText.toIntOrNull() ?: selectedProto.defaultPort
                         val cleanHost = host.trim().ifBlank { "127.0.0.1" }
@@ -1077,391 +1102,13 @@ fun VpnProxyScreen(
                         viewModel.addCustomProxyServer(server)
                         showManualServerDialog = false
                     }
-                ) {
-                    Text("Save & Activate", fontFamily = JakartaFontFamily, fontWeight = FontWeight.Bold)
-                }
+                )
             },
             dismissButton = {
                 TextButton(onClick = { showManualServerDialog = false }) {
-                    Text("Cancel", fontFamily = JakartaFontFamily)
+                    Text("Cancel", style = MaterialTheme.typography.labelLarge)
                 }
             }
-        )
-    }
-}
-
-@Composable
-private fun ProxyServerNodeCard(
-    server: VpnProxyServer,
-    isSelected: Boolean,
-    isCustom: Boolean,
-    onSelect: () -> Unit,
-    onDelete: (() -> Unit)?
-) {
-    val scheme = MaterialTheme.colorScheme
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) scheme.primaryContainer.copy(alpha = 0.22f) else scheme.surface
-        ),
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(
-            1.dp,
-            if (isSelected) scheme.primary else scheme.outlineVariant
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onSelect() }
-            .testTag("server_node_${server.id}")
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f)
-            ) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(
-                            if (isSelected) scheme.primary.copy(alpha = 0.18f)
-                            else scheme.surfaceVariant
-                        )
-                ) {
-                    Text(
-                        text = server.countryCode,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = if (isSelected) scheme.primary else scheme.onSurfaceVariant,
-                        fontFamily = JakartaFontFamily
-                    )
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = server.name,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = scheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            fontFamily = JakartaFontFamily,
-                            modifier = Modifier.weight(1f, fill = false)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(scheme.primary.copy(alpha = 0.14f))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = server.protocol.badge,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = scheme.primary,
-                                fontFamily = JakartaFontFamily
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(3.dp))
-                    Text(
-                        text = "${server.host}:${server.port} • Exit ${server.exitIp} • ${server.latencyMs}ms",
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = scheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = "TZ: ${server.timezoneId} (${server.localeTag})",
-                        fontSize = 11.sp,
-                        color = scheme.onSurfaceVariant,
-                        fontFamily = JakartaFontFamily
-                    )
-                }
-            }
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (onDelete != null) {
-                    IconButton(
-                        onClick = onDelete,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Delete Custom Server",
-                            tint = scheme.error,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-                RadioButton(
-                    selected = isSelected,
-                    onClick = onSelect,
-                    colors = RadioButtonDefaults.colors(
-                        selectedColor = scheme.primary,
-                        unselectedColor = scheme.onSurfaceVariant
-                    )
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun PerAppVpnRoutingCard(
-    appInfo: InstalledAppInfo,
-    allServers: List<VpnProxyServer>,
-    defaultServer: VpnProxyServer,
-    onToggleRouting: (Boolean) -> Unit,
-    onSelectServer: (String) -> Unit,
-    onUpdateOptions: (killSwitch: Boolean, syncTz: Boolean) -> Unit
-) {
-    val scheme = MaterialTheme.colorScheme
-    val isRouted = appInfo.vpnProxyEnabled
-    val currentServer = remember(appInfo.proxyServerId, allServers, defaultServer) {
-        allServers.firstOrNull { it.id == appInfo.proxyServerId } ?: defaultServer
-    }
-
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (isRouted) scheme.primaryContainer.copy(alpha = 0.2f) else scheme.surface
-        ),
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(
-            1.dp,
-            if (isRouted) scheme.primary.copy(alpha = 0.45f) else scheme.outlineVariant
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("vpn_app_card_${appInfo.packageName}")
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    val iconBitmap = com.example.isolation.ui.components.rememberAppIconBitmap(
-                        packageName = appInfo.packageName,
-                        drawable = appInfo.icon,
-                        sizePx = 88
-                    )
-                    if (iconBitmap != null) {
-                        Image(
-                            bitmap = iconBitmap,
-                            contentDescription = appInfo.appName,
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                        )
-                    } else {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(scheme.primaryContainer)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.PhoneAndroid,
-                                contentDescription = null,
-                                tint = scheme.onPrimaryContainer
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = appInfo.appName,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = scheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            fontFamily = JakartaFontFamily
-                        )
-                        Text(
-                            text = if (isRouted) {
-                                "Routed via [${currentServer.countryCode}] ${currentServer.protocol.badge} (${currentServer.exitIp})"
-                            } else {
-                                "Direct connection • Tap switch to route via Proxy/V2Ray"
-                            },
-                            fontSize = 11.sp,
-                            color = if (isRouted) scheme.primary else scheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            fontFamily = JakartaFontFamily
-                        )
-                    }
-                }
-
-                Switch(
-                    checked = isRouted,
-                    onCheckedChange = onToggleRouting,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = scheme.onPrimary,
-                        checkedTrackColor = scheme.primary
-                    ),
-                    modifier = Modifier.testTag("switch_vpn_app_${appInfo.packageName}")
-                )
-            }
-
-            AnimatedVisibility(visible = isRouted) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.45f))
-                    Text(
-                        text = "Exit Server Override for ${appInfo.appName}:",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = scheme.onSurfaceVariant,
-                        fontFamily = JakartaFontFamily
-                    )
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(allServers, key = { it.id }) { srv ->
-                            val selected = srv.id == currentServer.id
-                            FilterChip(
-                                selected = selected,
-                                onClick = { onSelectServer(srv.id) },
-                                label = {
-                                    Text(
-                                        text = "[${srv.countryCode}] ${srv.protocol.badge} · ${srv.exitIp}",
-                                        fontSize = 11.sp,
-                                        fontFamily = JakartaFontFamily
-                                    )
-                                },
-                                shape = RoundedCornerShape(50),
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = scheme.primary,
-                                    selectedLabelColor = scheme.onPrimary,
-                                    containerColor = scheme.surfaceVariant.copy(alpha = 0.6f),
-                                    labelColor = scheme.onSurfaceVariant
-                                )
-                            )
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        FilterChip(
-                            selected = appInfo.requireVpnForNetwork,
-                            onClick = {
-                                onUpdateOptions(!appInfo.requireVpnForNetwork, appInfo.matchTimezoneWithIp)
-                            },
-                            label = {
-                                Text(
-                                    text = "Kill-Switch if VPN Off",
-                                    fontSize = 11.sp,
-                                    fontFamily = JakartaFontFamily
-                                )
-                            },
-                            shape = RoundedCornerShape(50)
-                        )
-                        FilterChip(
-                            selected = appInfo.matchTimezoneWithIp,
-                            onClick = {
-                                onUpdateOptions(appInfo.requireVpnForNetwork, !appInfo.matchTimezoneWithIp)
-                            },
-                            label = {
-                                Text(
-                                    text = "Sync TZ (${currentServer.timezoneId})",
-                                    fontSize = 11.sp,
-                                    fontFamily = JakartaFontFamily
-                                )
-                            },
-                            shape = RoundedCornerShape(50)
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AdvancedProxyOptionRow(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
-    val scheme = MaterialTheme.colorScheme
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onCheckedChange(!checked) }
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.weight(1f)
-        ) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(if (checked) scheme.primaryContainer else scheme.surfaceVariant)
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = if (checked) scheme.onPrimaryContainer else scheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = scheme.onSurface,
-                    fontFamily = JakartaFontFamily
-                )
-                Text(
-                    text = subtitle,
-                    fontSize = 11.sp,
-                    color = scheme.onSurfaceVariant,
-                    fontFamily = JakartaFontFamily
-                )
-            }
-        }
-        Spacer(modifier = Modifier.width(8.dp))
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = scheme.onPrimary,
-                checkedTrackColor = scheme.primary
-            )
         )
     }
 }
