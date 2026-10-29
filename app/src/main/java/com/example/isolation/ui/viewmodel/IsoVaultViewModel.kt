@@ -2110,6 +2110,16 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun disableModuleFromVault(moduleId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            com.example.isolation.core.root.RootLicenseVaultManager.deleteDownloadedModuleFromVault(app, moduleId)
+            withContext(Dispatchers.Main) {
+                refreshVaultAndModuleState()
+                _statusMessage.value = "Module disabled: $moduleId"
+            }
+        }
+    }
+
     /**
      * Built-in Admin Approval simulator so the user can test the complete Registration ->
      * Waiting for Approval -> Admin Approve -> Dynamic Module Notification -> Root Vault Bind

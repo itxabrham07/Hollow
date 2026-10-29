@@ -215,14 +215,16 @@ fun DeviceSpooferScreen(
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                 }
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "App Privacy & Identity",
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = scheme.onSurface
+                        style = MaterialTheme.typography.titleLarge,
+                        color = scheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "Device IDs, browser fingerprint, sensors, GPS & per-app VPN",
+                        text = "Device IDs, fingerprint, sensors, GPS & VPN",
                         style = MaterialTheme.typography.bodySmall,
                         color = scheme.onSurfaceVariant,
                         maxLines = 1,

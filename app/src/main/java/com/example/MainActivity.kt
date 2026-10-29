@@ -450,7 +450,8 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                         )
                         NavDestination.SETTINGS -> SettingsScreen(
                             viewModel = viewModel,
-                            onOpenDiagnostics = { currentScreen = NavDestination.MOUNTS }
+                            onOpenDiagnostics = { currentScreen = NavDestination.MOUNTS },
+                            onNavigateToLicenseHub = { currentScreen = NavDestination.LICENSE_HUB }
                         )
                         NavDestination.LICENSE_HUB -> OnboardingAuthScreen(
                             viewModel = viewModel,

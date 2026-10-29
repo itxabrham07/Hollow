@@ -374,65 +374,7 @@ fun DashboardScreen(
             }
         }
 
-        // 6. Files, Gallery & Safe Folder Section — ONLY shown when Vault Storage module (module_isolation) is mounted
-        if ("module_isolation" in mountedIds) {
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    SectionHeader(title = "Files, Gallery & Safe Folder")
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        CyberStatCard(
-                            title = "Browse Files",
-                            value = "Workspace",
-                            subtitle = "Folders & ZIP",
-                            icon = Icons.Default.Folder,
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { onNavigateToFileManager() },
-                            testTag = "stat_selinux"
-                        )
-                        CyberStatCard(
-                            title = "Photos Gallery",
-                            value = "Albums",
-                            subtitle = "Private Media",
-                            icon = Icons.Default.PhotoLibrary,
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { onNavigateToGallery() }
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        CyberStatCard(
-                            title = "Safe Folder",
-                            value = formattedEncrypted,
-                            subtitle = "Encrypted Vault",
-                            icon = Icons.Default.Lock,
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { onNavigateToVault() },
-                            testTag = "stat_vault_size"
-                        )
-                        CyberStatCard(
-                            title = "Activity Log",
-                            value = "${recentLogs.size}",
-                            subtitle = "Recent Events",
-                            icon = Icons.Default.History,
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { onNavigateToAudit() },
-                            testTag = "nav_audit"
-                        )
-                    }
-                }
-            }
-        }
+        // 6. Files/Gallery removed — accessible via Files tab in bottom nav
 
         // 7. Recent Activity Section
         item {

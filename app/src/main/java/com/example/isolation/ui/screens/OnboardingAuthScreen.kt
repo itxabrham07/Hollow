@@ -1523,82 +1523,41 @@ private fun ApprovedAccountHubScreen(
     onContinueToDashboard: () -> Unit,
     onBack: (() -> Unit)?
 ) {
+    // Confirmation dialog state for disable action
+    var pendingDisableModuleId by androidx.compose.runtime.remember { mutableStateOf<String?>(null) }
+    var showFirstConfirm by androidx.compose.runtime.remember { mutableStateOf(false) }
+    var showSecondConfirm by androidx.compose.runtime.remember { mutableStateOf(false) }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .widthIn(max = 600.dp),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            ContentCard(
-                shape = RoundedCornerShape(20.dp),
-                containerColor = Color.White,
-                borderColor = CardBorderColor,
-                modifier = Modifier.testTag("card_approved_license")
+            // Header label only — no account card, no Open Dashboard
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = Color(0xFFDCFCE7),
-                            modifier = Modifier.size(44.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = null,
-                                    tint = Color(0xFF16A34A),
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-                        }
-                        Column {
-                            Text(
-                                text = username.ifBlank { "Authorized User" },
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                color = TextDarkOnyx
-                            )
-                            Text(
-                                text = "$downloadedCount of $allowedCount modules active",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextMutedSlate
-                            )
-                        }
-                    }
-                    StatusIndicator(label = "Approved", color = Color(0xFF16A34A))
-                }
-
-                Spacer(Modifier.height(16.dp))
-
-                Button(
-                    onClick = onContinueToDashboard,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = ButtonDarkOnyx,
-                        contentColor = Color.White
+                Text(
+                    text = "Modules",
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = com.example.ui.theme.JakartaFontFamily
                     ),
-                    shape = RoundedCornerShape(50),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                ) {
-                    Text(
-                        text = "Open Dashboard",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
-                    )
-                }
+                    color = TextDarkOnyx
+                )
+                Text(
+                    text = "$downloadedCount of $allowedCount active",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextMutedSlate
+                )
             }
-        }
-
-        item {
-            SectionHeader(title = "Authorized Modules")
         }
 
         items(moduleStates, key = { it.module.id }) { modState ->
@@ -1639,39 +1598,148 @@ private fun ApprovedAccountHubScreen(
                             Text(
                                 text = mod.cardTitle,
                                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                color = TextDarkOnyx
+                                color = TextDarkOnyx,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                             )
                             Text(
                                 text = mod.summary,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = TextMutedSlate
+                                color = TextMutedSlate,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                             )
                         }
                     }
 
-                    if (modState.isReadyToUse) {
-                        BlackTickCircle(size = 22.dp)
-                    } else if (modState.isAuthorizedByAdmin) {
-                        Button(
-                            onClick = { viewModel.downloadModuleIntoRootVault(mod.id) },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = ButtonDarkOnyx,
-                                contentColor = Color.White
-                            ),
-                            shape = RoundedCornerShape(50),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                            modifier = Modifier
-                                .height(36.dp)
-                                .testTag("btn_download_${mod.id}")
-                        ) {
-                            Text("Install", style = MaterialTheme.typography.labelMedium)
+                    androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
+
+                    when {
+                        modState.isReadyToUse -> {
+                            // Active — tap to disable (will show 2x confirm)
+                            androidx.compose.material3.Switch(
+                                checked = true,
+                                onCheckedChange = {
+                                    pendingDisableModuleId = mod.id
+                                    showFirstConfirm = true
+                                },
+                                colors = androidx.compose.material3.SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = ButtonDarkOnyx
+                                ),
+                                modifier = Modifier.testTag("toggle_module_${mod.id}")
+                            )
                         }
-                    } else {
-                        StatusIndicator(label = "Locked", color = TextMutedSlate, showDot = false)
+                        modState.isAuthorizedByAdmin -> {
+                            Button(
+                                onClick = { viewModel.downloadModuleIntoRootVault(mod.id) },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = ButtonDarkOnyx,
+                                    contentColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(50),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                                modifier = Modifier
+                                    .height(36.dp)
+                                    .testTag("btn_download_${mod.id}")
+                            ) {
+                                Text("Install", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                        else -> {
+                            StatusIndicator(label = "Locked", color = TextMutedSlate, showDot = false)
+                        }
                     }
                 }
             }
         }
+    }
+
+    // ── First confirmation dialog ────────────────────────────────────────────
+    if (showFirstConfirm && pendingDisableModuleId != null) {
+        val modTitle = moduleStates.find { it.module.id == pendingDisableModuleId }?.module?.cardTitle ?: pendingDisableModuleId!!
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = {
+                showFirstConfirm = false
+                pendingDisableModuleId = null
+            },
+            shape = RoundedCornerShape(20.dp),
+            containerColor = Color.White,
+            title = {
+                Text(
+                    "Disable module?",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = TextDarkOnyx
+                )
+            },
+            text = {
+                Text(
+                    "\"$modTitle\" will be removed from your device. You can reinstall it anytime.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextMutedSlate
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showFirstConfirm = false
+                        showSecondConfirm = true
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
+                    shape = RoundedCornerShape(50)
+                ) { Text("Continue", color = Color.White, style = MaterialTheme.typography.labelLarge) }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    showFirstConfirm = false
+                    pendingDisableModuleId = null
+                }) { Text("Cancel", color = TextMutedSlate) }
+            }
+        )
+    }
+
+    // ── Second confirmation dialog ───────────────────────────────────────────
+    if (showSecondConfirm && pendingDisableModuleId != null) {
+        val modTitle = moduleStates.find { it.module.id == pendingDisableModuleId }?.module?.cardTitle ?: pendingDisableModuleId!!
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = {
+                showSecondConfirm = false
+                pendingDisableModuleId = null
+            },
+            shape = RoundedCornerShape(20.dp),
+            containerColor = Color.White,
+            title = {
+                Text(
+                    "Are you sure?",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = Color(0xFFEF4444)
+                )
+            },
+            text = {
+                Text(
+                    "This will permanently remove \"$modTitle\" from your vault. Apps using it will lose protection.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextMutedSlate
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        pendingDisableModuleId?.let { viewModel.disableModuleFromVault(it) }
+                        showSecondConfirm = false
+                        pendingDisableModuleId = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ButtonDarkOnyx),
+                    shape = RoundedCornerShape(50)
+                ) { Text("Yes, disable", color = Color.White, style = MaterialTheme.typography.labelLarge) }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    showSecondConfirm = false
+                    pendingDisableModuleId = null
+                }) { Text("Keep it", color = TextMutedSlate) }
+            }
+        )
     }
 }
 

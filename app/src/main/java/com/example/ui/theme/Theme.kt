@@ -18,32 +18,32 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 
 private val IsoVaultProLightScheme = lightColorScheme(
-    primary = ProEmeraldPrimary,
+    primary = ProEmeraldPrimary,          // Onyx #111827
     onPrimary = Color.White,
-    primaryContainer = ProEmeraldContainer,
+    primaryContainer = ProEmeraldContainer,  // Light Gray #F1F5F9
     onPrimaryContainer = ProEmeraldDark,
 
-    secondary = ProIndigoSecondary,
+    secondary = ProIndigoSecondary,       // Green #22C55E
     onSecondary = Color.White,
     secondaryContainer = ProIndigoContainer,
-    onSecondaryContainer = Color(0xFF142742),
+    onSecondaryContainer = Color(0xFF14532D),
 
-    tertiary = ProAmberTertiary,
+    tertiary = ProAmberTertiary,          // Slate #64748B
     onTertiary = Color.White,
     tertiaryContainer = ProAmberContainer,
-    onTertiaryContainer = Color(0xFF3E2200),
+    onTertiaryContainer = ProInkPrimary,
 
-    background = ProBackgroundLight,
+    background = ProBackgroundLight,      // #F8FAFC
     onBackground = ProInkPrimary,
-    surface = ProSurfaceLight,
+    surface = ProSurfaceLight,            // White
     onSurface = ProInkPrimary,
-    surfaceVariant = ProSurfaceLowLight,
-    onSurfaceVariant = ProInkSecondary,
+    surfaceVariant = ProSurfaceLowLight,  // #F1F5F9
+    onSurfaceVariant = ProInkTertiary,    // #64748B
     surfaceContainerLowest = Color.White,
     surfaceContainerLow = ProSurfaceLowLight,
     surfaceContainer = ProSurfaceContainerLight,
     surfaceContainerHigh = ProSurfaceHighLight,
-    surfaceContainerHighest = Color(0xFFD1DDD8),
+    surfaceContainerHighest = Color(0xFFCBD5E1),
     outline = ProOutlineLight,
     outlineVariant = ProOutlineSubtleLight,
 
@@ -54,32 +54,32 @@ private val IsoVaultProLightScheme = lightColorScheme(
 )
 
 private val IsoVaultProDarkScheme = darkColorScheme(
-    primary = ProEmeraldLight,
-    onPrimary = Color(0xFF042F2E),
-    primaryContainer = ProEmeraldContainerDark,
-    onPrimaryContainer = Color(0xFF99F6E4),
+    primary = ProEmeraldLight,            // Slate #334155
+    onPrimary = Color.White,
+    primaryContainer = ProEmeraldContainerDark,  // #1E293B
+    onPrimaryContainer = Color(0xFFF1F5F9),
 
-    secondary = ProIndigoDark,
-    onSecondary = Color(0xFF1E1B4B),
+    secondary = ProIndigoDark,            // Bright Green #4ADE80
+    onSecondary = Color(0xFF052E16),
     secondaryContainer = ProIndigoContainerDark,
-    onSecondaryContainer = Color(0xFFE0E7FF),
+    onSecondaryContainer = Color(0xFFBBF7D0),
 
-    tertiary = ProAmberDark,
-    onTertiary = Color(0xFF451A03),
+    tertiary = ProAmberDark,              // Light Slate #94A3B8
+    onTertiary = Color(0xFF0F172A),
     tertiaryContainer = ProAmberContainerDark,
-    onTertiaryContainer = Color(0xFFFEF3C7),
+    onTertiaryContainer = Color(0xFFE2E8F0),
 
-    background = ProBackgroundDark,
+    background = ProBackgroundDark,       // #0B0F1A
     onBackground = Color(0xFFF8FAFC),
-    surface = ProSurfaceDark,
+    surface = ProSurfaceDark,             // #111827
     onSurface = Color(0xFFF8FAFC),
-    surfaceVariant = ProSurfaceLowDark,
+    surfaceVariant = ProSurfaceLowDark,   // #1E293B
     onSurfaceVariant = Color(0xFF94A3B8),
-    surfaceContainerLowest = Color(0xFF06080C),
+    surfaceContainerLowest = Color(0xFF060912),
     surfaceContainerLow = ProSurfaceLowDark,
     surfaceContainer = ProSurfaceContainerDark,
     surfaceContainerHigh = ProSurfaceHighDark,
-    surfaceContainerHighest = Color(0xFF2E364A),
+    surfaceContainerHighest = Color(0xFF2D3A52),
     outline = ProOutlineDark,
     outlineVariant = ProOutlineSubtleDark,
 

@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.HelpOutline
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
@@ -88,7 +89,8 @@ private val SettingsLightGray = Color(0xFFF1F5F9)
 @Composable
 fun SettingsScreen(
     viewModel: IsoVaultViewModel,
-    onOpenDiagnostics: () -> Unit = {}
+    onOpenDiagnostics: () -> Unit = {},
+    onNavigateToLicenseHub: () -> Unit = {}
 ) {
     val scheme = MaterialTheme.colorScheme
     val typography = MaterialTheme.typography
@@ -345,111 +347,6 @@ fun SettingsScreen(
                         }
                     }
                 }
-                SettingsDivider()
-
-                // System photo picker
-                Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.padding(vertical = 6.dp)
-                    ) {
-                        SettingsIconBox(Icons.Default.Security)
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "System Photo & File Picker",
-                                style = typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = SettingsDarkOnyx
-                            )
-                            Text(
-                                text = if (settings.pickerPolicy == PickerPolicy.ALLOW)
-                                    "Picked photos copy safely to sandbox"
-                                else
-                                    "System picker blocked for isolated apps",
-                                style = typography.bodySmall,
-                                color = SettingsMuted
-                            )
-                        }
-                    }
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        val allowSelected = settings.pickerPolicy == PickerPolicy.ALLOW
-                        FilterChip(
-                            selected = allowSelected,
-                            onClick = { viewModel.setPickerPolicy(PickerPolicy.ALLOW) },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.Check,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(15.dp)
-                                )
-                            },
-                            label = {
-                                Text(
-                                    "Allow Picker",
-                                    style = typography.labelMedium,
-                                    fontWeight = if (allowSelected) FontWeight.Bold else FontWeight.Medium
-                                )
-                            },
-                            shape = RoundedCornerShape(50),
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = SettingsDarkOnyx,
-                                selectedLabelColor = Color.White,
-                                selectedLeadingIconColor = Color.White
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = allowSelected,
-                                selectedBorderColor = SettingsDarkOnyx,
-                                borderColor = SettingsCardBorder,
-                                borderWidth = 1.dp,
-                                selectedBorderWidth = 0.dp
-                            ),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("picker_policy_allow")
-                        )
-                        val blockSelected = settings.pickerPolicy == PickerPolicy.BLOCK
-                        FilterChip(
-                            selected = blockSelected,
-                            onClick = { viewModel.setPickerPolicy(PickerPolicy.BLOCK) },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.Block,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(15.dp)
-                                )
-                            },
-                            label = {
-                                Text(
-                                    "Block Picker",
-                                    style = typography.labelMedium,
-                                    fontWeight = if (blockSelected) FontWeight.Bold else FontWeight.Medium
-                                )
-                            },
-                            shape = RoundedCornerShape(50),
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = SettingsDarkOnyx,
-                                selectedLabelColor = Color.White,
-                                selectedLeadingIconColor = Color.White
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = blockSelected,
-                                selectedBorderColor = SettingsDarkOnyx,
-                                borderColor = SettingsCardBorder,
-                                borderWidth = 1.dp,
-                                selectedBorderWidth = 0.dp
-                            ),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("picker_policy_block")
-                        )
-                    }
-                }
             }
         }
 
@@ -482,6 +379,14 @@ fun SettingsScreen(
             SettingsSectionLabel("System")
             Spacer(modifier = Modifier.height(8.dp))
             SettingsGroupCard {
+                SettingsNavRow(
+                    icon = Icons.Default.Layers,
+                    title = "Manage Modules",
+                    subtitle = "Enable, disable & download privacy modules",
+                    onClick = onNavigateToLicenseHub,
+                    modifier = Modifier.testTag("nav_manage_modules")
+                )
+                SettingsDivider()
                 SettingsNavRow(
                     icon = Icons.Default.HelpOutline,
                     title = "Setup & Xposed Guide",
