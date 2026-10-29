@@ -70,8 +70,8 @@
       <div style="margin-bottom: 36px">
         <div class="admin-toolbar">
           <div>
-            <h2 style="font-size: 20px; font-weight: 700; color: var(--text-onyx)">Device Approval Queue</h2>
-            <p style="font-size: 13px; color: var(--text-muted)">Auto-refreshes every 4 seconds. Approve pending registrations with one click.</p>
+            <h2 style="font-size: 20px; font-weight: 700; color: var(--text-onyx)">Account &amp; Device Approval Queue</h2>
+            <p style="font-size: 13px; color: var(--text-muted)">View registration accounts alongside their Device IDs, choose how many devices each account can approve, and assign modules directly.</p>
           </div>
 
           <div class="filter-pills">
@@ -89,22 +89,32 @@
               type="text"
               id="adminSearchInput"
               class="text-input"
-              placeholder="Search by username, email, model, or HLW- fingerprint…"
+              placeholder="Search by registration account (username / email), model, or Device ID (HLW-…)…"
               style="flex: 1 1 240px"
             />
             <button id="btnToggleManualAdd" class="btn btn-tonal btn-sm">
-              <span>+ Add / Approve Device by ID</span>
+              <span>+ Add / Approve Account &amp; Device ID</span>
             </button>
           </div>
 
-          <div id="manualAddBox" class="hidden" style="margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border-hairline); display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 10px; align-items: end">
+          <div id="manualAddBox" class="hidden" style="margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border-hairline); display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 10px; align-items: end">
             <div>
-              <label class="field-label" for="manualUsername">Username</label>
-              <input type="text" id="manualUsername" class="text-input" placeholder="shad0wuser" />
+              <label class="field-label" for="manualUsername">Registration Account</label>
+              <input type="text" id="manualUsername" class="text-input" placeholder="username or email" />
             </div>
             <div>
-              <label class="field-label" for="manualHwId">Hardware Fingerprint (HLW-…)</label>
+              <label class="field-label" for="manualHwId">Device ID (HLW-…)</label>
               <input type="text" id="manualHwId" class="text-input" placeholder="HLW-XXXXXXXX-XXXXXXXX" style="font-family:var(--font-mono)" />
+            </div>
+            <div>
+              <label class="field-label" for="manualMaxDevices">Allowed Devices Limit</label>
+              <select id="manualMaxDevices" class="text-input">
+                <option value="1">1 Device Only</option>
+                <option value="2">2 Devices</option>
+                <option value="3">3 Devices</option>
+                <option value="5">5 Devices</option>
+                <option value="10">10 Devices</option>
+              </select>
             </div>
             <div>
               <button id="btnManualApproveSubmit" class="btn btn-onyx" style="width: 100%">Register &amp; Approve Immediately</button>

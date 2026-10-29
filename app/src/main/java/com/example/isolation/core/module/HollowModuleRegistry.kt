@@ -44,7 +44,8 @@ object HollowModuleRegistry {
 
     fun resolveModuleStates(
         context: Context,
-        devFullBuild: Boolean
+        devFullBuild: Boolean,
+        disabledModules: Set<String> = com.example.isolation.model.SettingsStore.load(context).disabledModules
     ): List<DynamicModuleState> {
         // Phase 7: Safe Mode bypasses all dynamic module mounting if startup crash threshold hit
         if (com.example.isolation.core.stability.SafeModeManager.isSafeModeEngaged(context)) {
@@ -58,11 +59,13 @@ object HollowModuleRegistry {
             allCatalogModules.forEach { byId[it.id] = it }
             debugDexModules.forEach { byId[it.id] = it }
             return byId.values.map { mod ->
+                val isDisabled = mod.id in disabledModules
                 DynamicModuleState(
                     module = mod,
                     isAuthorizedByAdmin = true,
                     isDownloadedInRootVault = true,
-                    isMountedInMemory = true
+                    isMountedInMemory = !isDisabled,
+                    isDisabledByUser = isDisabled
                 )
             }
         }
@@ -82,12 +85,14 @@ object HollowModuleRegistry {
         for (mod in allCatalogModules) {
             val authorized = isLicenseValid && vaultRecord.allowedModules.contains(mod.id)
             val downloaded = vaultRecord.downloadedModules.contains(mod.id)
+            val isDisabled = mod.id in disabledModules
             resolvedStates.add(
                 DynamicModuleState(
                     module = mod,
                     isAuthorizedByAdmin = authorized,
                     isDownloadedInRootVault = downloaded,
-                    isMountedInMemory = authorized && downloaded
+                    isMountedInMemory = authorized && downloaded && !isDisabled,
+                    isDisabledByUser = isDisabled
                 )
             )
         }
@@ -97,11 +102,9 @@ object HollowModuleRegistry {
             val isQuarantined = com.example.isolation.core.stability.ModuleQuarantineManager.isQuarantined(context, moduleId)
             val authorized = isLicenseValid && vaultRecord.allowedModules.contains(moduleId)
             val hadVaultFile = vaultRecord.downloadedModules.contains(moduleId)
+            val isDisabled = moduleId in disabledModules
 
             val loadedDexModule: HollowModule? = if (hadVaultFile && !isQuarantined) {
-                // Verifies SHA-256 + Ed25519 signature and loads entryClass via DexClassLoader.
-                // If tampered or invalid signature, HollowDexModuleLoader deletes the vault payload
-                // and returns null.
                 HollowDexModuleLoader.loadModuleFromVault(context, moduleId)
             } else {
                 null
@@ -113,18 +116,18 @@ object HollowModuleRegistry {
                         module = loadedDexModule,
                         isAuthorizedByAdmin = authorized,
                         isDownloadedInRootVault = true,
-                        isMountedInMemory = authorized
+                        isMountedInMemory = authorized && !isDisabled,
+                        isDisabledByUser = isDisabled
                     )
                 )
             } else if (authorized || moduleId in ModuleCatalog.defaultCoreModuleIds) {
-                // Un-downloaded (or purged after tamper detection) descriptor so OnboardingAuthScreen
-                // can display the "Download" action for authorized modules.
                 resolvedStates.add(
                     DynamicModuleState(
                         module = UnmountedModuleDescriptor(moduleId),
                         isAuthorizedByAdmin = authorized,
                         isDownloadedInRootVault = false,
-                        isMountedInMemory = false
+                        isMountedInMemory = false,
+                        isDisabledByUser = isDisabled
                     )
                 )
             }
@@ -138,8 +141,10 @@ object HollowModuleRegistry {
         states: List<DynamicModuleState>,
         devFullBuild: Boolean
     ): Boolean {
+        val state = states.firstOrNull { it.module.id == moduleId }
+        if (state?.isDisabledByUser == true) return false
         if (devFullBuild && BuildConfig.DEBUG) return true
-        return states.firstOrNull { it.module.id == moduleId }?.isReadyToUse == true
+        return state?.isReadyToUse == true
     }
 }
 

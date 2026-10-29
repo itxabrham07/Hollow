@@ -18,9 +18,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
@@ -59,12 +61,14 @@ import com.example.isolation.ui.screens.DashboardScreen
 import com.example.isolation.ui.screens.MountTerminalScreen
 import com.example.isolation.ui.screens.OnboardingAuthScreen
 import com.example.isolation.ui.screens.SettingsScreen
+import com.example.isolation.ui.screens.StorageExplorerScreen
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
 import com.example.ui.theme.IsoVaultTheme
 import com.example.ui.theme.JakartaFontFamily
 
 enum class NavDestination(val label: String) {
     DASHBOARD("Home"),
+    FILES("Files"),
     AUDIT("Activity"),
     SETTINGS("Settings"),
     MOUNTS("System"),
@@ -146,8 +150,16 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
         }
     }
 
+    LaunchedEffect(mountedIds, settings.disabledModules) {
+        val currentMod = activeModuleId
+        if (currentMod != null && (currentMod in settings.disabledModules || (!settings.devFullBuildMode && currentMod !in mountedIds))) {
+            activeModuleId = null
+        }
+    }
+
     val showMainTopBar = !isDetailScreenOpen && activeModuleId == null && (
             currentScreen == NavDestination.DASHBOARD ||
+            currentScreen == NavDestination.FILES ||
             currentScreen == NavDestination.SETTINGS ||
             currentScreen == NavDestination.MOUNTS
     )
@@ -240,9 +252,35 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                             modifier = Modifier.testTag("nav_dashboard")
                         )
 
+                        val isFilesSelected = activeModuleId == null && currentScreen == NavDestination.FILES
+
+                        NavigationBarItem(
+                            selected = isFilesSelected,
+                            onClick = {
+                                activeModuleId = null
+                                currentScreen = NavDestination.FILES
+                            },
+                            icon = {
+                                Icon(
+                                    imageVector = if (isFilesSelected) Icons.Filled.Folder else Icons.Outlined.Folder,
+                                    contentDescription = "Files"
+                                )
+                            },
+                            label = {
+                                Text(
+                                    text = NavDestination.FILES.label,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontFamily = JakartaFontFamily,
+                                    fontWeight = if (isFilesSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            },
+                            colors = navItemColors,
+                            modifier = Modifier.testTag("nav_files")
+                        )
+
                         // Dynamic navigation items for mounted modules contributing a bottom nav tab
                         val navModules = moduleStates.filter {
-                            (settings.devFullBuildMode || it.isReadyToUse) && it.module.contributesBottomNavTab
+                            !it.isDisabledByUser && (settings.devFullBuildMode || it.isReadyToUse) && it.module.contributesBottomNavTab
                         }
                         navModules.forEach { state ->
                             val mod = state.module
@@ -344,6 +382,7 @@ fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
                             onNavigateToLicenseHub = { currentScreen = NavDestination.LICENSE_HUB },
                             onOpenModule = { modId -> activeModuleId = modId }
                         )
+                        NavDestination.FILES -> StorageExplorerScreen(viewModel = viewModel)
                         NavDestination.MOUNTS -> MountTerminalScreen(viewModel = viewModel)
                         NavDestination.AUDIT -> AuditLogsScreen(
                             viewModel = viewModel,

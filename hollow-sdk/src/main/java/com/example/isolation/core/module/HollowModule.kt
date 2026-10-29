@@ -50,8 +50,9 @@ data class DynamicModuleState(
     val module: HollowModule,
     val isAuthorizedByAdmin: Boolean,
     val isDownloadedInRootVault: Boolean,
-    val isMountedInMemory: Boolean
+    val isMountedInMemory: Boolean,
+    val isDisabledByUser: Boolean = false
 ) {
     val isReadyToUse: Boolean
-        get() = isAuthorizedByAdmin && isDownloadedInRootVault && isMountedInMemory
+        get() = isAuthorizedByAdmin && isDownloadedInRootVault && isMountedInMemory && !isDisabledByUser
 }

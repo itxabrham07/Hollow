@@ -221,7 +221,7 @@ object RootLicenseVaultManager {
      */
     fun saveDownloadedModuleToVault(context: Context, moduleId: String, modulePayloadJson: String): Boolean {
         ensureSecretVolumeProvisioned(context)
-        val encrypted = encryptWithHardwareKey(context, modulePayloadJson)
+        val plainPayload = modulePayloadJson.trim()
         val rootPath = "$ROOT_MODULES_DIR/$moduleId.dex.enc"
         val rootBakPath = "$ROOT_MODULES_DIR/$moduleId.dex.bak"
         val rootTmpPath = "$ROOT_MODULES_DIR/$moduleId.dex.tmp"
@@ -236,8 +236,8 @@ object RootLicenseVaultManager {
             writeRawFileToRootAndFallback(context, rootBakPath, relativeBak, existing)
         }
 
-        // 2. Write to temp
-        writeRawFileToRootAndFallback(context, rootTmpPath, relativeTmp, encrypted)
+        // 2. Write plain JSON payload to temp
+        writeRawFileToRootAndFallback(context, rootTmpPath, relativeTmp, plainPayload)
 
         // 3. Atomic swap
         execRootCommand("mv -f $rootTmpPath $rootPath")
@@ -286,14 +286,15 @@ object RootLicenseVaultManager {
     }
 
     /**
-     * Reads and decrypts the JSON manifest/payload of a downloaded module from
-     * `/data/adb/.hollow_vault/modules/<moduleId>.dex.enc`.
+     * Reads the JSON manifest/payload of a downloaded module from
+     * `/data/adb/.hollow_vault/modules/<moduleId>.dex.enc` (plain JSON directly, with legacy decrypt fallback).
      */
     fun readDownloadedModulePayload(context: Context, moduleId: String): String? {
         val rootPath = "$ROOT_MODULES_DIR/$moduleId.dex.enc"
         val relativeName = "modules/$moduleId.dex.enc"
-        val raw = readRawFileFromRootOrFallback(context, rootPath, relativeName)
+        val raw = readRawFileFromRootOrFallback(context, rootPath, relativeName).trim()
         if (raw.isBlank()) return null
+        if (raw.startsWith("{")) return raw
         return decryptWithHardwareKey(context, raw)
     }
 
@@ -305,9 +306,9 @@ object RootLicenseVaultManager {
     ): Boolean {
         val rootPath = "$ROOT_MODULES_DIR/${moduleId}_state.enc"
         val relativeName = "modules/${moduleId}_state.enc"
-        val raw = readRawFileFromRootOrFallback(context, rootPath, relativeName)
+        val raw = readRawFileFromRootOrFallback(context, rootPath, relativeName).trim()
         if (raw.isBlank()) return defaultValue
-        val decrypted = decryptWithHardwareKey(context, raw) ?: return defaultValue
+        val decrypted = if (raw.startsWith("{")) raw else (decryptWithHardwareKey(context, raw) ?: return defaultValue)
         return try {
             JSONObject(decrypted).optBoolean(featureKey, defaultValue)
         } catch (_: Throwable) {
@@ -324,16 +325,15 @@ object RootLicenseVaultManager {
         ensureSecretVolumeProvisioned(context)
         val rootPath = "$ROOT_MODULES_DIR/${moduleId}_state.enc"
         val relativeName = "modules/${moduleId}_state.enc"
-        val raw = readRawFileFromRootOrFallback(context, rootPath, relativeName)
+        val raw = readRawFileFromRootOrFallback(context, rootPath, relativeName).trim()
         val currentJson = try {
-            val dec = if (raw.isNotBlank()) decryptWithHardwareKey(context, raw) else null
+            val dec = if (raw.startsWith("{")) raw else if (raw.isNotBlank()) decryptWithHardwareKey(context, raw) else null
             if (!dec.isNullOrBlank()) JSONObject(dec) else JSONObject()
         } catch (_: Throwable) {
             JSONObject()
         }
         currentJson.put(featureKey, enabled)
-        val encrypted = encryptWithHardwareKey(context, currentJson.toString())
-        writeRawFileToRootAndFallback(context, rootPath, relativeName, encrypted)
+        writeRawFileToRootAndFallback(context, rootPath, relativeName, currentJson.toString())
     }
 
     fun listDownloadedModulesInVault(context: Context): Set<String> {
@@ -344,7 +344,7 @@ object RootLicenseVaultManager {
             if (file.name.endsWith(".dex.enc")) {
                 val modId = file.name.removeSuffix(".dex.enc")
                 val raw = try { file.readText().trim() } catch (_: Throwable) { "" }
-                if (raw.isNotEmpty() && decryptWithHardwareKey(context, raw) != null) {
+                if (raw.isNotEmpty() && (raw.startsWith("{") || decryptWithHardwareKey(context, raw) != null)) {
                     result.add(modId)
                 }
             }

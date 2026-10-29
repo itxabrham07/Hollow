@@ -49,7 +49,9 @@ data class AppSettings(
     /** Developer Full Build = all modules unlocked locally (false by default so Core APK always runs onboarding & cloud auth). */
     val devFullBuildMode: Boolean = false,
     /** Node.js + MongoDB Atlas Cloud Admin Server URL */
-    val cloudServerUrl: String = "https://hollow.arshman.me"
+    val cloudServerUrl: String = "https://hollow.arshman.me",
+    /** User-disabled modules that should be hidden from Dashboard and Navigation menu */
+    val disabledModules: Set<String> = emptySet()
 ) {
     val allProxyServers: List<VpnProxyServer>
         get() = customProxyServers + VpnProxyPresets.defaultServers
@@ -88,6 +90,7 @@ object SettingsStore {
     private const val K_CUSTOM_SERVERS_JSON = "custom_proxy_servers_json"
     private const val K_DEV_FULL_BUILD = "dev_full_build_mode_v2"
     private const val K_CLOUD_SERVER_URL = "cloud_server_url"
+    private const val K_DISABLED_MODULES_CSV = "disabled_modules_csv"
 
     fun load(context: Context): AppSettings {
         val p = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -121,6 +124,11 @@ object SettingsStore {
             HollowIconTheme.DYNAMIC_MATERIAL_YOU
         }
         val customServers = decodeCustomServers(p.getString(K_CUSTOM_SERVERS_JSON, "") ?: "")
+        val disabledModules = (p.getString(K_DISABLED_MODULES_CSV, "") ?: "")
+            .split(',')
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .toSet()
         return AppSettings(
             rootVolumesEnabled = p.getBoolean(K_ROOT, false),
             encryptVolumesAtRest = p.getBoolean(K_ENCRYPT, true),
@@ -148,7 +156,8 @@ object SettingsStore {
             showIpInfoInToolbar = p.getBoolean(K_SHOW_IP_INFO, true),
             customProxyServers = customServers,
             devFullBuildMode = p.getBoolean(K_DEV_FULL_BUILD, false),
-            cloudServerUrl = p.getString(K_CLOUD_SERVER_URL, "https://hollow.arshman.me") ?: "https://hollow.arshman.me"
+            cloudServerUrl = p.getString(K_CLOUD_SERVER_URL, "https://hollow.arshman.me") ?: "https://hollow.arshman.me",
+            disabledModules = disabledModules
         )
     }
 
@@ -181,6 +190,7 @@ object SettingsStore {
             .putString(K_CUSTOM_SERVERS_JSON, encodeCustomServers(settings.customProxyServers))
             .putBoolean(K_DEV_FULL_BUILD, settings.devFullBuildMode)
             .putString(K_CLOUD_SERVER_URL, settings.cloudServerUrl)
+            .putString(K_DISABLED_MODULES_CSV, settings.disabledModules.joinToString(","))
             .commit()
         // Hooked apps read the picker policy and SystemUI trigger through the rule channels.
         IsolationRuleManager.publishPickerPolicy(settings.pickerPolicy)

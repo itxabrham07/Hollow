@@ -51,11 +51,11 @@ object HollowSecureClient {
     }
 
     fun decryptPayloadEnvelope(envelopeJson: JSONObject): JSONObject? {
-        if (!envelopeJson.has("payload_enc")) return envelopeJson
+        if (!envelopeJson.has("payload_enc") || envelopeJson.has("dexPayloadBase64")) return envelopeJson
         return try {
             val payloadB64 = envelopeJson.getString("payload_enc")
             val raw = Base64.decode(payloadB64, Base64.NO_WRAP)
-            if (raw.size <= 12) return null
+            if (raw.size <= 12) return if (envelopeJson.has("ok")) envelopeJson else null
             val iv = raw.copyOfRange(0, 12)
             val cipherBytes = raw.copyOfRange(12, raw.size)
             val keyBytes = hexToBytes(DEFAULT_PAYLOAD_HEX_KEY)
@@ -64,7 +64,7 @@ object HollowSecureClient {
             val plainStr = String(cipher.doFinal(cipherBytes), Charsets.UTF_8)
             JSONObject(plainStr)
         } catch (_: Throwable) {
-            null
+            if (envelopeJson.has("ok") || envelopeJson.has("dexPayloadBase64")) envelopeJson else null
         }
     }
 

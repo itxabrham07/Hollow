@@ -1730,12 +1730,14 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
     // ---- Dynamic Module Engine & Root-Level License Vault (/data/adb/.hollow_vault) ------------
 
     fun refreshVaultAndModuleState() {
+        val disabledSet = _settings.value.disabledModules
         val record = RootLicenseVaultManager.readVaultRecord(app)
         _vaultLicenseRecord.value = record
         _clockVerification.value = RootLicenseVaultManager.verifyVaultClockIntegrity(app)
         _moduleStates.value = HollowModuleRegistry.resolveModuleStates(
             context = app,
-            devFullBuild = _settings.value.devFullBuildMode
+            devFullBuild = _settings.value.devFullBuildMode,
+            disabledModules = disabledSet
         )
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -1745,7 +1747,8 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 val ioClock = RootLicenseVaultManager.verifyVaultClockIntegrity(app)
                 val ioModules = HollowModuleRegistry.resolveModuleStates(
                     context = app,
-                    devFullBuild = _settings.value.devFullBuildMode
+                    devFullBuild = _settings.value.devFullBuildMode,
+                    disabledModules = _settings.value.disabledModules
                 )
                 _vaultLicenseRecord.value = ioRecord
                 _clockVerification.value = ioClock
@@ -1789,14 +1792,15 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 val id = arr.optString(i)
                 if (id.isNotBlank()) allowedSet.add(id)
             }
+            return allowedSet
         }
-        return if (allowedSet.isNotEmpty()) allowedSet else fallback
+        return fallback
     }
 
     private fun ensureAuthorizedModulesMountedSync() {
         val current = RootLicenseVaultManager.readVaultRecord(app)
         if (current.status != LicenseAccountStatus.APPROVED) return
-        val effectiveAllowed = current.allowedModules
+        val effectiveAllowed = current.allowedModules - _settings.value.disabledModules
         if (effectiveAllowed.isEmpty()) return
         val pending = effectiveAllowed - current.downloadedModules
         for (moduleId in pending) {
@@ -2052,6 +2056,10 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                     )
                     appendTerminalLog("[RootVault] BANNED by Admin! Wiped /data/adb/.hollow_vault/modules")
                 } else {
+                    val revokedModules = current.downloadedModules - allowedSet
+                    for (revokedId in revokedModules) {
+                        RootLicenseVaultManager.deleteDownloadedModuleFromVault(app, revokedId)
+                    }
                     val updated = current.copy(
                         status = status,
                         licenseToken = resp.optString("licenseToken", current.licenseToken),
@@ -2087,6 +2095,11 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun downloadModuleIntoRootVault(moduleId: String) {
+        if (moduleId in _settings.value.disabledModules) {
+            val updatedSettings = _settings.value.copy(disabledModules = _settings.value.disabledModules - moduleId)
+            _settings.value = updatedSettings
+            SettingsStore.save(app, updatedSettings)
+        }
         viewModelScope.launch(Dispatchers.IO) {
             val current = RootLicenseVaultManager.readVaultRecord(app)
             if (current.status == LicenseAccountStatus.BANNED) {
@@ -2105,14 +2118,14 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
 
             if (bundleJson.isBlank()) {
                 withContext(Dispatchers.Main) {
-                    _statusMessage.value = "Unable to install $moduleId: could not reach server or verify signature."
+                    _statusMessage.value = "Unable to install $moduleId: could not reach server."
                 }
                 return@launch
             }
 
             val saved = RootLicenseVaultManager.saveDownloadedModuleToVault(app, moduleId, bundleJson)
             if (saved) {
-                appendTerminalLog("[RootVault] Verified Ed25519 & mounted $moduleId")
+                appendTerminalLog("[RootVault] Mounted module $moduleId")
             }
             withContext(Dispatchers.Main) {
                 refreshVaultAndModuleState()
@@ -2126,20 +2139,34 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             ensureAuthorizedModulesMountedSync()
             withContext(Dispatchers.Main) {
                 refreshVaultAndModuleState()
-                val count = _vaultLicenseRecord.value.downloadedModules.size
-                _statusMessage.value = "All $count authorized modules are installed and ready."
+                val count = _moduleStates.value.count { it.isReadyToUse }
+                _statusMessage.value = "All $count active modules are installed and ready."
             }
         }
     }
 
     fun disableModuleFromVault(moduleId: String) {
+        val updatedSettings = _settings.value.copy(
+            disabledModules = _settings.value.disabledModules + moduleId
+        )
+        _settings.value = updatedSettings
+        SettingsStore.save(app, updatedSettings)
         viewModelScope.launch(Dispatchers.IO) {
             com.example.isolation.core.root.RootLicenseVaultManager.deleteDownloadedModuleFromVault(app, moduleId)
             withContext(Dispatchers.Main) {
                 refreshVaultAndModuleState()
-                _statusMessage.value = "Module disabled: $moduleId"
+                _statusMessage.value = "Module disabled and hidden from Dashboard: $moduleId"
             }
         }
+    }
+
+    fun enableModuleInVault(moduleId: String) {
+        val updatedSettings = _settings.value.copy(
+            disabledModules = _settings.value.disabledModules - moduleId
+        )
+        _settings.value = updatedSettings
+        SettingsStore.save(app, updatedSettings)
+        downloadModuleIntoRootVault(moduleId)
     }
 
     /**

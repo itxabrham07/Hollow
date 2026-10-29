@@ -86,6 +86,7 @@ function normalizeDeviceDoc(doc) {
   plain.email = plain.email || '';
   plain.deviceModel = plain.deviceModel || 'Android Device';
   plain.allowedModules = Array.isArray(plain.allowedModules) ? plain.allowedModules : [];
+  plain.maxDevices = Number(plain.maxDevices) > 0 ? Number(plain.maxDevices) : 1;
   plain.banReason = plain.banReason || '';
   plain.registeredAt = plain.registeredAt || plain.createdAt || new Date();
   plain.updatedAt = plain.updatedAt || plain.lastHeartbeatAt || new Date();
@@ -129,6 +130,7 @@ async function upsertDeviceRecord(hardwareFingerprint, fields) {
       deviceModel: fields.deviceModel || 'Android Device',
       status: normalizeStatus(fields.status || 'PENDING_APPROVAL'),
       allowedModules: Array.isArray(fields.allowedModules) ? fields.allowedModules : [],
+      maxDevices: Number(fields.maxDevices) > 0 ? Number(fields.maxDevices) : 1,
       banReason: fields.banReason || '',
       highWaterWallClockMs: fields.highWaterWallClockMs || Date.now(),
       lastElapsedRealtimeMs: fields.lastElapsedRealtimeMs || 0,
@@ -216,9 +218,39 @@ async function listAllDevicesMerged() {
       console.error('[DeviceList] MongoDB list error:', err.message);
     }
   }
-  return Array.from(byFp.values()).sort(
+  const sorted = Array.from(byFp.values()).sort(
     (a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()
   );
+
+  // Enrich each device record with its registration account's linked devices & approval count
+  return sorted.map((dev) => {
+    const acctUser = String(dev.username || '').trim().toLowerCase();
+    const acctEmail = String(dev.email || '').trim().toLowerCase();
+    const sameAccount = sorted.filter((other) => {
+      if (other.hardwareFingerprint === dev.hardwareFingerprint) return true;
+      const otherUser = String(other.username || '').trim().toLowerCase();
+      const otherEmail = String(other.email || '').trim().toLowerCase();
+      if (acctEmail && otherEmail && acctEmail === otherEmail) return true;
+      if (acctUser && acctUser !== 'user' && otherUser === acctUser) return true;
+      return false;
+    });
+    const approvedDevices = sameAccount.filter((d) => d.status === 'APPROVED');
+    const maxLimit = Math.max(
+      Number(dev.maxDevices) || 1,
+      ...sameAccount.map((d) => Number(d.maxDevices) || 1)
+    );
+    return {
+      ...dev,
+      maxDevices: maxLimit,
+      accountDeviceCount: sameAccount.length,
+      accountApprovedCount: approvedDevices.length,
+      accountDevices: sameAccount.map((d) => ({
+        hardwareFingerprint: d.hardwareFingerprint,
+        deviceModel: d.deviceModel,
+        status: d.status
+      }))
+    };
+  });
 }
 
 async function recordAudit(event, hardwareFingerprint, username, details, req) {
@@ -676,14 +708,48 @@ app.post('/api/v1/auth/login', async (req, res) => {
     }
 
     const targetFp = hw || matched.hardwareFingerprint;
+    const existingTargetDevice = hw ? allDevices.find((d) => d.hardwareFingerprint === hw) : matched;
+    const acctLimit = Number(matched.maxDevices) > 0 ? Number(matched.maxDevices) : 1;
+    const acctApprovedCount = Number(matched.accountApprovedCount) || (matched.status === 'APPROVED' ? 1 : 0);
+
+    let resolvedStatus = matched.status;
+    let resolvedModules = matched.allowedModules;
+
+    if (existingTargetDevice) {
+      // If this specific hardwareFingerprint is already registered, respect its status unless account auto-approves within limit
+      if (existingTargetDevice.status === 'BANNED') {
+        resolvedStatus = 'BANNED';
+        resolvedModules = [];
+      } else if (existingTargetDevice.status === 'APPROVED') {
+        resolvedStatus = 'APPROVED';
+        resolvedModules = existingTargetDevice.allowedModules.length > 0 ? existingTargetDevice.allowedModules : matched.allowedModules;
+      } else if (matched.status === 'APPROVED' && acctApprovedCount < acctLimit) {
+        resolvedStatus = 'APPROVED';
+        resolvedModules = matched.allowedModules;
+      } else {
+        resolvedStatus = 'PENDING_APPROVAL';
+        resolvedModules = [];
+      }
+    } else if (hw && hw !== matched.hardwareFingerprint) {
+      // New device signing into an existing account: check if within Admin's maxDevices allowance
+      if (matched.status === 'APPROVED' && acctApprovedCount < acctLimit) {
+        resolvedStatus = 'APPROVED';
+        resolvedModules = matched.allowedModules;
+      } else {
+        resolvedStatus = 'PENDING_APPROVAL';
+        resolvedModules = [];
+      }
+    }
+
     const record = await upsertDeviceRecord(targetFp, {
       username: matched.username,
       email: matched.email,
       passwordHash: matched.passwordHash || (password ? pwHash : ''),
-      deviceModel: deviceModel || matched.deviceModel,
-      status: matched.status,
-      allowedModules: matched.allowedModules,
-      banReason: matched.banReason
+      deviceModel: deviceModel || (existingTargetDevice && existingTargetDevice.deviceModel) || matched.deviceModel,
+      status: resolvedStatus,
+      allowedModules: resolvedModules,
+      maxDevices: acctLimit,
+      banReason: existingTargetDevice ? existingTargetDevice.banReason : matched.banReason
     });
 
     let activeLicense = memoryStore.licenses.get(targetFp);
@@ -1039,21 +1105,35 @@ app.get('/api/v1/admin/devices', requireAdminAuth, async (_req, res) => {
 
 app.post('/api/v1/admin/devices/approve', requireAdminAuth, async (req, res) => {
   try {
-    const { hardwareFingerprint, allowedModules, validityDays } = req.body || {};
+    const { hardwareFingerprint, allowedModules, validityDays, maxDevices, username, email, deviceModel } = req.body || {};
     const catalog = loadModulesFromRepo();
+    const allCatalogIds = Object.keys(catalog);
     const days = Number(validityDays || 365);
     const nowMs = Date.now();
     const validUntilMs = nowMs + days * 86400000;
-    const mods = Array.isArray(allowedModules) ? allowedModules : defaultMods;
+    const mods = Array.isArray(allowedModules) && allowedModules.length > 0 ? allowedModules : allCatalogIds;
 
-    const existing = await findDeviceRecord(hardwareFingerprint);
+    let existing = await findDeviceRecord(hardwareFingerprint);
+    if (!existing && hardwareFingerprint) {
+      existing = await upsertDeviceRecord(hardwareFingerprint, {
+        username: username || 'user',
+        email: email || '',
+        deviceModel: deviceModel || 'Android Device',
+        status: 'PENDING_APPROVAL',
+        allowedModules: mods,
+        maxDevices: Number(maxDevices) > 0 ? Number(maxDevices) : 1
+      });
+    }
     if (!existing) {
       return res.status(404).json({ ok: false, error: 'Device not found' });
     }
 
+    const resolvedMaxDevices = Number(maxDevices) > 0 ? Number(maxDevices) : (Number(existing.maxDevices) > 0 ? Number(existing.maxDevices) : 1);
+
     const licensePayload = {
       hardwareFingerprint,
       allowedModules: mods,
+      maxDevices: resolvedMaxDevices,
       issuedAtMs: nowMs,
       validUntilMs
     };
@@ -1063,9 +1143,23 @@ app.post('/api/v1/admin/devices/approve', requireAdminAuth, async (req, res) => 
     const record = await upsertDeviceRecord(hardwareFingerprint, {
       status: 'APPROVED',
       allowedModules: mods,
+      maxDevices: resolvedMaxDevices,
       banReason: '',
       licenseValidUntil: new Date(validUntilMs)
     });
+
+    // Propagate maxDevices across other devices belonging to the same registration account
+    const allDevices = await listAllDevicesMerged();
+    const acctUser = String(record.username || '').trim().toLowerCase();
+    const acctEmail = String(record.email || '').trim().toLowerCase();
+    for (const dev of allDevices) {
+      if (dev.hardwareFingerprint === hardwareFingerprint) continue;
+      const otherUser = String(dev.username || '').trim().toLowerCase();
+      const otherEmail = String(dev.email || '').trim().toLowerCase();
+      if ((acctEmail && otherEmail === acctEmail) || (acctUser && acctUser !== 'user' && otherUser === acctUser)) {
+        await upsertDeviceRecord(dev.hardwareFingerprint, { maxDevices: resolvedMaxDevices });
+      }
+    }
 
     const licObj = {
       hardwareFingerprint,
@@ -1089,7 +1183,7 @@ app.post('/api/v1/admin/devices/approve', requireAdminAuth, async (req, res) => 
       'ADMIN_APPROVE',
       hardwareFingerprint,
       record.username,
-      `Approved for [${mods.join(', ')}] (${days} days)`,
+      `Approved device (${resolvedMaxDevices} max devices) for [${mods.join(', ')}] (${days} days)`,
       req
     );
     return res.json({ ok: true, device: record, licenseToken });
@@ -1100,7 +1194,7 @@ app.post('/api/v1/admin/devices/approve', requireAdminAuth, async (req, res) => 
 
 app.post('/api/v1/admin/devices/update-modules', requireAdminAuth, async (req, res) => {
   try {
-    const { hardwareFingerprint, allowedModules } = req.body || {};
+    const { hardwareFingerprint, allowedModules, maxDevices } = req.body || {};
     const mods = Array.isArray(allowedModules) ? allowedModules : [];
 
     const existing = await findDeviceRecord(hardwareFingerprint);
@@ -1108,15 +1202,18 @@ app.post('/api/v1/admin/devices/update-modules', requireAdminAuth, async (req, r
       return res.status(404).json({ ok: false, error: 'Device not found' });
     }
 
+    const resolvedMaxDevices = Number(maxDevices) > 0 ? Number(maxDevices) : (Number(existing.maxDevices) > 0 ? Number(existing.maxDevices) : 1);
+
     const record = await upsertDeviceRecord(hardwareFingerprint, {
-      allowedModules: mods
+      allowedModules: mods,
+      maxDevices: resolvedMaxDevices
     });
 
     await recordAudit(
       'ADMIN_UPDATE_MODULES',
       hardwareFingerprint,
       record.username,
-      `Updated modules -> [${mods.join(', ')}]`,
+      `Updated modules -> [${mods.join(', ')}] (Max Devices: ${resolvedMaxDevices})`,
       req
     );
     return res.json({ ok: true, device: record });

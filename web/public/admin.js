@@ -436,11 +436,13 @@
         btnManualApproveSubmit.addEventListener('click', async () => {
             const usernameInput = document.getElementById('manualUsername');
             const hwInput = document.getElementById('manualHwId');
+            const maxDevInput = document.getElementById('manualMaxDevices');
             const username = (usernameInput?.value || '').trim() || 'hollow_user';
             const hwId = (hwInput?.value || '').trim();
+            const maxDevices = Number(maxDevInput?.value || 1);
 
             if (!hwId) {
-                alert('Please enter the Device Hardware ID (or Username) to register and approve.');
+                alert('Please enter the Device ID (HLW-…) to register and approve.');
                 return;
             }
 
@@ -453,11 +455,12 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         username,
+                        email: username.includes('@') ? username : '',
                         hardwareFingerprint: hwId,
                         deviceModel: 'Manual Admin Entry'
                     })
                 });
-                // Step 2: Approve with all modules
+                // Step 2: Approve with all modules & selected maxDevices limit
                 const allModuleIds = cachedModules.map((m) => m.moduleId || m.id).filter(Boolean);
                 await fetch('/api/v1/admin/devices/approve', {
                     method: 'POST',
@@ -466,8 +469,11 @@
                         Authorization: `Bearer ${adminToken}`
                     },
                     body: JSON.stringify({
+                        username,
+                        email: username.includes('@') ? username : '',
                         hardwareFingerprint: hwId,
-                        allowedModules: allModuleIds
+                        allowedModules: allModuleIds,
+                        maxDevices
                     })
                 });
                 if (usernameInput) usernameInput.value = '';
@@ -503,7 +509,12 @@
                 : (Array.isArray(data.incidents) ? data.incidents : []);
 
             renderAdminStats();
-            if (!silent || !document.activeElement || !document.activeElement.classList.contains('mod-check')) {
+            const activeEl = document.activeElement;
+            const isInteracting = activeEl && (
+                activeEl.classList.contains('mod-check') ||
+                activeEl.classList.contains('max-devices-select')
+            );
+            if (!silent || !isInteracting) {
                 renderAdminDevices();
             }
             renderAdminLogs();
@@ -530,7 +541,7 @@
                 <div class="stat-value">${approvedCount}</div>
             </div>
             <div class="stat-card">
-                <div class="stat-label">Signed Modules</div>
+                <div class="stat-label">Available Modules</div>
                 <div class="stat-value">${cachedModules.length}</div>
             </div>
             <div class="stat-card">
@@ -568,7 +579,7 @@
             container.innerHTML = `
                 <div class="empty-queue-box">
                     <h3>No device requests in this view</h3>
-                    <p>When a user registers an account in the Hollow Android app, their request appears here automatically within seconds. You can also click <strong>+ Add / Approve Device by ID</strong> above.</p>
+                    <p>When a user registers an account in the Hollow Android app, their registration account and Device ID appear here automatically. You can also click <strong>+ Add / Approve Account &amp; Device ID</strong> above.</p>
                 </div>
             `;
             return;
@@ -580,11 +591,15 @@
             const pillLabel = st === 'PENDING_APPROVAL' ? 'WAITING FOR APPROVAL' : st;
             const allowed = Array.isArray(d.allowedModules) ? d.allowedModules : [];
             const hwAttr = esc(d.hardwareFingerprint);
+            const maxDevices = Number(d.maxDevices) > 0 ? Number(d.maxDevices) : 1;
+            const accountDevices = Array.isArray(d.accountDevices) ? d.accountDevices : [];
+            const accountApprovedCount = Number(d.accountApprovedCount) || (st === 'APPROVED' ? 1 : 0);
+            const accountDeviceCount = Number(d.accountDeviceCount) || 1;
 
             const moduleChecksHtml = cachedModules.map((m) => {
                 const modId = m.moduleId || m.id;
-                // Only pre-check if explicitly entitled in allowedModules (not pre-checked by default)
-                const isChecked = allowed.includes(modId);
+                // Pre-check all modules for new PENDING_APPROVAL requests so 1-click Approve delivers modules immediately
+                const isChecked = (st === 'PENDING_APPROVAL' && allowed.length === 0) ? true : allowed.includes(modId);
                 return `
                     <label class="module-check-label">
                         <input type="checkbox" class="mod-check" data-hw="${hwAttr}" value="${esc(modId)}" ${isChecked ? 'checked' : ''} />
@@ -593,28 +608,53 @@
                 `;
             }).join('');
 
-            const initialSelectedCount = allowed.filter((id) => cachedModules.some((m) => (m.moduleId || m.id) === id)).length;
+            const initialSelectedCount = (st === 'PENDING_APPROVAL' && allowed.length === 0)
+                ? cachedModules.length
+                : allowed.filter((id) => cachedModules.some((m) => (m.moduleId || m.id) === id)).length;
+
+            const linkedDevicesHtml = accountDevices.length > 1
+                ? `<div style="margin-top:6px; font-size:0.76rem; color:#475569; font-family:var(--font-mono);">
+                    Account Devices (${accountDeviceCount}): ${accountDevices.map((ad) => `<span style="display:inline-block; padding:2px 6px; margin-right:4px; border-radius:6px; background:${ad.status === 'APPROVED' ? '#DCFCE7' : '#FEF3C7'}; color:#0F172A;">${esc(ad.hardwareFingerprint)} (${esc(ad.status)})</span>`).join('')}
+                   </div>`
+                : '';
 
             return `
                 <div class="device-row-card ${st === 'PENDING_APPROVAL' ? 'is-pending' : ''}">
                     <div class="device-row-top">
                         <div>
                             <div class="device-user-title">
-                                <span>${esc(d.username || 'Anonymous User')}</span>
+                                <span>Account: ${esc(d.username || 'Anonymous User')}</span>
                                 ${d.email ? `<span style="font-size:0.82rem; font-weight:500; color:#64748B;">(${esc(d.email)})</span>` : ''}
+                                <span style="font-size:0.74rem; font-weight:700; padding:2px 8px; border-radius:999px; background:#EFF6FF; color:#1D4ED8; border:1px solid #BFDBFE;">
+                                    ${accountApprovedCount} / ${maxDevices} Device(s) Approved
+                                </span>
                                 <span style="font-size:0.76rem; font-weight:600; color:#64748B;">• ${esc(formatTimeAgo(d.updatedAt || d.registeredAt))}</span>
                             </div>
                             <div class="device-hw-mono">
-                                HWID: ${esc(d.hardwareFingerprint)} &nbsp;|&nbsp; Model: ${esc(d.deviceModel || 'Android Device')}
+                                <strong>Device ID:</strong> ${esc(d.hardwareFingerprint)} &nbsp;|&nbsp; <strong>Model:</strong> ${esc(d.deviceModel || 'Android Device')}
                             </div>
+                            ${linkedDevicesHtml}
                         </div>
                         <span class="status-pill ${pillClass}">${esc(pillLabel)}</span>
+                    </div>
+
+                    <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; background:#F8FAFC; border:1px solid var(--border-hairline); border-radius:12px; padding:10px 14px;">
+                        <div style="font-size:0.82rem; font-weight:600; color:#1E293B;">
+                            Allowed Devices for Account (<strong>${esc(d.username || 'User')}</strong>):
+                        </div>
+                        <select class="text-input max-devices-select" data-hw="${hwAttr}" style="width:auto; min-width:170px; padding:6px 12px; font-size:0.84rem;">
+                            <option value="1" ${maxDevices === 1 ? 'selected' : ''}>1 Device Only</option>
+                            <option value="2" ${maxDevices === 2 ? 'selected' : ''}>Up to 2 Devices</option>
+                            <option value="3" ${maxDevices === 3 ? 'selected' : ''}>Up to 3 Devices</option>
+                            <option value="5" ${maxDevices === 5 ? 'selected' : ''}>Up to 5 Devices</option>
+                            <option value="10" ${maxDevices === 10 ? 'selected' : ''}>Up to 10 Devices</option>
+                        </select>
                     </div>
 
                     <div style="background:var(--bg-subtle); border:1px solid var(--border-hairline); border-radius:14px; padding:14px 16px;">
                         <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
                             <div style="font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:#475569;">
-                                Privacy Modules to Grant: <span class="mod-count-badge" data-hw="${hwAttr}">${initialSelectedCount} selected</span>
+                                Modules to Deliver (Direct / No Encryption Overhead): <span class="mod-count-badge" data-hw="${hwAttr}">${initialSelectedCount} selected</span>
                             </div>
                             <div style="display:flex; gap:6px;">
                                 <button type="button" class="btn btn-outline btn-sm btn-select-all" data-hw="${hwAttr}" style="padding:4px 10px; min-height:28px; font-size:11px;">Select All</button>
@@ -627,9 +667,9 @@
                     </div>
 
                     <div class="device-actions-row">
-                        <button type="button" class="btn-black btn-sm btn-approve-device" data-hw="${hwAttr}">
+                        <button type="button" class="btn-black btn-sm btn-approve-device" data-hw="${hwAttr}" data-status="${esc(st)}">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><polyline points="20 6 9 17 4 12"/></svg>
-                            <span class="btn-approve-label" data-hw="${hwAttr}">${st === 'APPROVED' ? `Save Entitlements (${initialSelectedCount})` : `Approve Device (${initialSelectedCount} Modules)`}</span>
+                            <span class="btn-approve-label" data-hw="${hwAttr}">${st === 'APPROVED' ? `Save Modules & Device Limit (${initialSelectedCount})` : `Approve Account & Device (${initialSelectedCount} Modules)`}</span>
                         </button>
                         ${st !== 'BANNED' ? `
                             <button type="button" class="btn-danger-outline btn-ban-device" data-hw="${hwAttr}" data-ban="true">
@@ -654,7 +694,7 @@
             if (label) {
                 const dev = cachedDevices.find((d) => d.hardwareFingerprint === hw);
                 const isApproved = dev && normalizeStatus(dev.status) === 'APPROVED';
-                label.textContent = isApproved ? `Save Entitlements (${count})` : `Approve Device (${count} Modules)`;
+                label.textContent = isApproved ? `Save Modules & Device Limit (${count})` : `Approve Account & Device (${count} Modules)`;
             }
         }
 
@@ -684,15 +724,21 @@
         container.querySelectorAll('.btn-approve-device').forEach((btn) => {
             btn.addEventListener('click', async () => {
                 const hw = btn.getAttribute('data-hw');
+                const currentSt = btn.getAttribute('data-status');
                 const checks = Array.from(container.querySelectorAll('.mod-check')).filter(
                     (c) => c.getAttribute('data-hw') === hw
                 );
                 const selectedModules = checks.filter((c) => c.checked).map((c) => c.value);
+                const maxDevSelect = container.querySelector(`.max-devices-select[data-hw="${CSS.escape(hw)}"]`);
+                const maxDevices = Number(maxDevSelect?.value || 1);
 
                 btn.disabled = true;
                 btn.textContent = 'Saving...';
                 try {
-                    await fetch('/api/v1/admin/devices/approve', {
+                    const endpoint = (currentSt === 'APPROVED' && selectedModules.length === 0)
+                        ? '/api/v1/admin/devices/update-modules'
+                        : '/api/v1/admin/devices/approve';
+                    await fetch(endpoint, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -700,7 +746,8 @@
                         },
                         body: JSON.stringify({
                             hardwareFingerprint: hw,
-                            allowedModules: selectedModules
+                            allowedModules: selectedModules,
+                            maxDevices
                         })
                     });
                     await loadAdminOverview(false);

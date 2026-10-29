@@ -98,8 +98,9 @@ fun DashboardScreen(
     val mountedIds = mountedModules.map { it.id }.toSet()
     val totalCatalogSize = moduleStates.size.coerceAtLeast(4)
     val pendingDownloadTitles = moduleStates
-        .filter { it.isAuthorizedByAdmin && !it.isDownloadedInRootVault && !settings.devFullBuildMode }
+        .filter { it.isAuthorizedByAdmin && !it.isDownloadedInRootVault && !it.isDisabledByUser && !settings.devFullBuildMode }
         .map { it.module.displayName }
+    val disabledModuleCount = moduleStates.count { it.isDisabledByUser }
 
     androidx.compose.runtime.LaunchedEffect(pendingDownloadTitles.size) {
         if (pendingDownloadTitles.isNotEmpty()) {
@@ -133,7 +134,7 @@ fun DashboardScreen(
                     Spacer(modifier = Modifier.height(28.dp))
 
                     Text(
-                        text = "No Modules Yet",
+                        text = if (disabledModuleCount > 0) "All Modules Disabled" else "No Modules Yet",
                         style = MaterialTheme.typography.headlineMedium.copy(
                             fontWeight = FontWeight.Bold,
                             fontFamily = JakartaFontFamily
@@ -145,7 +146,11 @@ fun DashboardScreen(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
-                        text = "Your dashboard is ready. Modules will appear here when approved by admin.",
+                        text = if (disabledModuleCount > 0) {
+                            "$disabledModuleCount module(s) are currently disabled and hidden from your dashboard."
+                        } else {
+                            "Your dashboard is ready. Modules will appear here when approved by admin."
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = scheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
@@ -161,6 +166,8 @@ fun DashboardScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 8.dp)
+                            .clickable { onNavigateToLicenseHub() }
+                            .testTag("btn_open_license_hub")
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -175,9 +182,9 @@ fun DashboardScreen(
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
-                                text = "Awaiting module assignment by admin",
+                                text = if (disabledModuleCount > 0) "Manage & Re-enable Modules" else "Awaiting module assignment by admin",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = scheme.onSurfaceVariant,
+                                color = if (disabledModuleCount > 0) scheme.primary else scheme.onSurfaceVariant,
                                 fontWeight = FontWeight.Medium
                             )
                         }
@@ -259,7 +266,7 @@ fun DashboardScreen(
 
 
         // 5. Privacy & Protection Feature Modules (Single Indigo Accent + Semantic Status)
-        val activeOrAuthorizedStates = moduleStates.filter { it.isReadyToUse || it.isAuthorizedByAdmin }
+        val activeOrAuthorizedStates = moduleStates.filter { !it.isDisabledByUser && (it.isReadyToUse || it.isAuthorizedByAdmin) }
         if (activeOrAuthorizedStates.isNotEmpty()) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

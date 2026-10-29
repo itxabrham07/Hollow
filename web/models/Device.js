@@ -29,6 +29,10 @@ const DeviceSchema = new mongoose.Schema({
     type: [String],
     default: []
   },
+  maxDevices: {
+    type: Number,
+    default: 1
+  },
   licenseValidUntil: { type: Date, default: null },
   highWaterWallClockMs: { type: Number, default: 0 },
   lastElapsedRealtimeMs: { type: Number, default: 0 },
