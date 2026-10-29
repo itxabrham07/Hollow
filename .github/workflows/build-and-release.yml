@@ -74,9 +74,9 @@ jobs:
           fi
           if [ -f "./gradlew" ]; then
             chmod +x ./gradlew
-            ./gradlew :app:compileFeatureModules assembleDebug assembleRelease --no-daemon --stacktrace
+            ./gradlew verifyCoreIsEmpty buildAllModules assembleDebug assembleRelease --no-daemon --stacktrace
           else
-            gradle :app:compileFeatureModules assembleDebug assembleRelease --no-daemon --stacktrace
+            gradle verifyCoreIsEmpty buildAllModules assembleDebug assembleRelease --no-daemon --stacktrace
           fi
           rm -f certs/module_ed25519_private.pem "$KEYSTORE_PATH"
           mkdir -p dist

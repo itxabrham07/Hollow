@@ -20,10 +20,20 @@ android {
     versionName = "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    val pubKeyPemFile = File(rootDir, "certs/module_ed25519_public.pem")
+    val pubKeyB64 = if (pubKeyPemFile.exists()) {
+      pubKeyPemFile.readLines()
+        .map { it.trim() }
+        .filter { it.isNotEmpty() && !it.startsWith("-----") }
+        .joinToString("")
+        .ifEmpty { "MCowBQYDK2VwAyEArBn2TtGmUR4akTCBxgbp/vt5As1C9bQSPces4mh9w3M=" }
+    } else {
+      "MCowBQYDK2VwAyEArBn2TtGmUR4akTCBxgbp/vt5As1C9bQSPces4mh9w3M="
+    }
     buildConfigField(
       "String",
       "HOLLOW_MODULE_PUBLIC_KEY_B64",
-      "\"MCowBQYDK2VwAyEArBn2TtGmUR4akTCBxgbp/vt5As1C9bQSPces4mh9w3M=\""
+      "\"$pubKeyB64\""
     )
   }
 
@@ -150,8 +160,19 @@ dependencies {
   // "ksp"(libs.moshi.kotlin.codegen)
 }
 
+tasks.named("preBuild") {
+  dependsOn(rootProject.tasks.named("verifyCoreIsEmpty"))
+  mustRunAfter(":hollow-sdk:buildAllModules", ":hollow-sdk:buildModule", rootProject.tasks.named("buildAllModules"))
+}
+
 tasks.named("assemble") {
   dependsOn(rootProject.tasks.named("verifyCoreIsEmpty"))
+}
+
+tasks.register("compileFeatureModules") {
+  group = "hollow"
+  description = "Compatibility alias for :buildAllModules"
+  dependsOn(rootProject.tasks.named("buildAllModules"))
 }
 
 

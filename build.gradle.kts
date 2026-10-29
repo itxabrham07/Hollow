@@ -15,7 +15,6 @@ plugins {
 tasks.register("verifyCoreIsEmpty") {
   group = "verification"
   description = "Verifies that Core APK contains zero feature screens, feature hooks, or module_* references."
-  notCompatibleWithConfigurationCache("Scans source files dynamically")
   val repoRootDir = rootDir
   doLast {
     val appSrc = File(repoRootDir, "app/src/main/java")
@@ -38,14 +37,14 @@ tasks.register("verifyCoreIsEmpty") {
       val baseName = file.nameWithoutExtension
 
       if (forbiddenScreenNames.contains(baseName)) {
-        violations.add("Forbidden feature screen found in core: ${file.relativeTo(rootDir)}")
+        violations.add("Forbidden feature screen found in core: ${file.relativeTo(repoRootDir)}")
       }
       if (forbiddenHookNames.contains(baseName)) {
-        violations.add("Forbidden feature hook found in core: ${file.relativeTo(rootDir)}")
+        violations.add("Forbidden feature hook found in core: ${file.relativeTo(repoRootDir)}")
       }
       for (forbidden in forbiddenIds) {
         if (content.contains(forbidden)) {
-          violations.add("Hardcoded module ID reference $forbidden found in ${file.relativeTo(rootDir)}")
+          violations.add("Hardcoded module ID reference $forbidden found in ${file.relativeTo(repoRootDir)}")
         }
       }
     }
@@ -62,162 +61,34 @@ tasks.register("verifyCoreIsEmpty") {
 // Phase 2: Independent module project build tasks
 // Compiles modules against :hollow-sdk ONLY (never requires compiling or touching :app)
 // -----------------------------------------------------------------------------
-fun compileAndSignModule(modDir: File, repoRootDir: File, sdkProject: Project) {
-  val modId = modDir.name
-  val ktFiles = modDir.walkTopDown().filter { it.isFile && it.extension == "kt" && !it.path.contains("/build/") }.toList()
-  if (ktFiles.isEmpty()) return
-
-  val modBuildDir = File(modDir, "build")
-  val classesDir = File(modBuildDir, "classes")
-  if (classesDir.exists()) classesDir.deleteRecursively()
-  classesDir.mkdirs()
-
-  val sdkRoot = System.getenv("ANDROID_SDK_ROOT") ?: "/opt/android/sdk"
-  val d8Bin = File(sdkRoot, "build-tools/36.0.0/d8")
-  val androidJar = File(sdkRoot, "platforms/android-36/android.jar")
-  val javaHome = System.getProperty("java.home")
-  val javaBin = File(javaHome, "bin/java")
-  val jarBin = File(javaHome, "bin/jar")
-
-  val sdkClassesJar = File(sdkProject.layout.buildDirectory.get().asFile, "intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar")
-  val kotlinCompileTask = sdkProject.tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileDebugKotlin").get()
-  val sdkCompileCp = kotlinCompileTask.libraries.files
-  val compilerCp = sdkProject.configurations.getByName("kotlinCompilerClasspath").files
-  val pluginCp = kotlinCompileTask.pluginClasspath.files
-
-  val compileClasspath = (listOf(androidJar, sdkClassesJar) + sdkCompileCp).filter { it.exists() }.joinToString(File.pathSeparator) { it.absolutePath }
-  val pluginArg = "-Xplugin=${pluginCp.joinToString(",") { it.absolutePath }}"
-
-  println("[buildModule] Compiling $modId against :hollow-sdk...")
-  val kotlincCmd = mutableListOf(
-    javaBin.absolutePath,
-    "-cp",
-    compilerCp.joinToString(File.pathSeparator) { f -> f.absolutePath },
-    "org.jetbrains.kotlin.cli.jvm.K2JVMCompiler",
-    "-no-stdlib",
-    "-jvm-target",
-    "11",
-    pluginArg,
-    "-cp",
-    compileClasspath,
-    "-d",
-    classesDir.absolutePath
-  )
-  ktFiles.forEach { kotlincCmd.add(it.absolutePath) }
-
-  val kotlincProc = ProcessBuilder(kotlincCmd).redirectErrorStream(true).start()
-  val kotlincOut = kotlincProc.inputStream.bufferedReader().readText()
-  val kotlincExit = kotlincProc.waitFor()
-  if (kotlincExit != 0) {
-    throw GradleException("kotlinc failed for $modId (exit $kotlincExit):\n$kotlincOut")
-  }
-
-  // Package compiled classes into module-classes.jar
-  val jarFile = File(modBuildDir, "module-classes.jar")
-  if (jarFile.exists()) jarFile.delete()
-  val jarProc = ProcessBuilder(jarBin.absolutePath, "cf", jarFile.absolutePath, "-C", classesDir.absolutePath, ".").redirectErrorStream(true).start()
-  val jarOut = jarProc.inputStream.bufferedReader().readText()
-  if (jarProc.waitFor() != 0) {
-    throw GradleException("jar packaging failed for $modId:\n$jarOut")
-  }
-
-  // Convert to standalone DEX (module.dex.bin) with d8
-  val d8Cmd = mutableListOf(
-    d8Bin.absolutePath,
-    "--min-api",
-    "24",
-    "--output",
-    modBuildDir.absolutePath,
-    "--classpath",
-    androidJar.absolutePath,
-    "--classpath",
-    sdkClassesJar.absolutePath
-  )
-  sdkCompileCp.filter { it.exists() && it.extension == "jar" }.forEach { j ->
-    d8Cmd.add("--classpath")
-    d8Cmd.add(j.absolutePath)
-  }
-  d8Cmd.add(jarFile.absolutePath)
-
-  val d8Proc = ProcessBuilder(d8Cmd).redirectErrorStream(true).start()
-  val d8Out = d8Proc.inputStream.bufferedReader().readText()
-  val d8Exit = d8Proc.waitFor()
-  if (d8Exit != 0) {
-    throw GradleException("d8 dexing failed for $modId (exit $d8Exit):\n$d8Out")
-  }
-
-  val classesDex = File(modBuildDir, "classes.dex")
-  val outDexBin = File(modBuildDir, "module.dex.bin")
-  if (classesDex.exists()) {
-    if (outDexBin.exists()) outDexBin.delete()
-    classesDex.renameTo(outDexBin)
-  }
-
-  // Sign with Ed25519 and sync to /modules/<modId>/
-  val signProc = ProcessBuilder("node", "${repoRootDir}/scripts/sign-modules.js", modId)
-    .directory(repoRootDir)
-    .redirectErrorStream(true)
-    .start()
-  val signOut = signProc.inputStream.bufferedReader().readText()
-  val signExit = signProc.waitFor()
-  println(signOut)
-  if (signExit != 0) {
-    throw GradleException("Module signing failed for $modId (exit $signExit):\n$signOut")
-  }
-}
-
 tasks.register("buildModule") {
   group = "hollow"
   description = "Compiles an independent feature module against :hollow-sdk only: ./gradlew buildModule -Pmodule=<module_id>"
-  dependsOn(":hollow-sdk:bundleLibCompileToJarDebug")
-  notCompatibleWithConfigurationCache("Executes kotlinc and d8 for dynamic modules")
-
-  val repoRootDir = rootDir
-  val sdkProject = project(":hollow-sdk")
-
-  doLast {
-    val targetModule = (project.findProperty("module") as? String)?.trim()
-      ?: throw GradleException("Missing module name. Usage: ./gradlew buildModule -Pmodule=<module_id>")
-    val modDir = File(repoRootDir, "modules-src/$targetModule")
-    if (!modDir.exists() || !modDir.isDirectory) {
-      throw GradleException("Module directory not found: modules-src/$targetModule")
-    }
-    compileAndSignModule(modDir, repoRootDir, sdkProject)
-  }
+  dependsOn(":hollow-sdk:buildModule")
 }
 
 tasks.register("buildAllModules") {
   group = "hollow"
   description = "Compiles all independent feature modules against :hollow-sdk only and signs them with Ed25519."
-  dependsOn(":hollow-sdk:bundleLibCompileToJarDebug")
-  notCompatibleWithConfigurationCache("Executes kotlinc and d8 for dynamic modules")
+  dependsOn(":hollow-sdk:buildAllModules")
+}
 
-  val repoRootDir = rootDir
-  val sdkProject = project(":hollow-sdk")
-
-  doLast {
-    val modulesSrcRoot = File(repoRootDir, "modules-src")
-    val moduleDirs = modulesSrcRoot.listFiles()
-      ?.filter { it.isDirectory && !it.name.startsWith(".") }
-      ?.sortedBy { it.name }
-      ?: emptyList()
-
-    for (modDir in moduleDirs) {
-      compileAndSignModule(modDir, repoRootDir, sdkProject)
-    }
-    println("[buildAllModules] Successfully compiled and verified ${moduleDirs.size} standalone modules against :hollow-sdk.")
-  }
+tasks.register("compileFeatureModules") {
+  group = "hollow"
+  description = "Compatibility alias for buildAllModules."
+  dependsOn(":hollow-sdk:buildAllModules")
 }
 
 tasks.register("newModule") {
   group = "hollow"
   description = "Scaffolds an independent feature module: ./gradlew newModule -Pid=module_xyz -Pname='My Feature'"
-  notCompatibleWithConfigurationCache("Scaffolds module files dynamically")
   val repoRootDir = rootDir
+  val idProp = providers.gradleProperty("id")
+  val nameProp = providers.gradleProperty("name")
   doLast {
-    val modId = project.findProperty("id") as? String
+    val modId = idProp.orNull
       ?: throw GradleException("Missing module id. Usage: ./gradlew newModule -Pid=module_xyz -Pname='My Feature'")
-    val modName = (project.findProperty("name") as? String) ?: modId
+    val modName = nameProp.orNull ?: modId
     val cleanId = modId.trim().lowercase()
 
     val targetDir = File(repoRootDir, "modules-src/$cleanId")
@@ -231,7 +102,7 @@ tasks.register("newModule") {
     val subPkg = cleanId.removePrefix("module_").replace("_", "")
     val pkgName = "com.example.isolation.module.$subPkg"
 
-    val srcDir = file("modules-src/$cleanId/src/main/kotlin/" + pkgName.replace(".", "/"))
+    val srcDir = File(repoRootDir, "modules-src/$cleanId/src/main/kotlin/" + pkgName.replace(".", "/"))
     srcDir.mkdirs()
 
     val moduleJson = """
@@ -251,7 +122,7 @@ tasks.register("newModule") {
       "accentColorHex": 4279376257
     }
     """.trimIndent()
-    file("modules-src/$cleanId/module.json").writeText(moduleJson + "\n")
+    File(repoRootDir, "modules-src/$cleanId/module.json").writeText(moduleJson + "\n")
 
     val readme = """
     # $modName (`$cleanId`)
@@ -263,7 +134,7 @@ tasks.register("newModule") {
     - Target: `:hollow-sdk` (v1)
     - Zero core dependency: Builds independently and ships as signed DEX.
     """.trimIndent()
-    file("modules-src/$cleanId/README.md").writeText(readme + "\n")
+    File(repoRootDir, "modules-src/$cleanId/README.md").writeText(readme + "\n")
 
     val ktCode = """
     package $pkgName
