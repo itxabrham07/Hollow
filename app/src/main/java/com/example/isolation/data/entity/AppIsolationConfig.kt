@@ -63,11 +63,11 @@ data class AppIsolationConfig(
     val hideVpnAndProxy: Boolean = true,
     val blockClipboardRead: Boolean = false,
     // Digital Footprint & Anti-Tracking Shield (Snap, Meta, Chrome & Browsers)
-    val spoofGpuFingerprint: Boolean = true,
-    val spoofBrowserUserAgent: Boolean = true,
+    val spoofGpuFingerprint: Boolean = false,
+    val spoofBrowserUserAgent: Boolean = false,
     val anonymizeSensors: Boolean = true,
     val blockCellTowerTracking: Boolean = true,
-    val autoSyncTimezone: Boolean = true,
+    val autoSyncTimezone: Boolean = false,
     // Networking
     val disableAllNetworking: Boolean = false,
     // Extended Real-First Editable Hardware & Build Fields
@@ -87,11 +87,11 @@ data class AppIsolationConfig(
     val spoofLocaleTag: String = "",
     val customUserAgent: String = "",
     // Chrome / Browser & WebView Deep Fingerprint Spoofing
-    val spoofWebRtc: Boolean = true,
-    val spoofCanvasNoise: Boolean = true,
-    val spoofAudioContext: Boolean = true,
-    val spoofClientHints: Boolean = true,
-    val spoofFontEnumeration: Boolean = true,
+    val spoofWebRtc: Boolean = false,
+    val spoofCanvasNoise: Boolean = false,
+    val spoofAudioContext: Boolean = false,
+    val spoofClientHints: Boolean = false,
+    val spoofFontEnumeration: Boolean = false,
     // Per-App VPN / Proxy (V2Ray / SOCKS5 / HTTP) & VPN-Gated Controls
     val vpnProxyEnabled: Boolean = false,
     val proxyServerId: String = "us_ny_vless",
@@ -101,8 +101,8 @@ data class AppIsolationConfig(
     val trustAllCerts: Boolean = false,
     // Reusable Privacy Profiles & Anonymity Suite
     val privacyProfileId: String = "",
-    val deadmanSwitchEnabled: Boolean = true,
-    val spoofDrmWidevine: Boolean = true,
+    val deadmanSwitchEnabled: Boolean = false,
+    val spoofDrmWidevine: Boolean = false,
     val sensorBiasNeutralizer: Boolean = true,
     val spoofWifiBssid: Boolean = true
 )

@@ -308,9 +308,9 @@ object RealDeviceHardware {
             fingerprint = Build.FINGERPRINT ?: "google/generic/generic:15/AP3A.241005.015/12366759:user/release-keys",
             serial = try {
                 @Suppress("DEPRECATION")
-                Build.SERIAL?.takeIf { it.isNotBlank() && it != "unknown" } ?: "R58N91Z7X2K"
+                Build.SERIAL?.takeIf { it.isNotBlank() } ?: "unknown"
             } catch (_: Throwable) {
-                "R58N91Z7X2K"
+                "unknown"
             },
             androidId = androidId,
             carrierName = carrier,

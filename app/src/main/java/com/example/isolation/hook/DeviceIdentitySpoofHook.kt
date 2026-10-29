@@ -122,20 +122,21 @@ object DeviceIdentitySpoofHook {
         }
 
         tryLoadFromLocalFiles(xSharedPrefs)
-        triggerAsyncRefresh(xSharedPrefs)
+        val initialRule = cachedIdentityMap[currentPkg] ?: return
 
-        // Apply Build static fields immediately if rule is already loaded
-        getRuleForPackage(currentPkg, xSharedPrefs)?.let { applyBuildStaticFieldsOnce(it) }
+        // Apply Build static fields immediately if rule is loaded
+        applyBuildStaticFieldsOnce(initialRule)
 
         attachSettingsAndSystemPropertiesHooks(lpparam, currentPkg, xSharedPrefs)
         attachTelephonyAndHardwareHooks(lpparam, currentPkg, xSharedPrefs)
         attachNetworkAndMacHooks(lpparam, currentPkg, xSharedPrefs)
         attachDrmGsfAndAdIdHooks(lpparam, currentPkg, xSharedPrefs)
         attachPrivacyShieldHooks(lpparam, currentPkg, xSharedPrefs)
-        attachLocationMockHooks(lpparam, currentPkg, xSharedPrefs)
+        if (initialRule.spoofLocationEnabled || initialRule.hideMockLocation) {
+            attachLocationMockHooks(lpparam, currentPkg, xSharedPrefs)
+        }
         attachAppClonerPrivacyHooks(lpparam, currentPkg, xSharedPrefs)
         attachDigitalFootprintHooks(lpparam, currentPkg, xSharedPrefs)
-        attachDeadmanSwitchHooks(lpparam, currentPkg, xSharedPrefs)
     }
 
     private fun obtainXPrefs(passed: XSharedPreferences?): XSharedPreferences? {
@@ -217,12 +218,10 @@ object DeviceIdentitySpoofHook {
         xSharedPrefs: XSharedPreferences?
     ): IsolationRuleManager.IdentitySpoofRule? {
         if (!hasLoadedInitial.get()) {
-            if (!tryLoadFromLocalFiles(xSharedPrefs)) {
-                tryLoadFromProvider()
-            }
+            tryLoadFromLocalFiles(xSharedPrefs)
         }
         val now = System.currentTimeMillis()
-        if ((now - lastFetchMs) > 2000L) {
+        if ((now - lastFetchMs) > 3000L) {
             triggerAsyncRefresh(xSharedPrefs)
         }
         val rule = cachedIdentityMap[pkg]
@@ -238,9 +237,7 @@ object DeviceIdentitySpoofHook {
         try {
             refreshExecutor.execute {
                 try {
-                    if (!tryLoadFromLocalFiles(xSharedPrefs)) {
-                        tryLoadFromProvider()
-                    }
+                    tryLoadFromLocalFiles(xSharedPrefs)
                 } catch (_: Throwable) {
                 } finally {
                     lastFetchMs = if (hasLoadedInitial.get()) System.currentTimeMillis() else 0L
@@ -255,7 +252,9 @@ object DeviceIdentitySpoofHook {
     private fun applyBuildStaticFieldsOnce(rule: IsolationRuleManager.IdentitySpoofRule) {
         if (!buildFieldsApplied.compareAndSet(false, true)) return
         try {
-            if (rule.isIdentitySpoofed) {
+            val spoofModelProps = rule.isIdentitySpoofed &&
+                rule.preset != com.example.isolation.model.DeviceProfilePreset.REAL_HARDWARE
+            if (spoofModelProps) {
                 XposedHelpers.setStaticObjectField(Build::class.java, "BRAND", rule.brand)
                 XposedHelpers.setStaticObjectField(Build::class.java, "MANUFACTURER", rule.manufacturer)
                 XposedHelpers.setStaticObjectField(Build::class.java, "MODEL", rule.model)
@@ -267,7 +266,6 @@ object DeviceIdentitySpoofHook {
                     XposedHelpers.setStaticObjectField(Build::class.java, "BOOTLOADER", rule.bootloader)
                 }
                 XposedHelpers.setStaticObjectField(Build::class.java, "FINGERPRINT", rule.fingerprint)
-                XposedHelpers.setStaticObjectField(Build::class.java, "SERIAL", rule.serial)
             }
             if (rule.hideRootAndXposed) {
                 XposedHelpers.setStaticObjectField(Build::class.java, "TAGS", "release-keys")
@@ -302,19 +300,20 @@ object DeviceIdentitySpoofHook {
                             val key = param.args.firstOrNull() as? String ?: return
                             val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
                             val isIdentityOn = rule.isIdentitySpoofed
+                            val spoofModelProps = isIdentityOn &&
+                                rule.preset != com.example.isolation.model.DeviceProfilePreset.REAL_HARDWARE
                             val spoofed: String? = when (key) {
-                                "ro.product.brand", "ro.product.system.brand", "ro.product.vendor.brand" -> if (isIdentityOn) rule.brand else null
-                                "ro.product.manufacturer", "ro.product.system.manufacturer", "ro.product.vendor.manufacturer" -> if (isIdentityOn) rule.manufacturer else null
-                                "ro.product.model", "ro.product.system.model", "ro.product.vendor.model" -> if (isIdentityOn) rule.model else null
-                                "ro.product.device", "ro.product.system.device", "ro.product.vendor.device", "ro.build.product" -> if (isIdentityOn) rule.device else null
-                                "ro.product.name", "ro.product.system.name", "ro.product.vendor.name" -> if (isIdentityOn) rule.product else null
-                                "ro.product.board" -> if (isIdentityOn) rule.board else null
-                                "ro.hardware", "ro.boot.hardware" -> if (isIdentityOn) rule.hardware.ifBlank { rule.board } else null
-                                "ro.bootloader", "ro.boot.bootloader" -> if (isIdentityOn && rule.bootloader.isNotBlank()) rule.bootloader else null
-                                "ro.build.fingerprint", "ro.system.build.fingerprint", "ro.vendor.build.fingerprint", "ro.bootimage.build.fingerprint" -> if (isIdentityOn) rule.fingerprint else null
-                                "ro.serialno", "ro.boot.serialno" -> if (isIdentityOn) rule.serial else null
-                                "gsm.sim.operator.alpha", "gsm.operator.alpha" -> if (isIdentityOn) rule.carrierName else null
-                                "gsm.sim.operator.numeric", "gsm.operator.numeric" -> if (isIdentityOn) rule.simOperator else null
+                                "ro.product.brand", "ro.product.system.brand", "ro.product.vendor.brand" -> if (spoofModelProps) rule.brand else null
+                                "ro.product.manufacturer", "ro.product.system.manufacturer", "ro.product.vendor.manufacturer" -> if (spoofModelProps) rule.manufacturer else null
+                                "ro.product.model", "ro.product.system.model", "ro.product.vendor.model" -> if (spoofModelProps) rule.model else null
+                                "ro.product.device", "ro.product.system.device", "ro.product.vendor.device", "ro.build.product" -> if (spoofModelProps) rule.device else null
+                                "ro.product.name", "ro.product.system.name", "ro.product.vendor.name" -> if (spoofModelProps) rule.product else null
+                                "ro.product.board" -> if (spoofModelProps) rule.board else null
+                                "ro.hardware", "ro.boot.hardware" -> if (spoofModelProps) rule.hardware.ifBlank { rule.board } else null
+                                "ro.bootloader", "ro.boot.bootloader" -> if (spoofModelProps && rule.bootloader.isNotBlank()) rule.bootloader else null
+                                "ro.build.fingerprint", "ro.system.build.fingerprint", "ro.vendor.build.fingerprint", "ro.bootimage.build.fingerprint" -> if (spoofModelProps) rule.fingerprint else null
+                                "gsm.sim.operator.alpha", "gsm.operator.alpha" -> if (isIdentityOn && rule.carrierName.isNotBlank()) rule.carrierName else null
+                                "gsm.sim.operator.numeric", "gsm.operator.numeric" -> if (isIdentityOn && rule.simOperator.isNotBlank()) rule.simOperator else null
                                 "ro.boot.warranty_bit", "ro.warranty_bit" -> if (rule.knoxWarrantyBitSpoof) "0" else null
                                 "ro.build.tags" -> if (rule.hideRootAndXposed) "release-keys" else null
                                 "ro.build.type" -> if (rule.hideRootAndXposed) "user" else null
@@ -325,11 +324,9 @@ object DeviceIdentitySpoofHook {
                                 "ro.boot.flash.locked" -> if (rule.hideRootAndXposed) "1" else null
                                 "persist.sys.timezone" -> when {
                                     rule.vpnProxyEnabled && rule.matchTimezoneWithIp && rule.proxyTimezoneId.isNotBlank() -> rule.proxyTimezoneId
-                                    rule.isIdentitySpoofed && rule.timezoneId.isNotBlank() -> rule.timezoneId
                                     rule.autoSyncTimezone && rule.spoofLocationEnabled -> resolveTimezoneForCoordinates(rule.spoofLatitude, rule.spoofLongitude)
                                     else -> null
                                 }
-                                "persist.sys.locale", "ro.product.locale" -> if (isIdentityOn && rule.localeTag.isNotBlank()) rule.localeTag else null
                                 else -> null
                             }
                             if (spoofed != null) {
@@ -406,24 +403,28 @@ object DeviceIdentitySpoofHook {
         currentPkg: String,
         xSharedPrefs: XSharedPreferences?
     ) {
-        // 1. Build.getSerial()
+        // 1. Build.getSerial() — preserve Android 10+ SecurityException unless privileged call succeeded
         try {
             XposedBridge.hookAllMethods(
                 Build::class.java,
                 "getSerial",
                 object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        if (param.throwable != null || param.result == null) return
                         val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
-                        if (rule.isIdentitySpoofed && rule.serial.isNotBlank()) param.result = rule.serial
+                        if (rule.isIdentitySpoofed && rule.serial.isNotBlank() && rule.serial != "unknown") {
+                            param.result = rule.serial
+                        }
                     }
                 }
             )
         } catch (_: Throwable) {}
 
-        // 2. TelephonyManager hooks
+        // 2. TelephonyManager hooks — preserve Android 10+ SecurityException trap
         val tmCls = TelephonyManager::class.java
         val imeiHook = object : XC_MethodHook() {
-            override fun beforeHookedMethod(param: MethodHookParam) {
+            override fun afterHookedMethod(param: MethodHookParam) {
+                if (param.throwable != null || param.result == null) return
                 val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
                 if (rule.isIdentitySpoofed && rule.imei.isNotBlank()) param.result = rule.imei
             }
@@ -440,7 +441,8 @@ object DeviceIdentitySpoofHook {
                 tmCls,
                 "getSubscriberId",
                 object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        if (param.throwable != null || param.result == null) return
                         val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
                         if (!rule.isIdentitySpoofed) return
                         val prefix = rule.simOperator.ifBlank { "310260" }.take(6)
@@ -457,7 +459,8 @@ object DeviceIdentitySpoofHook {
                 tmCls,
                 "getSimSerialNumber",
                 object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        if (param.throwable != null || param.result == null) return
                         val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
                         if (!rule.isIdentitySpoofed) return
                         val op = rule.simOperator.ifBlank { "310260" }.take(6)
@@ -468,14 +471,15 @@ object DeviceIdentitySpoofHook {
             )
         } catch (_: Throwable) {}
 
-        // Phone number protection (getLine1Number / getMsisdn) -> empty string so apps can't harvest phone number
+        // Phone number protection (getLine1Number / getMsisdn) -> only scrub if non-null and no exception
         for (m in listOf("getLine1Number", "getMsisdn")) {
             try {
                 XposedBridge.hookAllMethods(
                     tmCls,
                     m,
                     object : XC_MethodHook() {
-                        override fun beforeHookedMethod(param: MethodHookParam) {
+                        override fun afterHookedMethod(param: MethodHookParam) {
+                            if (param.throwable != null || param.result == null) return
                             val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
                             if (rule.isIdentitySpoofed) {
                                 param.result = ""
@@ -602,7 +606,7 @@ object DeviceIdentitySpoofHook {
         currentPkg: String,
         xSharedPrefs: XSharedPreferences?
     ) {
-        // 1. Widevine MediaDrm.getPropertyByteArray("deviceUniqueId")
+        // 1. Widevine MediaDrm.getPropertyByteArray("deviceUniqueId") — only when explicitly enabled
         try {
             XposedBridge.hookAllMethods(
                 MediaDrm::class.java,
@@ -612,7 +616,7 @@ object DeviceIdentitySpoofHook {
                         val prop = param.args.firstOrNull() as? String ?: return
                         if (prop == MediaDrm.PROPERTY_DEVICE_UNIQUE_ID || prop == "deviceUniqueId") {
                             val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
-                            if (!rule.isIdentitySpoofed && !rule.spoofDrmWidevine) return
+                            if (!rule.spoofDrmWidevine) return
                             val seed = "${rule.androidId}:${rule.imei}:${rule.serial}"
                             val digest = MessageDigest.getInstance("SHA-256").digest(seed.toByteArray())
                             param.result = digest
@@ -622,22 +626,42 @@ object DeviceIdentitySpoofHook {
             )
         } catch (_: Throwable) {}
 
-        // 2. Google Services Framework ID (GSF ID) query on content://com.google.android.gsf.gservices
+        // 2. Google Services Framework ID (GSF ID) — only rewrite "android_id" row if requested, preserving all other Gservices keys
         try {
             XposedBridge.hookAllMethods(
                 ContentResolver::class.java,
                 "query",
                 object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
+                    override fun afterHookedMethod(param: MethodHookParam) {
                         val uri = param.args.firstOrNull() as? Uri ?: return
-                        if (uri.authority == "com.google.android.gsf.gservices") {
-                            val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
-                            if (!rule.isIdentitySpoofed) return
+                        if (uri.authority != "com.google.android.gsf.gservices") return
+                        val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
+                        if (!rule.isIdentitySpoofed || rule.preset == com.example.isolation.model.DeviceProfilePreset.REAL_HARDWARE) return
+                        val selArgs = param.args.getOrNull(3) as? Array<*> ?: return
+                        if (selArgs.none { it == "android_id" }) return
+                        val origCursor = param.result as? android.database.Cursor ?: return
+                        try {
                             val fakeDecId = (rule.androidId.take(15).toLongOrNull(16) ?: 3891204918204192L).toString()
-                            val cursor = MatrixCursor(arrayOf("key", "value"), 1)
-                            cursor.addRow(arrayOf<Any>("android_id", fakeDecId))
-                            param.result = cursor
-                        }
+                            val matrix = MatrixCursor(arrayOf("key", "value"))
+                            var replaced = false
+                            if (origCursor.moveToFirst()) {
+                                do {
+                                    val k = origCursor.getString(0)
+                                    val v = origCursor.getString(1)
+                                    if (k == "android_id") {
+                                        matrix.addRow(arrayOf<Any>("android_id", fakeDecId))
+                                        replaced = true
+                                    } else {
+                                        matrix.addRow(arrayOf<Any?>(k, v))
+                                    }
+                                } while (origCursor.moveToNext())
+                            }
+                            if (!replaced) {
+                                matrix.addRow(arrayOf<Any>("android_id", fakeDecId))
+                            }
+                            origCursor.close()
+                            param.result = matrix
+                        } catch (_: Throwable) {}
                     }
                 }
             )
@@ -1098,12 +1122,12 @@ object DeviceIdentitySpoofHook {
                 XposedBridge.hookAllMethods(WebSettings::class.java, "getUserAgentString", uaHook)
             } catch (_: Throwable) {}
 
-            // Inject Chrome/WebView JS Fingerprint Shield into WebView loads
+            // Inject Chrome/WebView JS Fingerprint Shield into WebView loads only when WebView spoofing is explicitly enabled
             val webViewCls = android.webkit.WebView::class.java
             val webViewInjectHook = object : XC_MethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam) {
                     val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
-                    if (!rule.isIdentitySpoofed && !rule.spoofBrowserUserAgent && !rule.spoofWebRtc && !rule.spoofCanvasNoise) return
+                    if (!rule.spoofBrowserUserAgent && !rule.spoofWebRtc && !rule.spoofCanvasNoise) return
                     val wv = param.thisObject as? android.webkit.WebView ?: return
                     try {
                         if (rule.spoofBrowserUserAgent) {
@@ -1114,14 +1138,14 @@ object DeviceIdentitySpoofHook {
                     } catch (_: Throwable) {}
                 }
             }
-            for (m in listOf("loadUrl", "loadData", "loadDataWithBaseURL", "onAttachedToWindow")) {
+            for (m in listOf("loadUrl", "loadData", "loadDataWithBaseURL")) {
                 try {
                     XposedBridge.hookAllMethods(webViewCls, m, webViewInjectHook)
                 } catch (_: Throwable) {}
             }
         } catch (_: Throwable) {}
 
-        // 3. CPU Cores (Runtime.availableProcessors), RAM (ActivityManager.getMemoryInfo), & Screen DisplayMetrics
+        // 3. CPU Cores (Runtime.availableProcessors) & RAM (ActivityManager.getMemoryInfo) only when explicitly customized
         try {
             XposedBridge.hookAllMethods(
                 Runtime::class.java,
@@ -1146,29 +1170,6 @@ object DeviceIdentitySpoofHook {
                         val totalBytes = rule.ramGb.toLong() * 1024L * 1024L * 1024L
                         memInfo.totalMem = totalBytes
                         memInfo.availMem = (totalBytes * 58L) / 100L
-                    }
-                }
-            )
-            XposedBridge.hookAllMethods(
-                android.content.res.Resources::class.java,
-                "getDisplayMetrics",
-                object : XC_MethodHook() {
-                    override fun afterHookedMethod(param: MethodHookParam) {
-                        val rule = getRuleForPackage(currentPkg, xSharedPrefs) ?: return
-                        if (!rule.isIdentitySpoofed) return
-                        val dm = param.result as? android.util.DisplayMetrics ?: return
-                        if (rule.screenResolution.contains("x")) {
-                            val w = rule.screenResolution.substringBefore("x").toIntOrNull()
-                            val h = rule.screenResolution.substringAfter("x").toIntOrNull()
-                            if (w != null && h != null && w > 0 && h > 0) {
-                                dm.widthPixels = w
-                                dm.heightPixels = h
-                            }
-                        }
-                        if (rule.screenDpi > 0) {
-                            dm.densityDpi = rule.screenDpi
-                            dm.density = rule.screenDpi / 160f
-                        }
                     }
                 }
             )
@@ -1267,8 +1268,6 @@ object DeviceIdentitySpoofHook {
                         val tzId = when {
                             rule.vpnProxyEnabled && rule.matchTimezoneWithIp && rule.proxyTimezoneId.isNotBlank() ->
                                 rule.proxyTimezoneId
-                            rule.isIdentitySpoofed && rule.timezoneId.isNotBlank() ->
-                                rule.timezoneId
                             rule.autoSyncTimezone && rule.spoofLocationEnabled ->
                                 resolveTimezoneForCoordinates(rule.spoofLatitude, rule.spoofLongitude)
                             else -> null

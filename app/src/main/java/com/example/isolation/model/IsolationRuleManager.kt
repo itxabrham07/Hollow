@@ -92,29 +92,29 @@ object IsolationRuleManager {
         val knoxWarrantyBitSpoof: Boolean = false,
         val disableAllNetworking: Boolean = false,
         // Digital Footprint & Anti-Tracking Shield (Snap, Meta, Chrome & Browsers)
-        val spoofGpuFingerprint: Boolean = true,
-        val spoofBrowserUserAgent: Boolean = true,
+        val spoofGpuFingerprint: Boolean = false,
+        val spoofBrowserUserAgent: Boolean = false,
         val anonymizeSensors: Boolean = true,
         val blockCellTowerTracking: Boolean = true,
-        val autoSyncTimezone: Boolean = true,
+        val autoSyncTimezone: Boolean = false,
         // Extended Real-First Editable Hardware & Build Fields
         val hardware: String = "",
         val bootloader: String = "",
         val gpuVendor: String = "Qualcomm",
         val gpuRenderer: String = "Adreno (TM) 750",
-        val cpuCores: Int = 8,
-        val ramGb: Int = 8,
-        val screenResolution: String = "1080x2400",
-        val screenDpi: Int = 420,
+        val cpuCores: Int = 0,
+        val ramGb: Int = 0,
+        val screenResolution: String = "",
+        val screenDpi: Int = 0,
         val timezoneId: String = "America/New_York",
         val localeTag: String = "en-US",
         val customUserAgent: String = "",
         // Chrome / Browser & WebView Deep Fingerprint Spoofing
-        val spoofWebRtc: Boolean = true,
-        val spoofCanvasNoise: Boolean = true,
-        val spoofAudioContext: Boolean = true,
-        val spoofClientHints: Boolean = true,
-        val spoofFontEnumeration: Boolean = true,
+        val spoofWebRtc: Boolean = false,
+        val spoofCanvasNoise: Boolean = false,
+        val spoofAudioContext: Boolean = false,
+        val spoofClientHints: Boolean = false,
+        val spoofFontEnumeration: Boolean = false,
         // Per-App VPN / Proxy (V2Ray / SOCKS5 / HTTP) & VPN-Gated Controls
         val vpnProxyEnabled: Boolean = false,
         val proxyHost: String = "127.0.0.1",
@@ -128,8 +128,8 @@ object IsolationRuleManager {
         val trustAllCerts: Boolean = false,
         // Reusable Privacy Profiles & Anti-Fingerprint Shields
         val privacyProfileId: String = "",
-        val deadmanSwitchEnabled: Boolean = true,
-        val spoofDrmWidevine: Boolean = true,
+        val deadmanSwitchEnabled: Boolean = false,
+        val spoofDrmWidevine: Boolean = false,
         val sensorBiasNeutralizer: Boolean = true,
         val spoofWifiBssid: Boolean = true
     )
@@ -351,22 +351,24 @@ object IsolationRuleManager {
                 val product = cfg.spoofProduct.ifBlank { if (useRealBase) realHw.product else preset.product }.replace("|", " ").trim()
                 val board = cfg.spoofBoard.ifBlank { if (useRealBase) realHw.board else preset.board }.replace("|", " ").trim()
                 val fingerprint = cfg.spoofFingerprint.ifBlank { if (useRealBase) realHw.fingerprint else preset.fingerprint }.replace("|", " ").trim()
-                val androidId = cfg.spoofAndroidId.ifBlank { realHw.androidId }.replace("|", "").trim()
+                val androidId = cfg.spoofAndroidId.ifBlank {
+                    if (cfg.isIdentitySpoofed) deterministicAndroidIdForPkg(cfg.packageName, realHw.androidId) else realHw.androidId
+                }.replace("|", "").trim()
                 val imei = cfg.spoofImei.ifBlank { generateLuhnImei() }.replace("|", "").trim()
                 val adId = cfg.spoofAdvertisingId.ifBlank { generateAdvertisingId() }.replace("|", "").trim()
                 val mac = cfg.spoofMacAddress.ifBlank { generateMacAddress() }.replace("|", "").trim()
                 val carrier = cfg.spoofCarrierName.ifBlank { realHw.carrierName }.replace("|", " ").trim()
                 val simOp = cfg.spoofSimOperator.ifBlank { realHw.simOperator }.replace("|", "").trim()
-                val serial = cfg.spoofSerial.ifBlank { realHw.serial }.replace("|", "").trim()
+                val serial = cfg.spoofSerial.ifBlank { "unknown" }.replace("|", "").trim()
 
                 val hardware = cfg.spoofHardware.ifBlank { if (useRealBase) realHw.hardware else board }.replace("|", " ").trim()
                 val bootloader = cfg.spoofBootloader.ifBlank { realHw.bootloader }.replace("|", " ").trim()
                 val gpuVendor = cfg.spoofGpuVendor.ifBlank { if (useRealBase) realHw.glVendor else preset.glVendor }.replace("|", " ").trim()
                 val gpuRenderer = cfg.spoofGpuRenderer.ifBlank { if (useRealBase) realHw.glRenderer else preset.glRenderer }.replace("|", " ").trim()
-                val cpuCores = if (cfg.spoofCpuCores > 0) cfg.spoofCpuCores else realHw.cpuCores
-                val ramGb = if (cfg.spoofRamGb > 0) cfg.spoofRamGb else realHw.ramGb
-                val screenRes = cfg.spoofScreenResolution.ifBlank { realHw.screenResolution }.replace("|", "").trim()
-                val screenDpi = if (cfg.spoofScreenDpi > 0) cfg.spoofScreenDpi else realHw.screenDpi
+                val cpuCores = cfg.spoofCpuCores
+                val ramGb = cfg.spoofRamGb
+                val screenRes = cfg.spoofScreenResolution.replace("|", "").trim()
+                val screenDpi = cfg.spoofScreenDpi
 
                 val server = VpnProxyPresets.findById(
                     cfg.proxyServerId.ifBlank { settings.activeProxyServerId },
@@ -519,27 +521,27 @@ object IsolationRuleManager {
                 fakeBatteryLevel = if (p.size > 29) p[29].toIntOrNull() ?: 100 else 100,
                 knoxWarrantyBitSpoof = if (p.size > 30) p[30] == "1" else false,
                 disableAllNetworking = if (p.size > 31) p[31] == "1" else false,
-                spoofGpuFingerprint = if (p.size > 32) p[32] == "1" else true,
-                spoofBrowserUserAgent = if (p.size > 33) p[33] == "1" else true,
+                spoofGpuFingerprint = if (p.size > 32) p[32] == "1" else false,
+                spoofBrowserUserAgent = if (p.size > 33) p[33] == "1" else false,
                 anonymizeSensors = if (p.size > 34) p[34] == "1" else true,
                 blockCellTowerTracking = if (p.size > 35) p[35] == "1" else true,
-                autoSyncTimezone = if (p.size > 36) p[36] == "1" else true,
+                autoSyncTimezone = if (p.size > 36) p[36] == "1" else false,
                 hardware = if (p.size > 37) p[37].ifBlank { preset.board } else preset.board,
                 bootloader = if (p.size > 38) p[38] else "unknown",
                 gpuVendor = if (p.size > 39) p[39].ifBlank { preset.glVendor } else preset.glVendor,
                 gpuRenderer = if (p.size > 40) p[40].ifBlank { preset.glRenderer } else preset.glRenderer,
-                cpuCores = if (p.size > 41) p[41].toIntOrNull() ?: 8 else 8,
-                ramGb = if (p.size > 42) p[42].toIntOrNull() ?: 8 else 8,
-                screenResolution = if (p.size > 43) p[43].ifBlank { "1080x2400" } else "1080x2400",
-                screenDpi = if (p.size > 44) p[44].toIntOrNull() ?: 420 else 420,
+                cpuCores = if (p.size > 41) p[41].toIntOrNull() ?: 0 else 0,
+                ramGb = if (p.size > 42) p[42].toIntOrNull() ?: 0 else 0,
+                screenResolution = if (p.size > 43) p[43] else "",
+                screenDpi = if (p.size > 44) p[44].toIntOrNull() ?: 0 else 0,
                 timezoneId = if (p.size > 45) p[45].ifBlank { "America/New_York" } else "America/New_York",
                 localeTag = if (p.size > 46) p[46].ifBlank { "en-US" } else "en-US",
                 customUserAgent = if (p.size > 47) p[47] else "",
-                spoofWebRtc = if (p.size > 48) p[48] == "1" else true,
-                spoofCanvasNoise = if (p.size > 49) p[49] == "1" else true,
-                spoofAudioContext = if (p.size > 50) p[50] == "1" else true,
-                spoofClientHints = if (p.size > 51) p[51] == "1" else true,
-                spoofFontEnumeration = if (p.size > 52) p[52] == "1" else true,
+                spoofWebRtc = if (p.size > 48) p[48] == "1" else false,
+                spoofCanvasNoise = if (p.size > 49) p[49] == "1" else false,
+                spoofAudioContext = if (p.size > 50) p[50] == "1" else false,
+                spoofClientHints = if (p.size > 51) p[51] == "1" else false,
+                spoofFontEnumeration = if (p.size > 52) p[52] == "1" else false,
                 vpnProxyEnabled = if (p.size > 53) p[53] == "1" else false,
                 proxyHost = if (p.size > 54) p[54].ifBlank { "127.0.0.1" } else "127.0.0.1",
                 proxyPort = if (p.size > 55) p[55].toIntOrNull() ?: 10808 else 10808,
@@ -551,13 +553,23 @@ object IsolationRuleManager {
                 webViewProxyEnabled = if (p.size > 61) p[61] == "1" else true,
                 trustAllCerts = if (p.size > 62) p[62] == "1" else false,
                 privacyProfileId = if (p.size > 63) p[63] else "",
-                deadmanSwitchEnabled = if (p.size > 64) p[64] == "1" else true,
-                spoofDrmWidevine = if (p.size > 65) p[65] == "1" else true,
+                deadmanSwitchEnabled = if (p.size > 64) p[64] == "1" else false,
+                spoofDrmWidevine = if (p.size > 65) p[65] == "1" else false,
                 sensorBiasNeutralizer = if (p.size > 66) p[66] == "1" else true,
                 spoofWifiBssid = if (p.size > 67) p[67] == "1" else true
             )
         }
         return out
+    }
+
+    private fun deterministicAndroidIdForPkg(pkg: String, seed: String): String {
+        return try {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+                .digest("$pkg:$seed:hollow".toByteArray())
+            digest.take(8).joinToString("") { "%02x".format(it) }
+        } catch (_: Throwable) {
+            generateAndroidId()
+        }
     }
 
     fun generateAndroidId(): String {
