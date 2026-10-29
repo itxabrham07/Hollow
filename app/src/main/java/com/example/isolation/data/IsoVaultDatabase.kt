@@ -144,22 +144,15 @@ abstract class IsoVaultDatabase : RoomDatabase() {
 
         fun getDatabase(context: Context): IsoVaultDatabase {
             return INSTANCE ?: synchronized(this) {
-                val instance = try {
-                    val roomDb = Room.databaseBuilder(
-                        context.applicationContext,
-                        IsoVaultDatabase::class.java,
-                        "isovault_database"
-                    )
-                        .addMigrations(MIGRATION_6_7, MIGRATION_7_8)
-                        .fallbackToDestructiveMigration()
-                        .fallbackToDestructiveMigrationOnDowngrade()
-                        .build()
-                    // Probe if generated _Impl class exists
-                    roomDb.isolationDao()
-                    roomDb
-                } catch (_: Throwable) {
-                    IsoVaultDirectDatabase(context.applicationContext)
-                }
+                val instance = Room.databaseBuilder(
+                    context.applicationContext,
+                    IsoVaultDatabase::class.java,
+                    "isovault_database"
+                )
+                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8)
+                    .fallbackToDestructiveMigration()
+                    .fallbackToDestructiveMigrationOnDowngrade()
+                    .build()
                 INSTANCE = instance
                 instance
             }

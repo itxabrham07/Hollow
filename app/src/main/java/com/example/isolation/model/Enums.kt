@@ -308,9 +308,9 @@ object RealDeviceHardware {
             fingerprint = Build.FINGERPRINT ?: "google/generic/generic:15/AP3A.241005.015/12366759:user/release-keys",
             serial = try {
                 @Suppress("DEPRECATION")
-                Build.SERIAL?.takeIf { it.isNotBlank() } ?: "unknown"
+                Build.SERIAL?.takeIf { it.isNotBlank() && it != "unknown" } ?: "R58N91Z7X2K"
             } catch (_: Throwable) {
-                "unknown"
+                "R58N91Z7X2K"
             },
             androidId = androidId,
             carrierName = carrier,
@@ -588,8 +588,8 @@ enum class HollowIconTheme(
         aliasClassName = "com.example.MainActivityCyberAlias"
     ),
     CRIMSON_VOID(
-        label = "Violet Pulse",
-        subtitle = "Deep indigo & electric violet",
+        label = "Crimson",
+        subtitle = "Carbon black & crimson ring",
         aliasClassName = "com.example.MainActivityCrimsonAlias"
     ),
     OBSIDIAN_MINIMAL(

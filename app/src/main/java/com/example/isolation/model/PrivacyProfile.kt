@@ -123,36 +123,72 @@ data class PrivacyProfile(
                 hideAdbAndDevOptions = obj.optBoolean("hideAdbAndDevOptions", true),
                 blockClipboardRead = obj.optBoolean("blockClipboardRead", true),
                 preventScreenshots = obj.optBoolean("preventScreenshots", false),
-                disableLogcatLogging = obj.optBoolean("disableLogcatLogging", false),
-                autoSyncTimezone = obj.optBoolean("autoSyncTimezone", false),
-                spoofBrowserUserAgent = obj.optBoolean("spoofBrowserUserAgent", false),
-                deadmanSwitchEnabled = obj.optBoolean("deadmanSwitchEnabled", false)
+                disableLogcatLogging = obj.optBoolean("disableLogcatLogging", true),
+                autoSyncTimezone = obj.optBoolean("autoSyncTimezone", true),
+                spoofBrowserUserAgent = obj.optBoolean("spoofBrowserUserAgent", true),
+                deadmanSwitchEnabled = obj.optBoolean("deadmanSwitchEnabled", true)
             )
         }
 
         fun defaultGhostCloak(): PrivacyProfile = PrivacyProfile(
             id = PROFILE_GHOST_CLOAK,
             name = "Ghost Cloak",
-            description = "Maximum anonymity: hardware ID randomization, sensor scrubbing & network privacy shields",
+            description = "Maximum anonymity: full hardware randomization, canvas noise, DRM spoofing & WebRTC shield",
+            isBuiltIn = true,
+            spoofAndroidId = true,
+            spoofImei = true,
+            spoofAdvertisingId = true,
+            spoofMacAddress = true,
+            spoofSerial = true,
+            spoofDrmWidevine = true,
+            spoofGpuFingerprint = true,
+            gpuVendor = "Qualcomm",
+            gpuRenderer = "Adreno (TM) 750",
+            spoofCanvasNoise = true,
+            spoofAudioContext = true,
+            spoofScreenResolution = "1080x2400",
+            spoofScreenDpi = 420,
+            anonymizeSensors = true,
+            sensorBiasNeutralizer = true,
+            fakeBatteryEnabled = true,
+            fakeBatteryLevel = 88,
+            spoofWebRtc = true,
+            blockCellTowerTracking = true,
+            spoofWifiBssid = true,
+            hideVpnAndProxy = true,
+            hideRootAndXposed = true,
+            hideAdbAndDevOptions = true,
+            blockClipboardRead = true,
+            preventScreenshots = false,
+            disableLogcatLogging = true,
+            autoSyncTimezone = true,
+            spoofBrowserUserAgent = true,
+            deadmanSwitchEnabled = true
+        )
+
+        fun defaultSocialMediaShield(): PrivacyProfile = PrivacyProfile(
+            id = PROFILE_SOCIAL_MEDIA,
+            name = "Social Media Shield",
+            description = "Blocks cross-app tracking SDKs (Meta, Snap, TikTok) with natural browser & sensor alignment",
             isBuiltIn = true,
             spoofAndroidId = true,
             spoofImei = true,
             spoofAdvertisingId = true,
             spoofMacAddress = true,
             spoofSerial = false,
-            spoofDrmWidevine = false,
-            spoofGpuFingerprint = false,
-            gpuVendor = "Qualcomm",
-            gpuRenderer = "Adreno (TM) 750",
-            spoofCanvasNoise = false,
-            spoofAudioContext = false,
-            spoofScreenResolution = "",
-            spoofScreenDpi = 0,
-            anonymizeSensors = false,
+            spoofDrmWidevine = true,
+            spoofGpuFingerprint = true,
+            gpuVendor = "ARM",
+            gpuRenderer = "Mali-G715 Immortalis",
+            spoofCanvasNoise = true,
+            spoofAudioContext = true,
+            spoofScreenResolution = "1080x2340",
+            spoofScreenDpi = 392,
+            anonymizeSensors = true,
             sensorBiasNeutralizer = true,
-            fakeBatteryEnabled = false,
-            fakeBatteryLevel = 88,
-            spoofWebRtc = false,
+            fakeBatteryEnabled = true,
+            fakeBatteryLevel = 76,
+            spoofWebRtc = true,
             blockCellTowerTracking = true,
             spoofWifiBssid = true,
             hideVpnAndProxy = true,
@@ -161,70 +197,34 @@ data class PrivacyProfile(
             blockClipboardRead = true,
             preventScreenshots = false,
             disableLogcatLogging = false,
-            autoSyncTimezone = false,
-            spoofBrowserUserAgent = false,
-            deadmanSwitchEnabled = false
-        )
-
-        fun defaultSocialMediaShield(): PrivacyProfile = PrivacyProfile(
-            id = PROFILE_SOCIAL_MEDIA,
-            name = "Social Media Shield",
-            description = "Sign-in safe hardware ID & advertising cloak that preserves Play Integrity & WebView login handshakes",
-            isBuiltIn = true,
-            spoofAndroidId = true,
-            spoofImei = true,
-            spoofAdvertisingId = true,
-            spoofMacAddress = true,
-            spoofSerial = false,
-            spoofDrmWidevine = false,
-            spoofGpuFingerprint = false,
-            gpuVendor = "ARM",
-            gpuRenderer = "Mali-G715 Immortalis",
-            spoofCanvasNoise = false,
-            spoofAudioContext = false,
-            spoofScreenResolution = "",
-            spoofScreenDpi = 0,
-            anonymizeSensors = false,
-            sensorBiasNeutralizer = true,
-            fakeBatteryEnabled = false,
-            fakeBatteryLevel = 76,
-            spoofWebRtc = false,
-            blockCellTowerTracking = true,
-            spoofWifiBssid = true,
-            hideVpnAndProxy = true,
-            hideRootAndXposed = true,
-            hideAdbAndDevOptions = true,
-            blockClipboardRead = false,
-            preventScreenshots = false,
-            disableLogcatLogging = false,
-            autoSyncTimezone = false,
-            spoofBrowserUserAgent = false,
-            deadmanSwitchEnabled = false
+            autoSyncTimezone = true,
+            spoofBrowserUserAgent = true,
+            deadmanSwitchEnabled = true
         )
 
         fun defaultAntiFraudArmor(): PrivacyProfile = PrivacyProfile(
             id = PROFILE_ANTI_FRAUD,
             name = "Anti-Fraud Armor",
-            description = "High-reputation tier-1 device profile matching banking & fintech trust criteria",
+            description = "High-reputation tier-1 device profile (Pixel 9 Pro) matching banking & fintech trust criteria",
             isBuiltIn = true,
             spoofAndroidId = true,
             spoofImei = true,
             spoofAdvertisingId = true,
             spoofMacAddress = true,
-            spoofSerial = false,
-            spoofDrmWidevine = false,
-            spoofGpuFingerprint = false,
+            spoofSerial = true,
+            spoofDrmWidevine = true,
+            spoofGpuFingerprint = true,
             gpuVendor = "Google",
             gpuRenderer = "Mali-G715-Tensor-G4",
             spoofCanvasNoise = false,
             spoofAudioContext = false,
-            spoofScreenResolution = "",
-            spoofScreenDpi = 0,
+            spoofScreenResolution = "1280x2856",
+            spoofScreenDpi = 495,
             anonymizeSensors = false,
             sensorBiasNeutralizer = false,
-            fakeBatteryEnabled = false,
+            fakeBatteryEnabled = true,
             fakeBatteryLevel = 92,
-            spoofWebRtc = false,
+            spoofWebRtc = true,
             blockCellTowerTracking = false,
             spoofWifiBssid = false,
             hideVpnAndProxy = true,
@@ -233,9 +233,9 @@ data class PrivacyProfile(
             blockClipboardRead = false,
             preventScreenshots = false,
             disableLogcatLogging = false,
-            autoSyncTimezone = false,
+            autoSyncTimezone = true,
             spoofBrowserUserAgent = false,
-            deadmanSwitchEnabled = false
+            deadmanSwitchEnabled = true
         )
 
         fun builtInProfiles(): List<PrivacyProfile> = listOf(
@@ -251,19 +251,16 @@ data class PrivacyProfile(
  */
 object PrivacyProfileStore {
     private const val PREFS_NAME = "isovault_privacy_profiles"
-    private const val KEY_PROFILES = "profiles_json_v2"
+    private const val KEY_PROFILES = "profiles_json_v1"
 
     fun loadProfiles(context: Context): List<PrivacyProfile> {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val raw = prefs.getString(KEY_PROFILES, null) ?: return PrivacyProfile.builtInProfiles()
         return try {
-            val builtInById = PrivacyProfile.builtInProfiles().associateBy { it.id }
             val array = JSONArray(raw)
             val list = mutableListOf<PrivacyProfile>()
             for (i in 0 until array.length()) {
-                val parsed = PrivacyProfile.fromJson(array.getJSONObject(i))
-                // Always keep built-in profiles aligned with sign-in safe defaults
-                list.add(builtInById[parsed.id] ?: parsed)
+                list.add(PrivacyProfile.fromJson(array.getJSONObject(i)))
             }
             if (list.isEmpty()) PrivacyProfile.builtInProfiles() else list
         } catch (_: Exception) {

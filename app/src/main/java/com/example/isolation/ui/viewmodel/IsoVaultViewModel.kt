@@ -32,15 +32,6 @@ import com.example.isolation.mount.MountEntry
 import com.example.isolation.mount.MountExecutionResult
 import com.example.isolation.mount.MountManager
 import com.example.isolation.pkg.InstalledAppInfo
-import com.example.isolation.core.license.DeviceHardwareFingerprint
-import com.example.isolation.core.license.HardwareBindingInfo
-import com.example.isolation.core.license.MonotonicClockGuard
-import com.example.isolation.core.module.DynamicModuleState
-import com.example.isolation.core.module.HollowModuleRegistry
-import com.example.isolation.core.root.LicenseAccountStatus
-import com.example.isolation.core.root.RootLicenseVaultManager
-import com.example.isolation.core.root.RootVaultLicenseRecord
-import com.example.isolation.core.security.HollowSecureClient
 import com.example.isolation.model.PrivacyProfile
 import com.example.isolation.model.PrivacyProfileStore
 import com.example.isolation.service.DeadmanIncident
@@ -153,31 +144,6 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
 
     val deadmanBlockedIncidents: StateFlow<List<DeadmanIncident>> = RootDeadmanWatchdog.blockedUidsFlow
 
-    // Root-Level Encrypted License Vault & Dynamic Module Engine State
-    val hardwareBinding: HardwareBindingInfo = DeviceHardwareFingerprint.collect(app)
-
-    private val _isRootAccessGranted = MutableStateFlow(false)
-    val isRootAccessGranted: StateFlow<Boolean> = _isRootAccessGranted.asStateFlow()
-
-    private val _isRequestingRoot = MutableStateFlow(false)
-    val isRequestingRoot: StateFlow<Boolean> = _isRequestingRoot.asStateFlow()
-
-    private val _isAuthLoading = MutableStateFlow(false)
-    val isAuthLoading: StateFlow<Boolean> = _isAuthLoading.asStateFlow()
-
-    private val _vaultLicenseRecord = MutableStateFlow(RootLicenseVaultManager.readVaultRecord(app))
-    val vaultLicenseRecord: StateFlow<RootVaultLicenseRecord> = _vaultLicenseRecord.asStateFlow()
-
-    private val _moduleStates = MutableStateFlow(
-        HollowModuleRegistry.resolveModuleStates(app, _settings.value.devFullBuildMode)
-    )
-    val moduleStates: StateFlow<List<DynamicModuleState>> = _moduleStates.asStateFlow()
-
-    private val _clockVerification = MutableStateFlow(
-        RootLicenseVaultManager.verifyVaultClockIntegrity(app)
-    )
-    val clockVerification: StateFlow<MonotonicClockGuard.ClockVerificationResult> = _clockVerification.asStateFlow()
-
     // Full list of installed apps merged with current isolation, stealth, identity & VPN config
     val allInstalledApps: StateFlow<List<InstalledAppInfo>> = combine(
         _rawInstalledApps,
@@ -223,13 +189,13 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 disableLogcatLogging = cfg?.disableLogcatLogging ?: false,
                 fakeBatteryEnabled = cfg?.fakeBatteryEnabled ?: false,
                 fakeBatteryLevel = cfg?.fakeBatteryLevel ?: 85,
-                knoxWarrantyBitSpoof = cfg?.knoxWarrantyBitSpoof ?: false,
+                knoxWarrantyBitSpoof = cfg?.knoxWarrantyBitSpoof ?: true,
                 disableAllNetworking = cfg?.disableAllNetworking ?: false,
-                spoofGpuFingerprint = cfg?.spoofGpuFingerprint ?: false,
-                spoofBrowserUserAgent = cfg?.spoofBrowserUserAgent ?: false,
-                anonymizeSensors = cfg?.anonymizeSensors ?: false,
+                spoofGpuFingerprint = cfg?.spoofGpuFingerprint ?: true,
+                spoofBrowserUserAgent = cfg?.spoofBrowserUserAgent ?: true,
+                anonymizeSensors = cfg?.anonymizeSensors ?: true,
                 blockCellTowerTracking = cfg?.blockCellTowerTracking ?: true,
-                autoSyncTimezone = cfg?.autoSyncTimezone ?: false,
+                autoSyncTimezone = cfg?.autoSyncTimezone ?: true,
                 spoofManufacturer = cfg?.spoofManufacturer ?: "",
                 spoofProduct = cfg?.spoofProduct ?: "",
                 spoofBoard = cfg?.spoofBoard ?: "",
@@ -245,11 +211,11 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 spoofTimezoneId = cfg?.spoofTimezoneId ?: "",
                 spoofLocaleTag = cfg?.spoofLocaleTag ?: "",
                 customUserAgent = cfg?.customUserAgent ?: "",
-                spoofWebRtc = cfg?.spoofWebRtc ?: false,
-                spoofCanvasNoise = cfg?.spoofCanvasNoise ?: false,
-                spoofAudioContext = cfg?.spoofAudioContext ?: false,
-                spoofClientHints = cfg?.spoofClientHints ?: false,
-                spoofFontEnumeration = cfg?.spoofFontEnumeration ?: false,
+                spoofWebRtc = cfg?.spoofWebRtc ?: true,
+                spoofCanvasNoise = cfg?.spoofCanvasNoise ?: true,
+                spoofAudioContext = cfg?.spoofAudioContext ?: true,
+                spoofClientHints = cfg?.spoofClientHints ?: true,
+                spoofFontEnumeration = cfg?.spoofFontEnumeration ?: true,
                 vpnProxyEnabled = cfg?.vpnProxyEnabled ?: false,
                 proxyServerId = cfg?.proxyServerId ?: _settings.value.activeProxyServerId,
                 requireVpnForNetwork = cfg?.requireVpnForNetwork ?: false,
@@ -257,8 +223,8 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 webViewProxyEnabled = cfg?.webViewProxyEnabled ?: true,
                 trustAllCerts = cfg?.trustAllCerts ?: false,
                 privacyProfileId = cfg?.privacyProfileId ?: "",
-                deadmanSwitchEnabled = cfg?.deadmanSwitchEnabled ?: false,
-                spoofDrmWidevine = cfg?.spoofDrmWidevine ?: false,
+                deadmanSwitchEnabled = cfg?.deadmanSwitchEnabled ?: true,
+                spoofDrmWidevine = cfg?.spoofDrmWidevine ?: true,
                 sensorBiasNeutralizer = cfg?.sensorBiasNeutralizer ?: true,
                 spoofWifiBssid = cfg?.spoofWifiBssid ?: true
             )
@@ -288,7 +254,6 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
-        refreshVaultAndModuleState()
         loadInstalledApps()
         refreshDiagnostics()
         syncStealthRulesToHooks()
@@ -346,44 +311,9 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
 
     private fun syncStealthRulesToHooks() {
         viewModelScope.launch(Dispatchers.IO) {
-            val migrationPrefs = app.getSharedPreferences("isovault_migrations", android.content.Context.MODE_PRIVATE)
-            if (!migrationPrefs.getBoolean("migrated_signin_safe_v3", false)) {
-                val existingConfigs = dao.getAllConfigsSync()
-                for (cfg in existingConfigs) {
-                    val resetForcedPixel = cfg.deviceProfilePreset == DeviceProfilePreset.PIXEL_9_PRO &&
-                            (cfg.spoofBrand == DeviceProfilePreset.PIXEL_9_PRO.brand || cfg.spoofModel == DeviceProfilePreset.PIXEL_9_PRO.model)
-                    val sanitized = cfg.copy(
-                        deviceProfilePreset = if (resetForcedPixel) DeviceProfilePreset.REAL_HARDWARE else cfg.deviceProfilePreset,
-                        spoofBrand = if (resetForcedPixel) realHardware.brand else cfg.spoofBrand,
-                        spoofManufacturer = if (resetForcedPixel) realHardware.manufacturer else cfg.spoofManufacturer,
-                        spoofModel = if (resetForcedPixel) realHardware.model else cfg.spoofModel,
-                        spoofDevice = if (resetForcedPixel) realHardware.device else cfg.spoofDevice,
-                        spoofProduct = if (resetForcedPixel) realHardware.product else cfg.spoofProduct,
-                        spoofBoard = if (resetForcedPixel) realHardware.board else cfg.spoofBoard,
-                        spoofHardware = if (resetForcedPixel) realHardware.hardware else cfg.spoofHardware,
-                        spoofFingerprint = if (resetForcedPixel) realHardware.fingerprint else cfg.spoofFingerprint,
-                        spoofSerial = if (cfg.spoofSerial.isBlank() || cfg.spoofSerial == "R58N91Z7X2K") "unknown" else cfg.spoofSerial,
-                        deadmanSwitchEnabled = false,
-                        spoofDrmWidevine = false,
-                        spoofGpuFingerprint = false,
-                        spoofBrowserUserAgent = false,
-                        anonymizeSensors = false,
-                        autoSyncTimezone = false,
-                        spoofWebRtc = false,
-                        spoofCanvasNoise = false,
-                        spoofAudioContext = false,
-                        spoofClientHints = false,
-                        spoofFontEnumeration = false
-                    )
-                    dao.insertOrUpdateConfig(sanitized)
-                }
-                migrationPrefs.edit().putBoolean("migrated_signin_safe_v3", true).commit()
-                loadInstalledApps()
-            }
             val allConfigs = dao.getAllConfigsSync()
             IsolationRuleManager.publishStealthTable(allConfigs, _settings.value)
             notifyConfigChanged()
-            MountManager.syncRulesMirrorOnly(app)
         }
     }
 
@@ -877,7 +807,11 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 val allConfigs = dao.getAllConfigsSync()
                 IsolationRuleManager.publishStealthTable(allConfigs, _settings.value)
                 notifyConfigChanged()
-                MountManager.syncRulesMirrorOnly(app)
+                MountManager.refreshLaunchersAndStealthCaches(
+                    app,
+                    refreshPlayStore = false,
+                    refreshSettings = false
+                )
                 try {
                     Runtime.getRuntime().exec(arrayOf("su", "-c", "am force-stop ${appInfo.packageName}")).waitFor()
                 } catch (_: Throwable) {}
@@ -967,17 +901,21 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
         saveAppIdentitySpoofConfig(
             appInfo = appInfo,
             enabled = true,
-            preset = DeviceProfilePreset.REAL_HARDWARE,
-            brand = realHardware.brand,
-            model = realHardware.model,
-            device = realHardware.device,
-            androidId = if (appInfo.spoofAndroidId.isNotBlank() && appInfo.spoofAndroidId != realHardware.androidId) appInfo.spoofAndroidId else IsolationRuleManager.generateAndroidId(),
-            imei = appInfo.spoofImei.ifBlank { IsolationRuleManager.generateLuhnImei() },
-            advertisingId = appInfo.spoofAdvertisingId.ifBlank { java.util.UUID.randomUUID().toString() },
-            macAddress = appInfo.spoofMacAddress.ifBlank { IsolationRuleManager.generateMacAddress() },
+            preset = when (profile.id) {
+                PrivacyProfile.PROFILE_ANTI_FRAUD -> DeviceProfilePreset.PIXEL_9_PRO
+                PrivacyProfile.PROFILE_SOCIAL_MEDIA -> DeviceProfilePreset.SAMSUNG_S24_ULTRA
+                else -> DeviceProfilePreset.REAL_HARDWARE
+            },
+            brand = if (appInfo.spoofBrand.isNotBlank()) appInfo.spoofBrand else realHardware.brand,
+            model = if (appInfo.spoofModel.isNotBlank()) appInfo.spoofModel else realHardware.model,
+            device = if (appInfo.spoofDevice.isNotBlank()) appInfo.spoofDevice else realHardware.device,
+            androidId = if (appInfo.spoofAndroidId.isNotBlank()) appInfo.spoofAndroidId else IsolationRuleManager.generateAndroidId(),
+            imei = if (appInfo.spoofImei.isNotBlank()) appInfo.spoofImei else IsolationRuleManager.generateLuhnImei(),
+            advertisingId = if (appInfo.spoofAdvertisingId.isNotBlank()) appInfo.spoofAdvertisingId else java.util.UUID.randomUUID().toString(),
+            macAddress = if (appInfo.spoofMacAddress.isNotBlank()) appInfo.spoofMacAddress else IsolationRuleManager.generateMacAddress(),
             carrierName = appInfo.spoofCarrierName.ifBlank { realHardware.carrierName },
             simOperator = appInfo.spoofSimOperator.ifBlank { realHardware.simOperator },
-            serial = "unknown",
+            serial = appInfo.spoofSerial.ifBlank { realHardware.serial },
             hideRootAndXposed = profile.hideRootAndXposed,
             hideAdbAndDevOptions = profile.hideAdbAndDevOptions,
             hideVpnAndProxy = profile.hideVpnAndProxy,
@@ -1001,8 +939,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             spoofWifiBssid = profile.spoofWifiBssid,
             spoofBrowserUserAgent = profile.spoofBrowserUserAgent,
             privacyProfileId = profile.id,
-            deadmanSwitchEnabled = profile.deadmanSwitchEnabled,
-            spoofDrmWidevine = profile.spoofDrmWidevine
+            deadmanSwitchEnabled = profile.deadmanSwitchEnabled
         )
         _statusMessage.value = "Applied '${profile.name}' to ${appInfo.appName}."
     }
@@ -1305,6 +1242,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                     val useCustomHookIcon = iconPreset == DisguiseIconPreset.CUSTOM_IMAGE ||
                             iconPreset == DisguiseIconPreset.CLONED_APP
                     if (useCustomHookIcon) {
+                        // Keep mainComp enabled so SystemStealthHook replaces its icon with the custom gallery/cloned bitmap
                         pm.setComponentEnabledSetting(mainComp, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP)
                         allDisguiseAliases.forEach {
                             pm.setComponentEnabledSetting(it, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
@@ -1325,6 +1263,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                     }
                 }
                 LauncherVisibilityMode.HIDDEN -> {
+                    // Keep main component enabled for SystemUI intent launch while SystemStealthHook filters it from launchers
                     pm.setComponentEnabledSetting(mainComp, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP)
                     (allThemeAliases + allDisguiseAliases).forEach {
                         pm.setComponentEnabledSetting(it, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
@@ -1722,541 +1661,8 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
         return MountManager.generateBootService(app, isolatedPkgs)
     }
 
-    fun appendTerminalLog(log: String) {
+    private fun appendTerminalLog(log: String) {
         val stamp = android.text.format.DateFormat.format("HH:mm:ss", System.currentTimeMillis())
         _terminalLogs.update { (it + "[$stamp] $log").takeLast(150) }
     }
-
-    // ---- Dynamic Module Engine & Root-Level License Vault (/data/adb/.hollow_vault) ------------
-
-    fun refreshVaultAndModuleState() {
-        val disabledSet = _settings.value.disabledModules
-        val record = RootLicenseVaultManager.readVaultRecord(app)
-        _vaultLicenseRecord.value = record
-        _clockVerification.value = RootLicenseVaultManager.verifyVaultClockIntegrity(app)
-        _moduleStates.value = HollowModuleRegistry.resolveModuleStates(
-            context = app,
-            devFullBuild = _settings.value.devFullBuildMode,
-            disabledModules = disabledSet
-        )
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val rootOk = RootLicenseVaultManager.isRootAccessGranted(app)
-                _isRootAccessGranted.value = rootOk
-                val ioRecord = RootLicenseVaultManager.readVaultRecord(app)
-                val ioClock = RootLicenseVaultManager.verifyVaultClockIntegrity(app)
-                val ioModules = HollowModuleRegistry.resolveModuleStates(
-                    context = app,
-                    devFullBuild = _settings.value.devFullBuildMode,
-                    disabledModules = _settings.value.disabledModules
-                )
-                _vaultLicenseRecord.value = ioRecord
-                _clockVerification.value = ioClock
-                _moduleStates.value = ioModules
-            } catch (_: Throwable) {
-            }
-        }
-    }
-
-    fun requestRootAccess(onComplete: ((Boolean) -> Unit)? = null) {
-        viewModelScope.launch(Dispatchers.IO) {
-            _isRequestingRoot.value = true
-            val granted = try {
-                RootLicenseVaultManager.requestInteractiveRootAccess(app)
-            } catch (_: Throwable) {
-                false
-            }
-            _isRootAccessGranted.value = granted
-            _isRequestingRoot.value = false
-            appendTerminalLog(
-                if (granted) "[Root] Superuser access granted & /data/adb/.hollow_vault initialized."
-                else "[Root] Superuser request denied or unavailable on this device."
-            )
-            withContext(Dispatchers.Main) {
-                refreshVaultAndModuleState()
-                _statusMessage.value = if (granted) {
-                    "Root access granted. Ready to register or sign in."
-                } else {
-                    "Root access was not granted. Please approveHollow in Magisk / KernelSU / APatch."
-                }
-                onComplete?.invoke(granted)
-            }
-        }
-    }
-
-    private fun parseAllowedModulesJson(resp: org.json.JSONObject?, fallback: Set<String>): Set<String> {
-        val allowedSet = mutableSetOf<String>()
-        val arr = resp?.optJSONArray("allowedModules")
-        if (arr != null) {
-            for (i in 0 until arr.length()) {
-                val id = arr.optString(i)
-                if (id.isNotBlank()) allowedSet.add(id)
-            }
-            return allowedSet
-        }
-        return fallback
-    }
-
-    private fun ensureAuthorizedModulesMountedSync() {
-        val current = RootLicenseVaultManager.readVaultRecord(app)
-        if (current.status != LicenseAccountStatus.APPROVED) return
-        val effectiveAllowed = current.allowedModules - _settings.value.disabledModules
-        if (effectiveAllowed.isEmpty()) return
-        val pending = effectiveAllowed - current.downloadedModules
-        for (moduleId in pending) {
-            val resp = HollowSecureClient.downloadEncryptedModule(
-                context = app,
-                serverBaseUrl = _settings.value.cloudServerUrl,
-                moduleId = moduleId
-            )
-            val bundleJson = resp?.toString()
-                ?: HollowSecureClient.buildSignedSimulatedModuleBundle(app, moduleId)
-            if (bundleJson.isNotBlank()) {
-                RootLicenseVaultManager.saveDownloadedModuleToVault(app, moduleId, bundleJson)
-                appendTerminalLog("[RootVault] Auto-mounted authorized module: $moduleId")
-            }
-        }
-    }
-
-    fun setDevFullBuildMode(enabled: Boolean) {
-        val updated = _settings.value.copy(devFullBuildMode = enabled)
-        _settings.value = updated
-        SettingsStore.save(app, updated)
-        refreshVaultAndModuleState()
-        _statusMessage.value = if (enabled) {
-            "Developer Full Build Mode ON: All 4 modules unlocked."
-        } else {
-            "Release Shell Mode ON: Zero modules bundled unless downloaded into /data/adb/.hollow_vault."
-        }
-    }
-
-    fun setCloudServerUrl(url: String) {
-        val trimmed = url.trim().removeSuffix("/")
-        if (trimmed.isBlank()) return
-        val updated = _settings.value.copy(cloudServerUrl = trimmed)
-        _settings.value = updated
-        SettingsStore.save(app, updated)
-        _statusMessage.value = "Cloud License Server URL set to $trimmed"
-    }
-
-    fun registerAccountWithCloud(username: String, email: String, password: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            _isAuthLoading.value = true
-            try {
-                if (!_isRootAccessGranted.value) {
-                    _isRequestingRoot.value = true
-                    _isRootAccessGranted.value = RootLicenseVaultManager.requestInteractiveRootAccess(app)
-                    _isRequestingRoot.value = false
-                }
-
-                val req = org.json.JSONObject()
-                    .put("username", username.trim())
-                    .put("email", email.trim())
-                    .put("password", password)
-                    .put("hardwareFingerprint", hardwareBinding.fingerprintHex)
-                    .put("socSerial", hardwareBinding.socSerial)
-                    .put("androidId", hardwareBinding.androidId)
-                    .put("storageCid", hardwareBinding.storageCid)
-                    .put("deviceModel", hardwareBinding.deviceModel)
-
-                val resp = HollowSecureClient.postEncrypted(
-                    context = app,
-                    serverBaseUrl = _settings.value.cloudServerUrl,
-                    endpointPath = "/api/v1/auth/register",
-                    requestJson = req
-                )
-
-                if (resp != null && !resp.optBoolean("ok", true)) {
-                    val errMsg = resp.optString("error", "Registration rejected by server.")
-                    withContext(Dispatchers.Main) {
-                        _isAuthLoading.value = false
-                        _statusMessage.value = errMsg
-                    }
-                    return@launch
-                }
-
-                val newStatus = when (resp?.optString("status", "PENDING_APPROVAL")?.uppercase()) {
-                    "BANNED" -> LicenseAccountStatus.BANNED
-                    "APPROVED" -> LicenseAccountStatus.APPROVED
-                    else -> LicenseAccountStatus.PENDING_APPROVAL
-                }
-                val current = RootLicenseVaultManager.readVaultRecord(app)
-                val allowedSet = parseAllowedModulesJson(resp, current.allowedModules)
-                val updated = current.copy(
-                    username = username.trim(),
-                    email = email.trim(),
-                    status = newStatus,
-                    licenseToken = resp?.optString("licenseToken", current.licenseToken) ?: current.licenseToken,
-                    allowedModules = allowedSet,
-                    validUntilMs = resp?.optLong("validUntilMs", current.validUntilMs) ?: current.validUntilMs,
-                    banReason = resp?.optString("banReason", "") ?: "",
-                    highWaterWallClockMs = System.currentTimeMillis(),
-                    lastElapsedRealtimeMs = android.os.SystemClock.elapsedRealtime(),
-                    hardwareFingerprint = hardwareBinding.fingerprintHex
-                )
-                RootLicenseVaultManager.writeVaultRecord(app, updated)
-                if (newStatus == LicenseAccountStatus.APPROVED) {
-                    ensureAuthorizedModulesMountedSync()
-                }
-                appendTerminalLog("[RootVault] Registered (${updated.username}) -> ${newStatus.name}")
-                withContext(Dispatchers.Main) {
-                    _isAuthLoading.value = false
-                    refreshVaultAndModuleState()
-                    _statusMessage.value = resp?.optString("message")
-                        ?: "Registration submitted. Waiting for Administrator approval."
-                }
-            } catch (t: Throwable) {
-                withContext(Dispatchers.Main) {
-                    _isAuthLoading.value = false
-                    _statusMessage.value = "Registration error: ${t.message ?: "Network error"}"
-                }
-            }
-        }
-    }
-
-    fun signInWithCloud(identifier: String, password: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            _isAuthLoading.value = true
-            try {
-                if (!_isRootAccessGranted.value) {
-                    _isRequestingRoot.value = true
-                    _isRootAccessGranted.value = RootLicenseVaultManager.requestInteractiveRootAccess(app)
-                    _isRequestingRoot.value = false
-                }
-
-                val req = org.json.JSONObject()
-                    .put("identifier", identifier.trim())
-                    .put("username", identifier.trim())
-                    .put("email", identifier.trim())
-                    .put("password", password)
-                    .put("hardwareFingerprint", hardwareBinding.fingerprintHex)
-                    .put("socSerial", hardwareBinding.socSerial)
-                    .put("androidId", hardwareBinding.androidId)
-                    .put("storageCid", hardwareBinding.storageCid)
-                    .put("deviceModel", hardwareBinding.deviceModel)
-
-                val resp = HollowSecureClient.postEncrypted(
-                    context = app,
-                    serverBaseUrl = _settings.value.cloudServerUrl,
-                    endpointPath = "/api/v1/auth/login",
-                    requestJson = req
-                )
-
-                if (resp != null && !resp.optBoolean("ok", true)) {
-                    val errMsg = resp.optString("error", "Invalid username/email or password.")
-                    withContext(Dispatchers.Main) {
-                        _isAuthLoading.value = false
-                        _statusMessage.value = errMsg
-                    }
-                    return@launch
-                }
-
-                val newStatus = when (resp?.optString("status", "PENDING_APPROVAL")?.uppercase()) {
-                    "BANNED" -> LicenseAccountStatus.BANNED
-                    "APPROVED" -> LicenseAccountStatus.APPROVED
-                    else -> LicenseAccountStatus.PENDING_APPROVAL
-                }
-                val current = RootLicenseVaultManager.readVaultRecord(app)
-                val allowedSet = parseAllowedModulesJson(resp, current.allowedModules)
-                val resolvedUsername = resp?.optString("username", "")?.ifBlank { identifier.trim() } ?: identifier.trim()
-                val resolvedEmail = resp?.optString("email", current.email) ?: current.email
-                val updated = current.copy(
-                    username = resolvedUsername,
-                    email = resolvedEmail,
-                    status = newStatus,
-                    licenseToken = resp?.optString("licenseToken", current.licenseToken) ?: current.licenseToken,
-                    allowedModules = allowedSet,
-                    validUntilMs = resp?.optLong("validUntilMs", current.validUntilMs) ?: current.validUntilMs,
-                    banReason = resp?.optString("banReason", "") ?: "",
-                    highWaterWallClockMs = System.currentTimeMillis(),
-                    lastElapsedRealtimeMs = android.os.SystemClock.elapsedRealtime(),
-                    hardwareFingerprint = hardwareBinding.fingerprintHex
-                )
-                RootLicenseVaultManager.writeVaultRecord(app, updated)
-                if (newStatus == LicenseAccountStatus.APPROVED) {
-                    ensureAuthorizedModulesMountedSync()
-                }
-                appendTerminalLog("[RootVault] Signed in (${updated.username}) -> ${newStatus.name}")
-                withContext(Dispatchers.Main) {
-                    _isAuthLoading.value = false
-                    refreshVaultAndModuleState()
-                    _statusMessage.value = resp?.optString("message")
-                        ?: when (newStatus) {
-                            LicenseAccountStatus.APPROVED -> "Signed in and activated your authorized modules."
-                            LicenseAccountStatus.BANNED -> "Account is restricted: ${updated.banReason}"
-                            else -> "Signed in. Account is awaiting Administrator approval."
-                        }
-                }
-            } catch (t: Throwable) {
-                withContext(Dispatchers.Main) {
-                    _isAuthLoading.value = false
-                    _statusMessage.value = "Sign-in error: ${t.message ?: "Network error"}"
-                }
-            }
-        }
-    }
-
-    fun syncLicenseAndModulesFromServer() {
-        viewModelScope.launch(Dispatchers.IO) {
-            val current = RootLicenseVaultManager.readVaultRecord(app)
-            val req = org.json.JSONObject()
-                .put("username", current.username)
-                .put("email", current.email)
-                .put("hardwareFingerprint", hardwareBinding.fingerprintHex)
-                .put("socSerial", hardwareBinding.socSerial)
-                .put("androidId", hardwareBinding.androidId)
-                .put("storageCid", hardwareBinding.storageCid)
-                .put("deviceModel", hardwareBinding.deviceModel)
-                .put("licenseToken", current.licenseToken)
-                .put("elapsedRealtimeMs", android.os.SystemClock.elapsedRealtime())
-
-            var resp = HollowSecureClient.postEncrypted(
-                context = app,
-                serverBaseUrl = _settings.value.cloudServerUrl,
-                endpointPath = "/api/v1/auth/status",
-                requestJson = req
-            )
-            // If device is waiting for approval locally but server returned UNREGISTERED, push registration immediately
-            if (current.status == LicenseAccountStatus.PENDING_APPROVAL &&
-                current.username.isNotBlank() &&
-                (resp == null || resp.optString("status", "").equals("UNREGISTERED", ignoreCase = true))
-            ) {
-                val regResp = HollowSecureClient.postEncrypted(
-                    context = app,
-                    serverBaseUrl = _settings.value.cloudServerUrl,
-                    endpointPath = "/api/v1/auth/register",
-                    requestJson = req
-                )
-                if (regResp != null) {
-                    resp = regResp
-                }
-            }
-            if (resp != null && resp.optBoolean("ok", true)) {
-                val statusStr = resp.optString("status", current.status.name).uppercase()
-                val parsedStatus = when (statusStr) {
-                    "APPROVED" -> LicenseAccountStatus.APPROVED
-                    "BANNED", "REVOKED" -> LicenseAccountStatus.BANNED
-                    "PENDING", "PENDING_APPROVAL" -> LicenseAccountStatus.PENDING_APPROVAL
-                    "UNREGISTERED" -> LicenseAccountStatus.UNREGISTERED
-                    else -> current.status
-                }
-                // Preserve local PENDING_APPROVAL if server returned UNREGISTERED before re-sync
-                val status = if (parsedStatus == LicenseAccountStatus.UNREGISTERED &&
-                    current.status == LicenseAccountStatus.PENDING_APPROVAL
-                ) {
-                    LicenseAccountStatus.PENDING_APPROVAL
-                } else {
-                    parsedStatus
-                }
-                val allowedSet = parseAllowedModulesJson(resp, current.allowedModules)
-                if (status == LicenseAccountStatus.BANNED) {
-                    RootLicenseVaultManager.wipeModulesAndLockOnBan(
-                        context = app,
-                        banReason = resp.optString("banReason", "Hardware fingerprint permanently banned by Administrator.")
-                    )
-                    appendTerminalLog("[RootVault] BANNED by Admin! Wiped /data/adb/.hollow_vault/modules")
-                } else {
-                    val revokedModules = current.downloadedModules - allowedSet
-                    for (revokedId in revokedModules) {
-                        RootLicenseVaultManager.deleteDownloadedModuleFromVault(app, revokedId)
-                    }
-                    val updated = current.copy(
-                        status = status,
-                        licenseToken = resp.optString("licenseToken", current.licenseToken),
-                        allowedModules = allowedSet,
-                        validUntilMs = resp.optLong("validUntilMs", current.validUntilMs),
-                        banReason = resp.optString("banReason", ""),
-                        highWaterWallClockMs = System.currentTimeMillis(),
-                        lastElapsedRealtimeMs = android.os.SystemClock.elapsedRealtime()
-                    )
-                    RootLicenseVaultManager.writeVaultRecord(app, updated)
-                    if (status == LicenseAccountStatus.APPROVED) {
-                        ensureAuthorizedModulesMountedSync()
-                    }
-                    appendTerminalLog("[RootVault] Synced license from server: status=${status.name}, allowedModules=${updated.allowedModules}")
-                }
-            } else {
-                if (current.status == LicenseAccountStatus.APPROVED) {
-                    ensureAuthorizedModulesMountedSync()
-                }
-                appendTerminalLog("[RootVault] Verified local license record.")
-            }
-            withContext(Dispatchers.Main) {
-                refreshVaultAndModuleState()
-                val rec = _vaultLicenseRecord.value
-                _statusMessage.value = when (rec.status) {
-                    LicenseAccountStatus.APPROVED -> "Account approved (${rec.allowedModules.size} modules active)."
-                    LicenseAccountStatus.BANNED -> "Device restricted: ${rec.banReason}"
-                    LicenseAccountStatus.PENDING_APPROVAL -> "Waiting for Administrator approval."
-                    else -> "Status updated."
-                }
-            }
-        }
-    }
-
-    fun downloadModuleIntoRootVault(moduleId: String) {
-        if (moduleId in _settings.value.disabledModules) {
-            val updatedSettings = _settings.value.copy(disabledModules = _settings.value.disabledModules - moduleId)
-            _settings.value = updatedSettings
-            SettingsStore.save(app, updatedSettings)
-        }
-        viewModelScope.launch(Dispatchers.IO) {
-            val current = RootLicenseVaultManager.readVaultRecord(app)
-            if (current.status == LicenseAccountStatus.BANNED) {
-                withContext(Dispatchers.Main) {
-                    _statusMessage.value = "Cannot download modules: Device is permanently banned."
-                }
-                return@launch
-            }
-            val resp = HollowSecureClient.downloadEncryptedModule(
-                context = app,
-                serverBaseUrl = _settings.value.cloudServerUrl,
-                moduleId = moduleId
-            )
-            val bundleJson = resp?.toString()
-                ?: HollowSecureClient.buildSignedSimulatedModuleBundle(app, moduleId)
-
-            if (bundleJson.isBlank()) {
-                withContext(Dispatchers.Main) {
-                    _statusMessage.value = "Unable to install $moduleId: could not reach server."
-                }
-                return@launch
-            }
-
-            val saved = RootLicenseVaultManager.saveDownloadedModuleToVault(app, moduleId, bundleJson)
-            if (saved) {
-                appendTerminalLog("[RootVault] Mounted module $moduleId")
-            }
-            withContext(Dispatchers.Main) {
-                refreshVaultAndModuleState()
-                _statusMessage.value = "Installed module: $moduleId"
-            }
-        }
-    }
-
-    fun downloadAllAuthorizedModules() {
-        viewModelScope.launch(Dispatchers.IO) {
-            ensureAuthorizedModulesMountedSync()
-            withContext(Dispatchers.Main) {
-                refreshVaultAndModuleState()
-                val count = _moduleStates.value.count { it.isReadyToUse }
-                _statusMessage.value = "All $count active modules are installed and ready."
-            }
-        }
-    }
-
-    fun disableModuleFromVault(moduleId: String) {
-        val updatedSettings = _settings.value.copy(
-            disabledModules = _settings.value.disabledModules + moduleId
-        )
-        _settings.value = updatedSettings
-        SettingsStore.save(app, updatedSettings)
-        viewModelScope.launch(Dispatchers.IO) {
-            com.example.isolation.core.root.RootLicenseVaultManager.deleteDownloadedModuleFromVault(app, moduleId)
-            withContext(Dispatchers.Main) {
-                refreshVaultAndModuleState()
-                _statusMessage.value = "Module disabled and hidden from Dashboard: $moduleId"
-            }
-        }
-    }
-
-    fun enableModuleInVault(moduleId: String) {
-        val updatedSettings = _settings.value.copy(
-            disabledModules = _settings.value.disabledModules - moduleId
-        )
-        _settings.value = updatedSettings
-        SettingsStore.save(app, updatedSettings)
-        downloadModuleIntoRootVault(moduleId)
-    }
-
-    /**
-     * Built-in Admin Approval simulator so the user can test the complete Registration ->
-     * Waiting for Approval -> Admin Approve -> Dynamic Module Notification -> Root Vault Bind
-     * workflow directly inside the emulator even when the external Node.js server isn't running.
-     */
-    fun simulateAdminApproveAccount(
-        allowedModules: Set<String> = emptySet(),
-        validityDays: Int = 30
-    ) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val current = RootLicenseVaultManager.readVaultRecord(app)
-            val nowWall = System.currentTimeMillis()
-            val nowElapsed = android.os.SystemClock.elapsedRealtime()
-            val expiry = nowWall + validityDays * 86_400_000L
-            val updated = current.copy(
-                username = current.username.ifBlank { "hollow_operator" },
-                email = current.email.ifBlank { "operator@hollow.sec" },
-                status = LicenseAccountStatus.APPROVED,
-                licenseToken = "hlw_tok_${UUID.randomUUID().toString().replace("-", "").take(20)}",
-                allowedModules = allowedModules,
-                issuedAtMs = nowWall,
-                validUntilMs = expiry,
-                banReason = "",
-                highWaterWallClockMs = nowWall,
-                lastElapsedRealtimeMs = nowElapsed,
-                hardwareFingerprint = hardwareBinding.fingerprintHex
-            )
-            RootLicenseVaultManager.writeVaultRecord(app, updated)
-            appendTerminalLog("[AdminPortal] Approved device ${hardwareBinding.fingerprintHex} with modules: $allowedModules")
-            withContext(Dispatchers.Main) {
-                refreshVaultAndModuleState()
-                _statusMessage.value = "Admin Approved! Notification triggered on Dashboard to download ${allowedModules.size} modules."
-            }
-        }
-    }
-
-    fun simulateAdminBanDevice(reason: String = "Unauthorized MITM proxy / token tamper attempt detected by Admin.") {
-        viewModelScope.launch(Dispatchers.IO) {
-            RootLicenseVaultManager.wipeModulesAndLockOnBan(app, reason)
-            appendTerminalLog("[AdminPortal] DEVICE BANNED (${hardwareBinding.fingerprintHex}): Wiped /data/adb/.hollow_vault/modules")
-            withContext(Dispatchers.Main) {
-                refreshVaultAndModuleState()
-                _statusMessage.value = "Device Permanently Banned by Admin. Root vault wiped."
-            }
-        }
-    }
-
-    fun simulateAdminResetToUnregistered() {
-        viewModelScope.launch(Dispatchers.IO) {
-            HollowModuleRegistry.allModuleIds.forEach { modId ->
-                RootLicenseVaultManager.deleteDownloadedModuleFromVault(app, modId)
-            }
-            val reset = RootVaultLicenseRecord(
-                status = LicenseAccountStatus.UNREGISTERED,
-                hardwareFingerprint = hardwareBinding.fingerprintHex,
-                highWaterWallClockMs = System.currentTimeMillis(),
-                lastElapsedRealtimeMs = android.os.SystemClock.elapsedRealtime()
-            )
-            RootLicenseVaultManager.writeVaultRecord(app, reset)
-            withContext(Dispatchers.Main) {
-                refreshVaultAndModuleState()
-                _statusMessage.value = "Reset to Unregistered state."
-            }
-        }
-    }
-
-    /**
-     * Simulates Android "Clear App Data" by wiping app-internal caches and immediately recovering
-     * the encrypted license & downloaded `.dex.enc` modules from `/data/adb/.hollow_vault`.
-     */
-    fun simulateClearAppDataAndRecoverFromRootVault() {
-        viewModelScope.launch(Dispatchers.IO) {
-            appendTerminalLog("[Test] Simulating Android 'Clear App Data' on /data/data/${app.packageName}...")
-            val recovered = RootLicenseVaultManager.readVaultRecord(app)
-            appendTerminalLog("[RootVault] Recovered license (${recovered.status}) & ${recovered.downloadedModules.size} encrypted modules from ${RootLicenseVaultManager.ROOT_VAULT_DIR}!")
-            withContext(Dispatchers.Main) {
-                refreshVaultAndModuleState()
-                _statusMessage.value = "App Data Cleared -> Recovered License & ${recovered.downloadedModules.size} Modules from /data/adb/.hollow_vault!"
-            }
-        }
-    }
-
-    fun getModuleContext(moduleId: String): com.example.isolation.sdk.HollowModuleContext {
-        return com.example.isolation.core.module.HollowModuleContextImpl(
-            context = app,
-            moduleId = moduleId,
-            manifestFlags = emptyMap()
-        )
-    }
 }
-

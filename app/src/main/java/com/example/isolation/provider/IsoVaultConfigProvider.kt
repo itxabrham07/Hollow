@@ -104,8 +104,9 @@ class IsoVaultConfigProvider : ContentProvider() {
         val configured = prefs?.getBoolean("${pkg}_configured", false) ?: false
         return RuleSnapshot(
             configured = configured,
-            isolated = if (configured) prefs?.getBoolean("${pkg}_isolated", false) ?: false else false,
-            mode = prefs?.getString("${pkg}_mode", IsolationMode.SHARED_WORKSPACE.name) ?: IsolationMode.SHARED_WORKSPACE.name,
+            // Unconfigured apps that reach the hook are isolated by default.
+            isolated = if (configured) prefs?.getBoolean("${pkg}_isolated", true) ?: true else true,
+            mode = prefs?.getString("${pkg}_mode", IsolationMode.ENCRYPTED_VAULT.name) ?: IsolationMode.ENCRYPTED_VAULT.name,
             whitelist = prefs?.getString("${pkg}_whitelist", "") ?: "",
             blockPollution = prefs?.getBoolean("${pkg}_pollution", true) ?: true,
             pickerPolicy = globalPickerPolicy()

@@ -3,11 +3,12 @@ package com.example.isolation.service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import com.example.MainActivity
+import com.example.isolation.hook.SystemStealthHook
 
 /**
- * Allows opening Hollow when hidden from all launchers by dialing
- * `*#*#465569#*#*` ("HOLLOW" on the phone keypad).
+ * Allows opening Hollow when completely hidden from all launchers by dialing
+ * `*#*#465569#*#*` ("HOLLOW" on the phone keypad), matching Vector's secret dialer
+ * code architecture (`VectorService.kt`).
  */
 class HollowSecretCodeReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
@@ -15,12 +16,7 @@ class HollowSecretCodeReceiver : BroadcastReceiver() {
         if (action == "android.provider.Telephony.SECRET_CODE" ||
             action == "android.telephony.action.SECRET_CODE"
         ) {
-            try {
-                val launchIntent = Intent(context, MainActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                }
-                context.startActivity(launchIntent)
-            } catch (_: Throwable) {}
+            SystemStealthHook.launchHollowFromSystemUi(context)
         }
     }
 }

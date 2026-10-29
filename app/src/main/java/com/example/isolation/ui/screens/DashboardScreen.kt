@@ -1,13 +1,11 @@
 package com.example.isolation.ui.screens
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,349 +14,403 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.VerifiedUser
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.example.ui.theme.JakartaFontFamily
+import androidx.compose.ui.unit.sp
 import com.example.isolation.ui.components.AuditActionBadge
-import com.example.isolation.ui.components.ContentCard
 import com.example.isolation.ui.components.CyberStatCard
-import com.example.isolation.ui.components.ListRow
-import com.example.isolation.ui.components.ModuleDownloadNotificationBanner
-import com.example.isolation.ui.components.PrimaryButton
-import com.example.isolation.ui.components.RootVaultStatusCard
-import com.example.isolation.ui.components.SecondaryButton
-import com.example.isolation.ui.components.SectionHeader
-import com.example.isolation.ui.components.StatusIndicator
+import com.example.isolation.ui.components.LsposedStatusBanner
 import com.example.isolation.ui.viewmodel.IsoVaultViewModel
-import com.example.ui.theme.FrauncesFontFamily
-import com.example.ui.theme.M3AmberAccent
+import com.example.ui.theme.JakartaFontFamily
 
 @Composable
 fun DashboardScreen(
     viewModel: IsoVaultViewModel,
+    onNavigateToApps: () -> Unit,
+    onNavigateToAppHider: () -> Unit = {},
+    onNavigateToDeviceSpoofer: () -> Unit = {},
+    onNavigateToVault: () -> Unit,
+    onNavigateToFileManager: () -> Unit = onNavigateToVault,
+    onNavigateToGallery: () -> Unit = onNavigateToVault,
     onNavigateToTerminal: () -> Unit,
     onNavigateToAudit: () -> Unit,
-    onNavigateToLicenseHub: () -> Unit = {},
-    onOpenModule: (String) -> Unit = {}
+    onNavigateToVpnProxy: () -> Unit = {}
 ) {
     val scheme = MaterialTheme.colorScheme
     val isLsposedActive by viewModel.isLsposedActive.collectAsState()
+    val isolatedCount by viewModel.isolatedCount.collectAsState()
+    val hiddenOrDisguisedCount by viewModel.hiddenOrDisguisedCount.collectAsState()
+    val identitySpoofedCount by viewModel.identitySpoofedCount.collectAsState()
     val recentLogs by viewModel.recentAuditLogs.collectAsState()
     val totalBytesEncrypted by viewModel.totalEncryptedBytes.collectAsState()
     val settings by viewModel.settings.collectAsState()
-    val moduleStates by viewModel.moduleStates.collectAsState()
-    val clockCheck by viewModel.clockVerification.collectAsState()
-    val isolatedCount by viewModel.isolatedCount.collectAsState()
-    val spoofedCount by viewModel.identitySpoofedCount.collectAsState()
-    val hiddenCount by viewModel.hiddenOrDisguisedCount.collectAsState()
+    val allApps by viewModel.allInstalledApps.collectAsState()
 
+    val routedAppsCount = allApps.count { it.vpnProxyEnabled }
+    val activeServer = settings.activeServer
+    val isVpnOn = settings.vpnTunnelEnabled
     val formattedEncrypted = formatBytes(totalBytesEncrypted)
-
-    val mountedModules = moduleStates.filter { it.isReadyToUse }.map { it.module }
-    val mountedIds = mountedModules.map { it.id }.toSet()
-    val totalCatalogSize = moduleStates.size.coerceAtLeast(4)
-    val pendingDownloadTitles = moduleStates
-        .filter { it.isAuthorizedByAdmin && !it.isDownloadedInRootVault && !it.isDisabledByUser && !settings.devFullBuildMode }
-        .map { it.module.displayName }
-    val disabledModuleCount = moduleStates.count { it.isDisabledByUser }
-
-    androidx.compose.runtime.LaunchedEffect(pendingDownloadTitles.size) {
-        if (pendingDownloadTitles.isNotEmpty()) {
-            viewModel.downloadAllAuthorizedModules()
-        }
-    }
-
-    if (mountedModules.isEmpty()) {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 24.dp)
-                .testTag("dashboard_screen"),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = PaddingValues(top = 24.dp, bottom = 32.dp)
-        ) {
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .widthIn(max = 480.dp)
-                        .testTag("card_zero_modules_shell"),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Spacer(modifier = Modifier.height(24.dp))
-
-                    // 3D Isometric Cube Graphic (Screen 07 from storyboard)
-                    IsometricCubeGraphic(modifier = Modifier.size(130.dp))
-
-                    Spacer(modifier = Modifier.height(28.dp))
-
-                    Text(
-                        text = if (disabledModuleCount > 0) "All Modules Disabled" else "No Modules Yet",
-                        style = MaterialTheme.typography.headlineMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = JakartaFontFamily
-                        ),
-                        color = scheme.onSurface,
-                        textAlign = TextAlign.Center
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Text(
-                        text = if (disabledModuleCount > 0) {
-                            "$disabledModuleCount module(s) are currently disabled and hidden from your dashboard."
-                        } else {
-                            "Your dashboard is ready. Modules will appear here when approved by admin."
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = scheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-                    Surface(
-                        shape = MaterialTheme.shapes.medium,
-                        color = scheme.surfaceVariant.copy(alpha = 0.5f),
-                        border = BorderStroke(1.dp, scheme.outlineVariant),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp)
-                            .clickable { onNavigateToLicenseHub() }
-                            .testTag("btn_open_license_hub")
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center,
-                            modifier = Modifier.padding(16.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.VerifiedUser,
-                                contentDescription = null,
-                                tint = scheme.primary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = if (disabledModuleCount > 0) "Manage & Re-enable Modules" else "Awaiting module assignment by admin",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = if (disabledModuleCount > 0) scheme.primary else scheme.onSurfaceVariant,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        return
-    }
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp)
             .testTag("dashboard_screen"),
-        verticalArrangement = Arrangement.spacedBy(24.dp),
-        contentPadding = PaddingValues(top = 8.dp, bottom = 32.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 1. Hero Protection Summary Card (single card treatment, large shape, flat surface, 1dp hairline border)
         item {
-            ContentCard(
-                onClick = { viewModel.refreshDiagnostics() },
-                shape = MaterialTheme.shapes.large,
-                borderColor = if (isLsposedActive) scheme.secondary else scheme.outlineVariant,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("lsposed_status_banner")
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(MaterialTheme.shapes.small)
-                                .background(scheme.primaryContainer)
-                        ) {
-                            Icon(
-                                imageVector = if (isLsposedActive) Icons.Default.CheckCircle else Icons.Default.Shield,
-                                contentDescription = null,
-                                tint = scheme.primary
-                            )
-                        }
-                        StatusIndicator(
-                            label = if (isLsposedActive) "System Protection Active" else "Hollow Privacy Layer Ready",
-                            color = if (isLsposedActive) scheme.secondary else scheme.primary
-                        )
-                    }
-
-                    StatusIndicator(
-                        label = "${mountedIds.size} Active Modules",
-                        color = scheme.onSurfaceVariant,
-                        showDot = false
-                    )
-                }
-
-            }
+            Spacer(modifier = Modifier.height(2.dp))
+            LsposedStatusBanner(
+                isActive = isLsposedActive,
+                onToggle = { viewModel.refreshDiagnostics() }
+            )
         }
 
-        // 3. Dynamic Module Download Notification Banner
-        if (pendingDownloadTitles.isNotEmpty()) {
-            item {
-                ModuleDownloadNotificationBanner(
-                    pendingDownloadCount = pendingDownloadTitles.size,
-                    pendingModuleNames = pendingDownloadTitles.joinToString(", "),
-                    onDownloadAllClick = { viewModel.downloadAllAuthorizedModules() },
-                    onOpenModuleHubClick = onNavigateToLicenseHub
+        // Section Label: Core Protection Modules (Bento 2x2 Grid)
+        item {
+            Text(
+                text = "PROTECTION MODULES",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.8.sp,
+                color = scheme.onSurfaceVariant,
+                fontFamily = JakartaFontFamily,
+                modifier = Modifier.padding(top = 2.dp, start = 2.dp)
+            )
+        }
+
+        // Bento Row 1: Storage Isolate + Privacy & ID
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                BentoModuleTile(
+                    title = "Storage Isolate",
+                    subtitle = if (isolatedCount == 0) "Sandbox app files & media" else "$isolatedCount app${if (isolatedCount == 1) "" else "s"} isolated",
+                    badgeText = "$isolatedCount",
+                    icon = Icons.Default.Apps,
+                    accentColor = scheme.primary,
+                    onClick = onNavigateToApps,
+                    testTag = "stat_isolated_apps",
+                    modifier = Modifier.weight(1f)
+                )
+
+                BentoModuleTile(
+                    title = "Privacy & ID",
+                    subtitle = if (identitySpoofedCount == 0) "IMEI, Build, GPS & Shields" else "$identitySpoofedCount app${if (identitySpoofedCount == 1) "" else "s"} cloaked",
+                    badgeText = "$identitySpoofedCount",
+                    icon = Icons.Default.Fingerprint,
+                    accentColor = scheme.tertiary,
+                    onClick = onNavigateToDeviceSpoofer,
+                    testTag = "card_device_identity_spoofer",
+                    modifier = Modifier.weight(1f)
                 )
             }
         }
 
+        // Bento Row 2: Hide App + Proxy & V2Ray (Clean navigation tile, no inline toggle switch)
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                BentoModuleTile(
+                    title = "Hide App",
+                    subtitle = if (hiddenOrDisguisedCount == 0) "Launcher & SystemUI stealth" else "$hiddenOrDisguisedCount app${if (hiddenOrDisguisedCount == 1) "" else "s"} disguised",
+                    badgeText = "$hiddenOrDisguisedCount",
+                    icon = Icons.Default.VisibilityOff,
+                    accentColor = scheme.secondary,
+                    onClick = onNavigateToAppHider,
+                    testTag = "card_hide_disguise_apps",
+                    modifier = Modifier.weight(1f)
+                )
 
+                BentoModuleTile(
+                    title = "Proxy & V2Ray",
+                    subtitle = when {
+                        isVpnOn && routedAppsCount > 0 -> "[${activeServer.countryCode}] ${activeServer.exitIp} • $routedAppsCount apps"
+                        isVpnOn -> "[${activeServer.countryCode}] ${activeServer.exitIp} • Ready"
+                        else -> "Per-app & global routing"
+                    },
+                    badgeText = activeServer.protocol.badge,
+                    icon = Icons.Default.Public,
+                    accentColor = Color(0xFF0EA5E9),
+                    onClick = onNavigateToVpnProxy,
+                    testTag = "dashboard_vpn_card",
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
 
-        // 5. Privacy & Protection Feature Modules (Single Indigo Accent + Semantic Status)
-        val activeOrAuthorizedStates = moduleStates.filter { !it.isDisabledByUser && (it.isReadyToUse || it.isAuthorizedByAdmin) }
-        if (activeOrAuthorizedStates.isNotEmpty()) {
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    SectionHeader(
-                        title = "Privacy & Protection Features",
-                        trailing = {
-                            Text(
-                                text = "Manage Modules",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = scheme.primary,
-                                modifier = Modifier
-                                    .clickable { onNavigateToLicenseHub() }
-                                    .testTag("btn_open_license_hub")
+        // Section Label: Vault & Storage
+        item {
+            Text(
+                text = "STORAGE & TELEMETRY",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.8.sp,
+                color = scheme.onSurfaceVariant,
+                fontFamily = JakartaFontFamily,
+                modifier = Modifier.padding(top = 4.dp, start = 2.dp)
+            )
+        }
+
+        // Row 1 of Storage: Browse Files & Photos
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                CyberStatCard(
+                    title = "Browse Files",
+                    value = "Workspace",
+                    subtitle = "Folders & ZIP",
+                    icon = Icons.Default.Folder,
+                    accentColor = scheme.primary,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onNavigateToFileManager() },
+                    testTag = "stat_selinux"
+                )
+                CyberStatCard(
+                    title = "Photos",
+                    value = "Albums",
+                    subtitle = "Gallery",
+                    icon = Icons.Default.PhotoLibrary,
+                    accentColor = scheme.secondary,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onNavigateToGallery() }
+                )
+            }
+        }
+
+        // Row 2 of Storage: Safe Folder & Activity Log
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                CyberStatCard(
+                    title = "Safe Folder",
+                    value = formattedEncrypted,
+                    subtitle = "AES-256 Locked",
+                    icon = Icons.Default.Lock,
+                    accentColor = scheme.tertiary,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onNavigateToVault() },
+                    testTag = "stat_vault_size"
+                )
+                CyberStatCard(
+                    title = "Activity Log",
+                    value = "${recentLogs.size}",
+                    subtitle = "Events",
+                    icon = Icons.Default.History,
+                    accentColor = scheme.primary,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onNavigateToAudit() },
+                    testTag = "nav_audit"
+                )
+            }
+        }
+
+        // Recent Activity Header + Grouped Container
+        item {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp)
+                    .testTag("stat_interceptions")
+            ) {
+                Text(
+                    text = "RECENT ACTIVITY",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.8.sp,
+                    fontFamily = JakartaFontFamily,
+                    color = scheme.onSurfaceVariant
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = { viewModel.refreshDiagnostics() },
+                        modifier = Modifier
+                            .size(28.dp)
+                            .testTag("btn_resync")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Refresh",
+                            tint = scheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { onNavigateToAudit() }
+                    ) {
+                        Text(
+                            text = "See all",
+                            fontSize = 12.sp,
+                            color = scheme.primary,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = JakartaFontFamily
+                        )
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = scheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = scheme.surface),
+                shape = RoundedCornerShape(18.dp),
+                border = BorderStroke(1.dp, scheme.outlineVariant),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (recentLogs.isEmpty()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(scheme.primaryContainer)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = scheme.onPrimaryContainer,
+                                modifier = Modifier.size(19.dp)
                             )
                         }
-                    )
-
-                    val moduleRows = activeOrAuthorizedStates.chunked(2)
-                    moduleRows.forEach { rowStates ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            rowStates.forEach { state ->
-                                val mod = state.module
-                                val isMounted = state.isReadyToUse
-                                val statusText = when {
-                                    isMounted -> mod.resolveCardBadge(viewModel.getModuleContext(mod.id))
-                                    else -> "Install"
-                                }
-                                val statusColor = when {
-                                    isMounted -> scheme.secondary
-                                    else -> M3AmberAccent
-                                }
-
-                                ContentCard(
-                                    onClick = {
-                                        if (isMounted) {
-                                            onOpenModule(mod.id)
-                                        } else {
-                                            viewModel.downloadModuleIntoRootVault(mod.id)
-                                        }
-                                    },
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "All quiet right now",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = JakartaFontFamily,
+                                color = scheme.onSurface
+                            )
+                            Text(
+                                text = "Protected storage and identity events will appear here in real time.",
+                                color = scheme.onSurfaceVariant,
+                                fontSize = 11.sp,
+                                fontFamily = JakartaFontFamily
+                            )
+                        }
+                    }
+                } else {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        val previewLogs = recentLogs.take(4)
+                        previewLogs.forEachIndexed { index, log ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onNavigateToAudit() }
+                                    .padding(horizontal = 14.dp, vertical = 11.dp)
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
                                     modifier = Modifier
-                                        .weight(1f)
-                                        .testTag(mod.cardTestTag)
+                                        .size(34.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(scheme.surfaceContainerLow)
                                 ) {
+                                    Icon(
+                                        imageVector = Icons.Default.History,
+                                        contentDescription = null,
+                                        tint = scheme.primary,
+                                        modifier = Modifier.size(17.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(11.dp))
+                                Column(modifier = Modifier.weight(1f)) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Box(
-                                            contentAlignment = Alignment.Center,
-                                            modifier = Modifier
-                                                .size(40.dp)
-                                                .clip(MaterialTheme.shapes.small)
-                                                .background(scheme.surfaceVariant)
-                                        ) {
-                                            Icon(
-                                                imageVector = mod.icon,
-                                                contentDescription = null,
-                                                tint = scheme.primary
-                                            )
-                                        }
-                                        StatusIndicator(
-                                            label = statusText,
-                                            color = statusColor
+                                        Text(
+                                            text = log.appName,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 13.sp,
+                                            color = scheme.onSurface,
+                                            fontFamily = JakartaFontFamily,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f, fill = false)
                                         )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        AuditActionBadge(action = log.action)
                                     }
-
-                                    Spacer(modifier = Modifier.height(16.dp))
-
+                                    Spacer(modifier = Modifier.height(1.dp))
                                     Text(
-                                        text = mod.cardTitle,
-                                        style = MaterialTheme.typography.titleSmall,
-                                        color = scheme.onSurface,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = if (isMounted) mod.resolveCardSubtitle(viewModel.getModuleContext(mod.id)) else "Tap to install module",
-                                        style = MaterialTheme.typography.bodySmall,
+                                        text = friendlyPathSummary(log.requestedPath),
+                                        fontSize = 11.sp,
                                         color = scheme.onSurfaceVariant,
                                         maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        overflow = TextOverflow.Ellipsis,
+                                        fontFamily = FontFamily.Monospace
                                     )
                                 }
                             }
-                            if (rowStates.size == 1) {
-                                Spacer(modifier = Modifier.weight(1f))
+                            if (index < previewLogs.lastIndex) {
+                                HorizontalDivider(
+                                    color = scheme.outlineVariant.copy(alpha = 0.5f),
+                                    modifier = Modifier.padding(horizontal = 14.dp)
+                                )
                             }
                         }
                     }
@@ -366,75 +418,113 @@ fun DashboardScreen(
             }
         }
 
-        // 6. Files/Gallery removed — accessible via Files tab in bottom nav
-
-        // 7. Recent Activity Section
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                SectionHeader(
-                    title = "Recent Activity",
-                    modifier = Modifier.testTag("stat_interceptions"),
-                    trailing = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            IconButton(
-                                onClick = { viewModel.refreshDiagnostics() },
-                                modifier = Modifier.testTag("btn_resync")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Refresh,
-                                    contentDescription = "Refresh",
-                                    tint = scheme.onSurfaceVariant
-                                )
-                            }
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.clickable { onNavigateToAudit() }
-                            ) {
-                                Text(
-                                    text = "See all",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = scheme.primary
-                                )
-                                Icon(
-                                    imageVector = Icons.Default.ChevronRight,
-                                    contentDescription = null,
-                                    tint = scheme.primary
-                                )
-                            }
-                        }
-                    }
-                )
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+}
 
-                ContentCard(modifier = Modifier.fillMaxWidth()) {
-                    if (recentLogs.isEmpty()) {
-                        ListRow(
-                            title = "Everything looks great",
-                            subtitle = "App privacy and storage activity will show up here as you use your phone.",
-                            leadingIcon = Icons.Default.CheckCircle,
-                            modifier = Modifier.padding(vertical = 0.dp)
+@Composable
+private fun BentoModuleTile(
+    title: String,
+    subtitle: String,
+    badgeText: String,
+    icon: ImageVector,
+    accentColor: Color,
+    onClick: () -> Unit,
+    testTag: String,
+    modifier: Modifier = Modifier
+) {
+    val scheme = MaterialTheme.colorScheme
+    Card(
+        colors = CardDefaults.cardColors(containerColor = scheme.surface),
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, scheme.outlineVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = modifier
+            .clip(RoundedCornerShape(20.dp))
+            .clickable { onClick() }
+            .testTag(testTag)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            accentColor.copy(alpha = 0.10f),
+                             Color.Transparent
                         )
-                    } else {
-                        val previewLogs = recentLogs.take(4)
-                        previewLogs.forEachIndexed { index, log ->
-                            ListRow(
-                                title = log.appName,
-                                subtitle = friendlyPathSummary(log.requestedPath),
-                                leadingIcon = Icons.Default.History,
-                                onClick = onNavigateToAudit,
-                                trailing = {
-                                    AuditActionBadge(action = log.action)
-                                }
-                            )
-                            if (index < previewLogs.lastIndex) {
-                                HorizontalDivider(color = scheme.outlineVariant)
-                            }
-                        }
+                    )
+                )
+                .padding(14.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(accentColor.copy(alpha = 0.16f))
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier.size(21.dp)
+                    )
+                }
+
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(accentColor.copy(alpha = 0.14f))
+                        .padding(horizontal = 9.dp, vertical = 4.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = badgeText,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = accentColor,
+                            fontFamily = JakartaFontFamily
+                        )
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = accentColor,
+                            modifier = Modifier.size(14.dp)
+                        )
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Text(
+                text = title,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                color = scheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontFamily = JakartaFontFamily
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                fontSize = 11.sp,
+                color = scheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontFamily = JakartaFontFamily
+            )
         }
     }
 }
@@ -461,67 +551,3 @@ fun formatBytes(bytes: Long): String {
     val value = bytes / Math.pow(1024.0, digitGroups.toDouble())
     return "%.1f %s".format(value, units[digitGroups])
 }
-
-/**
- * 3D Isometric Cube Graphic for Screen 07: Home (No Modules Yet)
- * Rendered using Canvas with 3 distinct isometric facets and soft shadow.
- */
-@Composable
-fun IsometricCubeGraphic(modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier) {
-        val w = size.width
-        val h = size.height
-        val cubeRadius = (size.minDimension / 2.2f)
-
-        val cx = w / 2f
-        val cy = h / 2f - 4.dp.toPx()
-
-        // Elliptical soft shadow underneath the cube
-        drawOval(
-            color = Color(0x18000000),
-            topLeft = Offset(cx - cubeRadius * 0.9f, cy + cubeRadius * 0.7f),
-            size = Size(cubeRadius * 1.8f, cubeRadius * 0.45f)
-        )
-
-        // Points for isometric cube vertices
-        val topVertex = Offset(cx, cy - cubeRadius * 0.75f)
-        val centerVertex = Offset(cx, cy)
-        val bottomVertex = Offset(cx, cy + cubeRadius * 0.75f)
-
-        val leftVertex = Offset(cx - cubeRadius * 0.866f, cy - cubeRadius * 0.25f)
-        val rightVertex = Offset(cx + cubeRadius * 0.866f, cy - cubeRadius * 0.25f)
-        val leftBottomVertex = Offset(cx - cubeRadius * 0.866f, cy + cubeRadius * 0.5f)
-        val rightBottomVertex = Offset(cx + cubeRadius * 0.866f, cy + cubeRadius * 0.5f)
-
-        // 1. Top Face (Diamond - soft lavender/periwinkle)
-        val topFace = Path().apply {
-            moveTo(topVertex.x, topVertex.y)
-            lineTo(rightVertex.x, rightVertex.y)
-            lineTo(centerVertex.x, centerVertex.y)
-            lineTo(leftVertex.x, leftVertex.y)
-            close()
-        }
-        drawPath(topFace, color = Color(0xFFC7D2FE))
-
-        // 2. Left Face (Side - medium indigo)
-        val leftFace = Path().apply {
-            moveTo(leftVertex.x, leftVertex.y)
-            lineTo(centerVertex.x, centerVertex.y)
-            lineTo(bottomVertex.x, bottomVertex.y)
-            lineTo(leftBottomVertex.x, leftBottomVertex.y)
-            close()
-        }
-        drawPath(leftFace, color = Color(0xFF818CF8))
-
-        // 3. Right Face (Side - deep indigo)
-        val rightFace = Path().apply {
-            moveTo(rightVertex.x, rightVertex.y)
-            lineTo(centerVertex.x, centerVertex.y)
-            lineTo(bottomVertex.x, bottomVertex.y)
-            lineTo(rightBottomVertex.x, rightBottomVertex.y)
-            close()
-        }
-        drawPath(rightFace, color = Color(0xFF6366F1))
-    }
-}
-

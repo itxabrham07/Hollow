@@ -1,4 +1,4 @@
-name: Build & Release Android APKs (Dev + Release Normal)
+name: Build & Release Android APK
 
 on:
   push:
@@ -9,16 +9,10 @@ on:
 
 jobs:
   build:
-    name: Build Dev & Release Normal APKs
+    name: Build Android APK
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    env:
-      KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
-      STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'hollowrelease2026' }}
-      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'hollowrelease2026' }}
-      RELEASE_KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_BASE64 || '' }}
-      MODULE_ED25519_PRIVATE_KEY_B64: ${{ secrets.MODULE_ED25519_PRIVATE_KEY_B64 || '' }}
 
     steps:
       - name: Checkout Repository
@@ -42,86 +36,40 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: Prepare Dev & Release Keystores and Environment
+      - name: Prepare Keystore and Environment
         run: |
-          set +x
           if [ -f "debug.keystore.base64" ]; then
             base64 -d debug.keystore.base64 > debug.keystore || true
           fi
           if [ ! -f "debug.keystore" ]; then
-            keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
-          fi
-          if [ -n "$RELEASE_KEYSTORE_B64" ]; then
-            echo "$RELEASE_KEYSTORE_B64" | base64 -d > "$KEYSTORE_PATH" || true
-          fi
-          if [ ! -f "$KEYSTORE_PATH" ]; then
-            keytool -genkeypair -v -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASSWORD" -alias upload -keypass "$KEY_PASSWORD" -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Hollow Release,O=Hollow Security,C=US"
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
           touch .env
 
-      - name: Compile & Ed25519-Sign Feature Modules + Build Dev & Release Normal APKs
+      - name: Build Debug APK
         run: |
-          set +x
-          if [ -z "$MODULE_ED25519_PRIVATE_KEY_B64" ] && [ ! -f "certs/module_ed25519_private.pem" ]; then
-            node -e '
-              const crypto = require("crypto");
-              const fs = require("fs");
-              fs.mkdirSync("certs", { recursive: true });
-              const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
-              fs.writeFileSync("certs/module_ed25519_private.pem", privateKey.export({ type: "pkcs8", format: "pem" }), { mode: 0o600 });
-              fs.writeFileSync("certs/module_ed25519_public.pem", publicKey.export({ type: "spki", format: "pem" }));
-            '
-          fi
           if [ -f "./gradlew" ]; then
             chmod +x ./gradlew
-            ./gradlew verifyCoreIsEmpty buildAllModules assembleDebug assembleRelease --no-daemon --stacktrace
+            ./gradlew assembleDebug --no-daemon --stacktrace
           else
-            gradle verifyCoreIsEmpty buildAllModules assembleDebug assembleRelease --no-daemon --stacktrace
+            gradle assembleDebug --no-daemon --stacktrace
           fi
-          rm -f certs/module_ed25519_private.pem "$KEYSTORE_PATH"
-          mkdir -p dist
-          cp app/build/outputs/apk/debug/*.apk dist/Hollow-Dev.apk
-          cp app/build/outputs/apk/release/*.apk dist/Hollow-Release.apk
-          ls -lh dist/
 
-      - name: Scrub Ephemeral Signing Keys Before Artifact Upload
-        if: always()
-        run: |
-          set +x
-          rm -f certs/module_ed25519_private.pem "$KEYSTORE_PATH"
-
-      - name: Upload Dev APK Artifact
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Hollow-Dev-APK
-          path: dist/Hollow-Dev.apk
-          if-no-files-found: error
+          name: IsoVault-Debug-APK
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn
           retention-days: 14
 
-      - name: Upload Release Normal APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Hollow-Release-APK
-          path: dist/Hollow-Release.apk
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Publish Dev & Release Normal APKs to GitHub Releases
+      - name: Publish APK to GitHub Releases
         uses: ncipollo/release-action@v1
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
         with:
-          artifacts: "dist/Hollow-Dev.apk,dist/Hollow-Release.apk"
+          artifacts: "app/build/outputs/apk/debug/*.apk"
           tag: "latest"
-          name: "Hollow Latest Release (Dev + Release Normal APKs)"
-          body: |
-            Automated Hollow LSPosed build for commit `${{ github.sha }}`.
-
-            ### Included APK Builds
-            1. **`Hollow-Dev.apk` (Developer Full Build)**:
-               - Pre-unlocks and mounts all modules offline for development & testing.
-               - Includes the Developer Build Mode switch and instant Admin Simulator controls.
-            2. **`Hollow-Release.apk` (Release Normal Shell)**:
-               - Zero-module production release shell for end users.
-               - Requires account registration/sign-in and Cloud Admin approval before dynamically downloading encrypted `.hmod` modules into `/data/adb/.hollow_vault/modules`.
+          name: "IsoVault Latest APK Release"
+          body: "Auto-generated IsoVault LSPosed Module APK for commit ${{ github.sha }}"
           allowUpdates: true
           makeLatest: true

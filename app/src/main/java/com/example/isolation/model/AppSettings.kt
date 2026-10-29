@@ -12,8 +12,8 @@ data class AppSettings(
     val encryptVolumesAtRest: Boolean = true,
     /** What isolated apps get when they open the system picker. */
     val pickerPolicy: PickerPolicy = PickerPolicy.ALLOW,
-    /** Material 3 Colorful Theme toggle (Light colorful Material 3 by default, Dark mode via top bar). */
-    val darkTheme: Boolean = false,
+    /** Material 3 Pro Dark Theme toggle (enabled by default). */
+    val darkTheme: Boolean = true,
     /** Material You Dynamic Color on Android 12+. */
     val dynamicColor: Boolean = false,
     /** How Hollow itself appears in launchers & SystemUI. */
@@ -44,14 +44,7 @@ data class AppSettings(
     val vpnKillSwitchEnabled: Boolean = true,
     val matchTimezoneWithIpGlobal: Boolean = true,
     val showIpInfoInToolbar: Boolean = true,
-    val customProxyServers: List<VpnProxyServer> = emptyList(),
-    // Modular Engine & Cloud License Server Settings
-    /** Developer Full Build = all modules unlocked locally (false by default so Core APK always runs onboarding & cloud auth). */
-    val devFullBuildMode: Boolean = false,
-    /** Node.js + MongoDB Atlas Cloud Admin Server URL */
-    val cloudServerUrl: String = "https://hollow.arshman.me",
-    /** User-disabled modules that should be hidden from Dashboard and Navigation menu */
-    val disabledModules: Set<String> = emptySet()
+    val customProxyServers: List<VpnProxyServer> = emptyList()
 ) {
     val allProxyServers: List<VpnProxyServer>
         get() = customProxyServers + VpnProxyPresets.defaultServers
@@ -88,9 +81,6 @@ object SettingsStore {
     private const val K_MATCH_TZ_WITH_IP = "match_tz_with_ip_global"
     private const val K_SHOW_IP_INFO = "show_ip_info_toolbar"
     private const val K_CUSTOM_SERVERS_JSON = "custom_proxy_servers_json"
-    private const val K_DEV_FULL_BUILD = "dev_full_build_mode_v2"
-    private const val K_CLOUD_SERVER_URL = "cloud_server_url"
-    private const val K_DISABLED_MODULES_CSV = "disabled_modules_csv"
 
     fun load(context: Context): AppSettings {
         val p = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -124,16 +114,11 @@ object SettingsStore {
             HollowIconTheme.DYNAMIC_MATERIAL_YOU
         }
         val customServers = decodeCustomServers(p.getString(K_CUSTOM_SERVERS_JSON, "") ?: "")
-        val disabledModules = (p.getString(K_DISABLED_MODULES_CSV, "") ?: "")
-            .split(',')
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .toSet()
         return AppSettings(
             rootVolumesEnabled = p.getBoolean(K_ROOT, false),
             encryptVolumesAtRest = p.getBoolean(K_ENCRYPT, true),
             pickerPolicy = picker,
-            darkTheme = p.getBoolean(K_DARK, false),
+            darkTheme = p.getBoolean(K_DARK, true),
             dynamicColor = p.getBoolean(K_DYNAMIC, false),
             hollowVisibilityMode = hollowVis,
             hollowCustomName = p.getString(K_HOLLOW_NAME, "Calculator") ?: "Calculator",
@@ -154,10 +139,7 @@ object SettingsStore {
             vpnKillSwitchEnabled = p.getBoolean(K_VPN_KILL_SWITCH, true),
             matchTimezoneWithIpGlobal = p.getBoolean(K_MATCH_TZ_WITH_IP, true),
             showIpInfoInToolbar = p.getBoolean(K_SHOW_IP_INFO, true),
-            customProxyServers = customServers,
-            devFullBuildMode = p.getBoolean(K_DEV_FULL_BUILD, false),
-            cloudServerUrl = p.getString(K_CLOUD_SERVER_URL, "https://hollow.arshman.me") ?: "https://hollow.arshman.me",
-            disabledModules = disabledModules
+            customProxyServers = customServers
         )
     }
 
@@ -188,9 +170,6 @@ object SettingsStore {
             .putBoolean(K_MATCH_TZ_WITH_IP, settings.matchTimezoneWithIpGlobal)
             .putBoolean(K_SHOW_IP_INFO, settings.showIpInfoInToolbar)
             .putString(K_CUSTOM_SERVERS_JSON, encodeCustomServers(settings.customProxyServers))
-            .putBoolean(K_DEV_FULL_BUILD, settings.devFullBuildMode)
-            .putString(K_CLOUD_SERVER_URL, settings.cloudServerUrl)
-            .putString(K_DISABLED_MODULES_CSV, settings.disabledModules.joinToString(","))
             .commit()
         // Hooked apps read the picker policy and SystemUI trigger through the rule channels.
         IsolationRuleManager.publishPickerPolicy(settings.pickerPolicy)

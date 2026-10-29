@@ -3,7 +3,7 @@ import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesS
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
-  // alias(libs.plugins.google.devtools.ksp)
+  alias(libs.plugins.google.devtools.ksp)
   alias(libs.plugins.secrets)
   alias(libs.plugins.google.services)
 }
@@ -20,21 +20,6 @@ android {
     versionName = "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-    val pubKeyPemFile = File(rootDir, "certs/module_ed25519_public.pem")
-    val pubKeyB64 = if (pubKeyPemFile.exists()) {
-      pubKeyPemFile.readLines()
-        .map { it.trim() }
-        .filter { it.isNotEmpty() && !it.startsWith("-----") }
-        .joinToString("")
-        .ifEmpty { "MCowBQYDK2VwAyEArBn2TtGmUR4akTCBxgbp/vt5As1C9bQSPces4mh9w3M=" }
-    } else {
-      "MCowBQYDK2VwAyEArBn2TtGmUR4akTCBxgbp/vt5As1C9bQSPces4mh9w3M="
-    }
-    buildConfigField(
-      "String",
-      "HOLLOW_MODULE_PUBLIC_KEY_B64",
-      "\"$pubKeyB64\""
-    )
   }
 
   // Do not remove or modify these signingConfigs. They are necessary for building, installing,
@@ -98,10 +83,9 @@ googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.W
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
 dependencies {
-  api(project(":hollow-sdk"))
   compileOnly(files("libs/xposed-api-82.jar"))
   implementation(platform(libs.androidx.compose.bom))
-  // implementation(platform(libs.firebase.bom))
+  implementation(platform(libs.firebase.bom))
   // implementation(libs.accompanist.permissions)
   implementation(libs.androidx.activity.compose)
   // implementation(libs.androidx.camera.camera2)
@@ -123,8 +107,8 @@ dependencies {
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
   // implementation(libs.coil.compose)
-  // implementation(libs.converter.moshi)
-  // implementation(libs.firebase.ai)
+  implementation(libs.converter.moshi)
+  implementation(libs.firebase.ai)
   // Uncomment to use Firestore:
   // implementation(libs.firebase.firestore)
 
@@ -134,15 +118,15 @@ dependencies {
   // implementation(libs.androidx.credentials)
   // implementation(libs.androidx.credentials.play.services)
   // implementation(libs.googleid)
-  // implementation(libs.firebase.appcheck.recaptcha)
-  // implementation(libs.firebase.appcheck.debug)
+  implementation(libs.firebase.appcheck.recaptcha)
+  implementation(libs.firebase.appcheck.debug)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
-  // implementation(libs.logging.interceptor)
-  // implementation(libs.moshi.kotlin)
-  // implementation(libs.okhttp)
+  implementation(libs.logging.interceptor)
+  implementation(libs.moshi.kotlin)
+  implementation(libs.okhttp)
   // implementation(libs.play.services.location)
-  // implementation(libs.retrofit)
+  implementation(libs.retrofit)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
@@ -156,23 +140,6 @@ dependencies {
   androidTestImplementation(libs.androidx.runner)
   debugImplementation(libs.androidx.compose.ui.test.manifest)
   debugImplementation(libs.androidx.compose.ui.tooling)
-  // "ksp"(libs.androidx.room.compiler)
-  // "ksp"(libs.moshi.kotlin.codegen)
+  "ksp"(libs.androidx.room.compiler)
+  "ksp"(libs.moshi.kotlin.codegen)
 }
-
-tasks.named("preBuild") {
-  dependsOn(rootProject.tasks.named("verifyCoreIsEmpty"))
-  mustRunAfter(":hollow-sdk:buildAllModules", ":hollow-sdk:buildModule", rootProject.tasks.named("buildAllModules"))
-}
-
-tasks.named("assemble") {
-  dependsOn(rootProject.tasks.named("verifyCoreIsEmpty"))
-}
-
-tasks.register("compileFeatureModules") {
-  group = "hollow"
-  description = "Compatibility alias for :buildAllModules"
-  dependsOn(rootProject.tasks.named("buildAllModules"))
-}
-
-

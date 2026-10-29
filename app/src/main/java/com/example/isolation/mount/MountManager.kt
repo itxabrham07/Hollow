@@ -644,7 +644,6 @@ object MountManager {
         sb.appendLine("  chmod 644 /data/system/isovault_rules.xml 2>/dev/null || true")
         sb.appendLine("  cp -f '$prefsXml' /data/local/tmp/isovault_rules.xml 2>/dev/null || true")
         sb.appendLine("  chmod 644 /data/local/tmp/isovault_rules.xml 2>/dev/null || true")
-        sb.appendLine("  chcon u:object_r:shell_data_file:s0 /data/local/tmp/isovault_rules.xml 2>/dev/null || true")
         sb.appendLine("fi")
         sb.appendLine("chmod -R 755 /data/misc/*/prefs/${context.packageName} 2>/dev/null || true")
         sb.appendLine("chmod 644 /data/misc/*/prefs/${context.packageName}/*.xml 2>/dev/null || true")
@@ -665,30 +664,6 @@ object MountManager {
         }
 
         val res = runAsRoot(sb.toString(), timeoutSeconds = 8L)
-        return res.exitCode == 0
-    }
-
-    /**
-     * Mirrors `isovault_rules.xml` to `/data/system` and `/data/local/tmp` with world-readable
-     * permissions and `shell_data_file` SELinux context without restarting any Home Launchers.
-     */
-    fun syncRulesMirrorOnly(context: Context): Boolean {
-        val dataPath = context.dataDir?.absolutePath ?: "/data/data/${context.packageName}"
-        val prefsXml = "$dataPath/shared_prefs/isovault_rules.xml"
-        val sb = StringBuilder()
-        sb.appendLine("chmod 755 '$dataPath' '$dataPath/shared_prefs' 2>/dev/null || true")
-        sb.appendLine("chmod 644 '$prefsXml' 2>/dev/null || true")
-        sb.appendLine("if [ -f '$prefsXml' ]; then")
-        sb.appendLine("  cp -f '$prefsXml' /data/system/isovault_rules.xml 2>/dev/null || true")
-        sb.appendLine("  chown 1000:1000 /data/system/isovault_rules.xml 2>/dev/null || true")
-        sb.appendLine("  chmod 644 /data/system/isovault_rules.xml 2>/dev/null || true")
-        sb.appendLine("  cp -f '$prefsXml' /data/local/tmp/isovault_rules.xml 2>/dev/null || true")
-        sb.appendLine("  chmod 644 /data/local/tmp/isovault_rules.xml 2>/dev/null || true")
-        sb.appendLine("  chcon u:object_r:shell_data_file:s0 /data/local/tmp/isovault_rules.xml 2>/dev/null || true")
-        sb.appendLine("fi")
-        sb.appendLine("chmod -R 755 /data/misc/*/prefs/${context.packageName} 2>/dev/null || true")
-        sb.appendLine("chmod 644 /data/misc/*/prefs/${context.packageName}/*.xml 2>/dev/null || true")
-        val res = runAsRoot(sb.toString(), timeoutSeconds = 5L)
         return res.exitCode == 0
     }
 }
