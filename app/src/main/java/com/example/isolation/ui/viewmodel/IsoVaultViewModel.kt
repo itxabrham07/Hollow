@@ -223,13 +223,13 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 disableLogcatLogging = cfg?.disableLogcatLogging ?: false,
                 fakeBatteryEnabled = cfg?.fakeBatteryEnabled ?: false,
                 fakeBatteryLevel = cfg?.fakeBatteryLevel ?: 85,
-                knoxWarrantyBitSpoof = cfg?.knoxWarrantyBitSpoof ?: true,
+                knoxWarrantyBitSpoof = cfg?.knoxWarrantyBitSpoof ?: false,
                 disableAllNetworking = cfg?.disableAllNetworking ?: false,
-                spoofGpuFingerprint = cfg?.spoofGpuFingerprint ?: true,
-                spoofBrowserUserAgent = cfg?.spoofBrowserUserAgent ?: true,
-                anonymizeSensors = cfg?.anonymizeSensors ?: true,
+                spoofGpuFingerprint = cfg?.spoofGpuFingerprint ?: false,
+                spoofBrowserUserAgent = cfg?.spoofBrowserUserAgent ?: false,
+                anonymizeSensors = cfg?.anonymizeSensors ?: false,
                 blockCellTowerTracking = cfg?.blockCellTowerTracking ?: true,
-                autoSyncTimezone = cfg?.autoSyncTimezone ?: true,
+                autoSyncTimezone = cfg?.autoSyncTimezone ?: false,
                 spoofManufacturer = cfg?.spoofManufacturer ?: "",
                 spoofProduct = cfg?.spoofProduct ?: "",
                 spoofBoard = cfg?.spoofBoard ?: "",
@@ -245,11 +245,11 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 spoofTimezoneId = cfg?.spoofTimezoneId ?: "",
                 spoofLocaleTag = cfg?.spoofLocaleTag ?: "",
                 customUserAgent = cfg?.customUserAgent ?: "",
-                spoofWebRtc = cfg?.spoofWebRtc ?: true,
-                spoofCanvasNoise = cfg?.spoofCanvasNoise ?: true,
-                spoofAudioContext = cfg?.spoofAudioContext ?: true,
-                spoofClientHints = cfg?.spoofClientHints ?: true,
-                spoofFontEnumeration = cfg?.spoofFontEnumeration ?: true,
+                spoofWebRtc = cfg?.spoofWebRtc ?: false,
+                spoofCanvasNoise = cfg?.spoofCanvasNoise ?: false,
+                spoofAudioContext = cfg?.spoofAudioContext ?: false,
+                spoofClientHints = cfg?.spoofClientHints ?: false,
+                spoofFontEnumeration = cfg?.spoofFontEnumeration ?: false,
                 vpnProxyEnabled = cfg?.vpnProxyEnabled ?: false,
                 proxyServerId = cfg?.proxyServerId ?: _settings.value.activeProxyServerId,
                 requireVpnForNetwork = cfg?.requireVpnForNetwork ?: false,
@@ -257,8 +257,8 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 webViewProxyEnabled = cfg?.webViewProxyEnabled ?: true,
                 trustAllCerts = cfg?.trustAllCerts ?: false,
                 privacyProfileId = cfg?.privacyProfileId ?: "",
-                deadmanSwitchEnabled = cfg?.deadmanSwitchEnabled ?: true,
-                spoofDrmWidevine = cfg?.spoofDrmWidevine ?: true,
+                deadmanSwitchEnabled = cfg?.deadmanSwitchEnabled ?: false,
+                spoofDrmWidevine = cfg?.spoofDrmWidevine ?: false,
                 sensorBiasNeutralizer = cfg?.sensorBiasNeutralizer ?: true,
                 spoofWifiBssid = cfg?.spoofWifiBssid ?: true
             )
@@ -346,9 +346,44 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
 
     private fun syncStealthRulesToHooks() {
         viewModelScope.launch(Dispatchers.IO) {
+            val migrationPrefs = app.getSharedPreferences("isovault_migrations", android.content.Context.MODE_PRIVATE)
+            if (!migrationPrefs.getBoolean("migrated_signin_safe_v3", false)) {
+                val existingConfigs = dao.getAllConfigsSync()
+                for (cfg in existingConfigs) {
+                    val resetForcedPixel = cfg.deviceProfilePreset == DeviceProfilePreset.PIXEL_9_PRO &&
+                            (cfg.spoofBrand == DeviceProfilePreset.PIXEL_9_PRO.brand || cfg.spoofModel == DeviceProfilePreset.PIXEL_9_PRO.model)
+                    val sanitized = cfg.copy(
+                        deviceProfilePreset = if (resetForcedPixel) DeviceProfilePreset.REAL_HARDWARE else cfg.deviceProfilePreset,
+                        spoofBrand = if (resetForcedPixel) realHardware.brand else cfg.spoofBrand,
+                        spoofManufacturer = if (resetForcedPixel) realHardware.manufacturer else cfg.spoofManufacturer,
+                        spoofModel = if (resetForcedPixel) realHardware.model else cfg.spoofModel,
+                        spoofDevice = if (resetForcedPixel) realHardware.device else cfg.spoofDevice,
+                        spoofProduct = if (resetForcedPixel) realHardware.product else cfg.spoofProduct,
+                        spoofBoard = if (resetForcedPixel) realHardware.board else cfg.spoofBoard,
+                        spoofHardware = if (resetForcedPixel) realHardware.hardware else cfg.spoofHardware,
+                        spoofFingerprint = if (resetForcedPixel) realHardware.fingerprint else cfg.spoofFingerprint,
+                        spoofSerial = if (cfg.spoofSerial.isBlank() || cfg.spoofSerial == "R58N91Z7X2K") "unknown" else cfg.spoofSerial,
+                        deadmanSwitchEnabled = false,
+                        spoofDrmWidevine = false,
+                        spoofGpuFingerprint = false,
+                        spoofBrowserUserAgent = false,
+                        anonymizeSensors = false,
+                        autoSyncTimezone = false,
+                        spoofWebRtc = false,
+                        spoofCanvasNoise = false,
+                        spoofAudioContext = false,
+                        spoofClientHints = false,
+                        spoofFontEnumeration = false
+                    )
+                    dao.insertOrUpdateConfig(sanitized)
+                }
+                migrationPrefs.edit().putBoolean("migrated_signin_safe_v3", true).commit()
+                loadInstalledApps()
+            }
             val allConfigs = dao.getAllConfigsSync()
             IsolationRuleManager.publishStealthTable(allConfigs, _settings.value)
             notifyConfigChanged()
+            MountManager.syncRulesMirrorOnly(app)
         }
     }
 
@@ -842,11 +877,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 val allConfigs = dao.getAllConfigsSync()
                 IsolationRuleManager.publishStealthTable(allConfigs, _settings.value)
                 notifyConfigChanged()
-                MountManager.refreshLaunchersAndStealthCaches(
-                    app,
-                    refreshPlayStore = false,
-                    refreshSettings = false
-                )
+                MountManager.syncRulesMirrorOnly(app)
                 try {
                     Runtime.getRuntime().exec(arrayOf("su", "-c", "am force-stop ${appInfo.packageName}")).waitFor()
                 } catch (_: Throwable) {}
@@ -936,21 +967,17 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
         saveAppIdentitySpoofConfig(
             appInfo = appInfo,
             enabled = true,
-            preset = when (profile.id) {
-                PrivacyProfile.PROFILE_ANTI_FRAUD -> DeviceProfilePreset.PIXEL_9_PRO
-                PrivacyProfile.PROFILE_SOCIAL_MEDIA -> DeviceProfilePreset.SAMSUNG_S24_ULTRA
-                else -> DeviceProfilePreset.REAL_HARDWARE
-            },
-            brand = if (appInfo.spoofBrand.isNotBlank()) appInfo.spoofBrand else realHardware.brand,
-            model = if (appInfo.spoofModel.isNotBlank()) appInfo.spoofModel else realHardware.model,
-            device = if (appInfo.spoofDevice.isNotBlank()) appInfo.spoofDevice else realHardware.device,
-            androidId = if (appInfo.spoofAndroidId.isNotBlank()) appInfo.spoofAndroidId else IsolationRuleManager.generateAndroidId(),
-            imei = if (appInfo.spoofImei.isNotBlank()) appInfo.spoofImei else IsolationRuleManager.generateLuhnImei(),
-            advertisingId = if (appInfo.spoofAdvertisingId.isNotBlank()) appInfo.spoofAdvertisingId else java.util.UUID.randomUUID().toString(),
-            macAddress = if (appInfo.spoofMacAddress.isNotBlank()) appInfo.spoofMacAddress else IsolationRuleManager.generateMacAddress(),
+            preset = DeviceProfilePreset.REAL_HARDWARE,
+            brand = realHardware.brand,
+            model = realHardware.model,
+            device = realHardware.device,
+            androidId = if (appInfo.spoofAndroidId.isNotBlank() && appInfo.spoofAndroidId != realHardware.androidId) appInfo.spoofAndroidId else IsolationRuleManager.generateAndroidId(),
+            imei = appInfo.spoofImei.ifBlank { IsolationRuleManager.generateLuhnImei() },
+            advertisingId = appInfo.spoofAdvertisingId.ifBlank { java.util.UUID.randomUUID().toString() },
+            macAddress = appInfo.spoofMacAddress.ifBlank { IsolationRuleManager.generateMacAddress() },
             carrierName = appInfo.spoofCarrierName.ifBlank { realHardware.carrierName },
             simOperator = appInfo.spoofSimOperator.ifBlank { realHardware.simOperator },
-            serial = appInfo.spoofSerial.ifBlank { realHardware.serial },
+            serial = "unknown",
             hideRootAndXposed = profile.hideRootAndXposed,
             hideAdbAndDevOptions = profile.hideAdbAndDevOptions,
             hideVpnAndProxy = profile.hideVpnAndProxy,
@@ -974,7 +1001,8 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             spoofWifiBssid = profile.spoofWifiBssid,
             spoofBrowserUserAgent = profile.spoofBrowserUserAgent,
             privacyProfileId = profile.id,
-            deadmanSwitchEnabled = profile.deadmanSwitchEnabled
+            deadmanSwitchEnabled = profile.deadmanSwitchEnabled,
+            spoofDrmWidevine = profile.spoofDrmWidevine
         )
         _statusMessage.value = "Applied '${profile.name}' to ${appInfo.appName}."
     }

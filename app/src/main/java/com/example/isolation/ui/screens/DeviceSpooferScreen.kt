@@ -492,29 +492,32 @@ fun DeviceSpooferScreen(
                                         if (!enabled) {
                                             viewModel.removeAppIdentitySpoof(app)
                                         } else {
-                                            val preset = if (app.deviceProfilePreset == DeviceProfilePreset.REAL_HARDWARE) {
-                                                DeviceProfilePreset.PIXEL_9_PRO
-                                            } else {
-                                                app.deviceProfilePreset
-                                            }
+                                            val preset = DeviceProfilePreset.REAL_HARDWARE
                                             viewModel.saveAppIdentitySpoofConfig(
                                                 appInfo = app,
                                                 enabled = true,
                                                 preset = preset,
-                                                brand = app.spoofBrand.ifBlank { preset.brand },
-                                                model = app.spoofModel.ifBlank { preset.model },
-                                                device = app.spoofDevice.ifBlank { preset.device },
-                                                androidId = app.spoofAndroidId.ifBlank { IsolationRuleManager.generateAndroidId() },
+                                                brand = "",
+                                                model = "",
+                                                device = "",
+                                                androidId = app.spoofAndroidId.takeIf { it.isNotBlank() && it != viewModel.realHardware.androidId }
+                                                    ?: IsolationRuleManager.generateAndroidId(),
                                                 imei = app.spoofImei.ifBlank { IsolationRuleManager.generateLuhnImei() },
                                                 advertisingId = app.spoofAdvertisingId.ifBlank { IsolationRuleManager.generateAdvertisingId() },
                                                 macAddress = app.spoofMacAddress.ifBlank { IsolationRuleManager.generateMacAddress() },
                                                 carrierName = app.spoofCarrierName.ifBlank { "T-Mobile US" },
                                                 simOperator = app.spoofSimOperator.ifBlank { "310260" },
-                                                serial = app.spoofSerial.ifBlank { IsolationRuleManager.generateSerial() },
+                                                serial = "unknown",
                                                 hideRootAndXposed = true,
                                                 hideAdbAndDevOptions = true,
                                                 hideVpnAndProxy = true,
-                                                blockClipboardRead = app.blockClipboardRead
+                                                blockClipboardRead = app.blockClipboardRead,
+                                                spoofGpuFingerprint = false,
+                                                spoofBrowserUserAgent = false,
+                                                spoofWebRtc = false,
+                                                spoofCanvasNoise = false,
+                                                deadmanSwitchEnabled = false,
+                                                spoofDrmWidevine = false
                                             )
                                         }
                                     },
@@ -617,30 +620,30 @@ fun DeviceSpooferScreen(
                                     text = "Random",
                                     icon = Icons.Default.AutoFixHigh,
                                     onClick = {
-                                        val preset = listOf(
-                                            DeviceProfilePreset.PIXEL_9_PRO,
-                                            DeviceProfilePreset.SAMSUNG_S24_ULTRA,
-                                            DeviceProfilePreset.ONEPLUS_12,
-                                            DeviceProfilePreset.XIAOMI_14_ULTRA
-                                        ).random()
                                         viewModel.saveAppIdentitySpoofConfig(
                                             appInfo = app,
                                             enabled = true,
-                                            preset = preset,
-                                            brand = preset.brand,
-                                            model = preset.model,
-                                            device = preset.device,
+                                            preset = DeviceProfilePreset.REAL_HARDWARE,
+                                            brand = "",
+                                            model = "",
+                                            device = "",
                                             androidId = IsolationRuleManager.generateAndroidId(),
                                             imei = IsolationRuleManager.generateLuhnImei(),
                                             advertisingId = IsolationRuleManager.generateAdvertisingId(),
                                             macAddress = IsolationRuleManager.generateMacAddress(),
                                             carrierName = "T-Mobile US",
                                             simOperator = "310260",
-                                            serial = IsolationRuleManager.generateSerial(),
+                                            serial = "unknown",
                                             hideRootAndXposed = true,
                                             hideAdbAndDevOptions = true,
                                             hideVpnAndProxy = true,
-                                            blockClipboardRead = true
+                                            blockClipboardRead = true,
+                                            spoofGpuFingerprint = false,
+                                            spoofBrowserUserAgent = false,
+                                            spoofWebRtc = false,
+                                            spoofCanvasNoise = false,
+                                            deadmanSwitchEnabled = false,
+                                            spoofDrmWidevine = false
                                         )
                                     },
                                     modifier = Modifier.testTag("btn_quick_randomize_${app.packageName}")

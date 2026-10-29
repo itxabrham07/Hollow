@@ -347,34 +347,45 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             }
         } catch (_: Throwable) {}
 
-        // 2. Try XSharedPreferences
-        try {
-            val prefs = xSharedPrefs ?: XSharedPreferences(MODULE_PKG, IsolationRuleManager.PREFS_NAME).also {
-                xSharedPrefs = it
-            }
-            prefs.reload()
-            if (prefs.getBoolean("${pkg}_configured", false)) {
-                val explicitlyDisabled = prefs.getBoolean("${pkg}_explicitly_disabled", false)
-                val isolated = prefs.getBoolean("${pkg}_isolated", true) && !explicitlyDisabled
-                val modeStr = prefs.getString("${pkg}_mode", "SHARED_WORKSPACE") ?: "SHARED_WORKSPACE"
-                val mode = try { IsolationMode.valueOf(modeStr) } catch (_: Exception) { IsolationMode.SHARED_WORKSPACE }
-                val pollution = prefs.getBoolean("${pkg}_pollution", true)
-                val whitelistStr = prefs.getString("${pkg}_whitelist", "") ?: ""
-                val whitelist = whitelistStr.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
-                val picker = parsePickerPolicy(prefs.getString(IsolationRuleManager.KEY_PICKER_POLICY, null))
-                return IsolationRuleManager.AppRule(pkg, isolated, mode, pollution, whitelist, picker)
-            }
-        } catch (_: Throwable) {}
+        // 2. Try XSharedPreferences (including root-mirrored /data/local/tmp and /data/system)
+        val candidatePrefs = buildList {
+            try {
+                val p = xSharedPrefs ?: XSharedPreferences(MODULE_PKG, IsolationRuleManager.PREFS_NAME).also {
+                    xSharedPrefs = it
+                }
+                add(p)
+            } catch (_: Throwable) {}
+            try {
+                val tmpFile = File("/data/local/tmp/isovault_rules.xml")
+                if (tmpFile.canRead()) add(XSharedPreferences(tmpFile))
+            } catch (_: Throwable) {}
+            try {
+                val sysFile = File("/data/system/isovault_rules.xml")
+                if (sysFile.canRead()) add(XSharedPreferences(sysFile))
+            } catch (_: Throwable) {}
+        }
 
-        // 3. Default: connect regular apps in scope to Hollow Drive (SHARED_WORKSPACE),
-        //    but do not isolate home launchers by default.
-        val isLauncherPkg = pkg.contains("launcher", ignoreCase = true) ||
-                pkg == "com.miui.home" ||
-                pkg == "com.bbk.launcher2" ||
-                pkg == "net.oneplus.launcher"
+        for (prefs in candidatePrefs) {
+            try {
+                prefs.reload()
+                if (prefs.getBoolean("${pkg}_configured", false)) {
+                    val explicitlyDisabled = prefs.getBoolean("${pkg}_explicitly_disabled", false)
+                    val isolated = prefs.getBoolean("${pkg}_isolated", false) && !explicitlyDisabled
+                    val modeStr = prefs.getString("${pkg}_mode", "SHARED_WORKSPACE") ?: "SHARED_WORKSPACE"
+                    val mode = try { IsolationMode.valueOf(modeStr) } catch (_: Exception) { IsolationMode.SHARED_WORKSPACE }
+                    val pollution = prefs.getBoolean("${pkg}_pollution", true)
+                    val whitelistStr = prefs.getString("${pkg}_whitelist", "") ?: ""
+                    val whitelist = whitelistStr.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+                    val picker = parsePickerPolicy(prefs.getString(IsolationRuleManager.KEY_PICKER_POLICY, null))
+                    return IsolationRuleManager.AppRule(pkg, isolated, mode, pollution, whitelist, picker)
+                }
+            } catch (_: Throwable) {}
+        }
+
+        // 3. Default: do NOT activate storage isolation unless explicitly enabled for this package
         return IsolationRuleManager.AppRule(
             packageName = pkg,
-            isIsolated = !isLauncherPkg,
+            isIsolated = false,
             mode = IsolationMode.SHARED_WORKSPACE,
             blockRootPollution = true,
             whitelistedFolders = emptySet()
@@ -1359,6 +1370,8 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
                         if (isVolumeMounted()) return
                         isHandlingHook.set(true)
                         try {
+                            val rule = resolveRuleForPackage(pkg)
+                            if (!rule.isIsolated) return
                             val sandboxRoot = getOrCreateSandboxRoot(pkg)
                             param.result = sandboxRoot
                             reportAuditToManager(
@@ -1391,6 +1404,7 @@ class StorageIsolationHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
                         isHandlingHook.set(true)
                         try {
                             val rule = resolveRuleForPackage(pkg)
+                            if (!rule.isIsolated) return
                             if (isWhitelisted(type, rule.whitelistedFolders)) return
                             val sandboxSubDir = File(getOrCreateSandboxRoot(pkg), type)
                             sandboxSubDir.mkdirs()

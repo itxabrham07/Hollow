@@ -215,8 +215,25 @@ object SystemStealthHook {
             fallbackXSharedPrefs = xSharedPrefs
         }
 
-        // Try immediate fast non-IPC load first, then schedule background refresh
+        val isSystemOrLauncherHost = isSysServer ||
+            currentPkg == "com.android.systemui" ||
+            currentPkg == SETTINGS_PKG ||
+            currentPkg == PLAY_STORE_PKG ||
+            currentPkg.contains("permissioncontroller", ignoreCase = true) ||
+            currentPkg.contains("launcher", ignoreCase = true) ||
+            currentPkg.contains("home", ignoreCase = true) ||
+            currentPkg.contains("trebuchet", ignoreCase = true) ||
+            currentPkg.contains("lawnchair", ignoreCase = true) ||
+            currentPkg.contains("nova", ignoreCase = true)
+
+        // Try immediate fast non-IPC load first
         tryLoadFromLocalFiles(xSharedPrefs)
+
+        // Do not attach launcher/PackageManager/Resources hooks or spawn IPC threads inside regular user apps
+        if (!isSystemOrLauncherHost && !cachedStealthMap.containsKey(currentPkg)) {
+            return
+        }
+
         triggerAsyncRuleRefresh(xSharedPrefs, isSysServer)
 
         if (isSysServer) {
@@ -226,7 +243,9 @@ object SystemStealthHook {
             return
         }
 
-        attachGlobalPackageAndLauncherHooks(lpparam, currentPkg, xSharedPrefs)
+        if (isSystemOrLauncherHost) {
+            attachGlobalPackageAndLauncherHooks(lpparam, currentPkg, xSharedPrefs)
+        }
 
         if (currentPkg == PLAY_STORE_PKG) {
             attachPlayStoreClientHooks(lpparam, xSharedPrefs)

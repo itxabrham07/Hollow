@@ -65,7 +65,7 @@ data class AppIsolationConfig(
     // Digital Footprint & Anti-Tracking Shield (Snap, Meta, Chrome & Browsers)
     val spoofGpuFingerprint: Boolean = false,
     val spoofBrowserUserAgent: Boolean = false,
-    val anonymizeSensors: Boolean = true,
+    val anonymizeSensors: Boolean = false,
     val blockCellTowerTracking: Boolean = true,
     val autoSyncTimezone: Boolean = false,
     // Networking

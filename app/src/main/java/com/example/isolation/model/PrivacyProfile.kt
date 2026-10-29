@@ -123,10 +123,10 @@ data class PrivacyProfile(
                 hideAdbAndDevOptions = obj.optBoolean("hideAdbAndDevOptions", true),
                 blockClipboardRead = obj.optBoolean("blockClipboardRead", true),
                 preventScreenshots = obj.optBoolean("preventScreenshots", false),
-                disableLogcatLogging = obj.optBoolean("disableLogcatLogging", true),
-                autoSyncTimezone = obj.optBoolean("autoSyncTimezone", true),
-                spoofBrowserUserAgent = obj.optBoolean("spoofBrowserUserAgent", true),
-                deadmanSwitchEnabled = obj.optBoolean("deadmanSwitchEnabled", true)
+                disableLogcatLogging = obj.optBoolean("disableLogcatLogging", false),
+                autoSyncTimezone = obj.optBoolean("autoSyncTimezone", false),
+                spoofBrowserUserAgent = obj.optBoolean("spoofBrowserUserAgent", false),
+                deadmanSwitchEnabled = obj.optBoolean("deadmanSwitchEnabled", false)
             )
         }
 
@@ -148,7 +148,7 @@ data class PrivacyProfile(
             spoofAudioContext = false,
             spoofScreenResolution = "",
             spoofScreenDpi = 0,
-            anonymizeSensors = true,
+            anonymizeSensors = false,
             sensorBiasNeutralizer = true,
             fakeBatteryEnabled = false,
             fakeBatteryLevel = 88,
@@ -184,7 +184,7 @@ data class PrivacyProfile(
             spoofAudioContext = false,
             spoofScreenResolution = "",
             spoofScreenDpi = 0,
-            anonymizeSensors = true,
+            anonymizeSensors = false,
             sensorBiasNeutralizer = true,
             fakeBatteryEnabled = false,
             fakeBatteryLevel = 76,
@@ -194,7 +194,7 @@ data class PrivacyProfile(
             hideVpnAndProxy = true,
             hideRootAndXposed = true,
             hideAdbAndDevOptions = true,
-            blockClipboardRead = true,
+            blockClipboardRead = false,
             preventScreenshots = false,
             disableLogcatLogging = false,
             autoSyncTimezone = false,
@@ -251,16 +251,19 @@ data class PrivacyProfile(
  */
 object PrivacyProfileStore {
     private const val PREFS_NAME = "isovault_privacy_profiles"
-    private const val KEY_PROFILES = "profiles_json_v1"
+    private const val KEY_PROFILES = "profiles_json_v2"
 
     fun loadProfiles(context: Context): List<PrivacyProfile> {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val raw = prefs.getString(KEY_PROFILES, null) ?: return PrivacyProfile.builtInProfiles()
         return try {
+            val builtInById = PrivacyProfile.builtInProfiles().associateBy { it.id }
             val array = JSONArray(raw)
             val list = mutableListOf<PrivacyProfile>()
             for (i in 0 until array.length()) {
-                list.add(PrivacyProfile.fromJson(array.getJSONObject(i)))
+                val parsed = PrivacyProfile.fromJson(array.getJSONObject(i))
+                // Always keep built-in profiles aligned with sign-in safe defaults
+                list.add(builtInById[parsed.id] ?: parsed)
             }
             if (list.isEmpty()) PrivacyProfile.builtInProfiles() else list
         } catch (_: Exception) {

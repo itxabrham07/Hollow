@@ -94,7 +94,7 @@ object IsolationRuleManager {
         // Digital Footprint & Anti-Tracking Shield (Snap, Meta, Chrome & Browsers)
         val spoofGpuFingerprint: Boolean = false,
         val spoofBrowserUserAgent: Boolean = false,
-        val anonymizeSensors: Boolean = true,
+        val anonymizeSensors: Boolean = false,
         val blockCellTowerTracking: Boolean = true,
         val autoSyncTimezone: Boolean = false,
         // Extended Real-First Editable Hardware & Build Fields
@@ -323,8 +323,17 @@ object IsolationRuleManager {
         }
 
         // 3. All apps enrolled in Device Identity, Chrome/WebView Footprint & VPN/Proxy
+        // Also explicitly persist each package's storage isolation state so XSharedPreferences
+        // always knows whether storage isolation is enabled or disabled.
         val identityEntries = mutableListOf<String>()
         for (cfg in configs) {
+            editor.putBoolean("${cfg.packageName}_configured", true)
+            editor.putBoolean("${cfg.packageName}_isolated", cfg.isIsolated)
+            editor.putBoolean("${cfg.packageName}_explicitly_disabled", !cfg.isIsolated)
+            editor.putString("${cfg.packageName}_mode", cfg.isolationMode.name)
+            editor.putBoolean("${cfg.packageName}_pollution", cfg.blockRootPollution)
+            editor.putString("${cfg.packageName}_whitelist", cfg.whitelistedFolders)
+
             val hasActivePrivacy = cfg.isIdentitySpoofed ||
                     cfg.vpnProxyEnabled ||
                     cfg.spoofLocationEnabled ||
@@ -359,7 +368,8 @@ object IsolationRuleManager {
                 val mac = cfg.spoofMacAddress.ifBlank { generateMacAddress() }.replace("|", "").trim()
                 val carrier = cfg.spoofCarrierName.ifBlank { realHw.carrierName }.replace("|", " ").trim()
                 val simOp = cfg.spoofSimOperator.ifBlank { realHw.simOperator }.replace("|", "").trim()
-                val serial = cfg.spoofSerial.ifBlank { "unknown" }.replace("|", "").trim()
+                val serial = (if (cfg.spoofSerial.isBlank() || cfg.spoofSerial == "R58N91Z7X2K") "unknown" else cfg.spoofSerial)
+                    .replace("|", "").trim()
 
                 val hardware = cfg.spoofHardware.ifBlank { if (useRealBase) realHw.hardware else board }.replace("|", " ").trim()
                 val bootloader = cfg.spoofBootloader.ifBlank { realHw.bootloader }.replace("|", " ").trim()
