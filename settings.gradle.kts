@@ -24,4 +24,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Hollow"
 
-include(":app")
+include(":app", ":hollow-sdk")

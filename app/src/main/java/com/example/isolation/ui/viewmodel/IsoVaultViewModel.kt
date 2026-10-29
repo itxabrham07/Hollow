@@ -1305,7 +1305,6 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                     val useCustomHookIcon = iconPreset == DisguiseIconPreset.CUSTOM_IMAGE ||
                             iconPreset == DisguiseIconPreset.CLONED_APP
                     if (useCustomHookIcon) {
-                        // Keep mainComp enabled so SystemStealthHook replaces its icon with the custom gallery/cloned bitmap
                         pm.setComponentEnabledSetting(mainComp, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP)
                         allDisguiseAliases.forEach {
                             pm.setComponentEnabledSetting(it, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
@@ -1326,7 +1325,6 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                     }
                 }
                 LauncherVisibilityMode.HIDDEN -> {
-                    // Keep main component enabled for SystemUI intent launch while SystemStealthHook filters it from launchers
                     pm.setComponentEnabledSetting(mainComp, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP)
                     (allThemeAliases + allDisguiseAliases).forEach {
                         pm.setComponentEnabledSetting(it, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
@@ -1798,12 +1796,8 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
     private fun ensureAuthorizedModulesMountedSync() {
         val current = RootLicenseVaultManager.readVaultRecord(app)
         if (current.status != LicenseAccountStatus.APPROVED) return
-        val effectiveAllowed = current.allowedModules.ifEmpty {
-            setOf("module_isolation", "module_privacy", "module_hider", "module_network")
-        }
-        if (current.allowedModules.isEmpty()) {
-            RootLicenseVaultManager.writeVaultRecord(app, current.copy(allowedModules = effectiveAllowed))
-        }
+        val effectiveAllowed = current.allowedModules
+        if (effectiveAllowed.isEmpty()) return
         val pending = effectiveAllowed - current.downloadedModules
         for (moduleId in pending) {
             val resp = HollowSecureClient.downloadEncryptedModule(
@@ -2154,7 +2148,7 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
      * workflow directly inside the emulator even when the external Node.js server isn't running.
      */
     fun simulateAdminApproveAccount(
-        allowedModules: Set<String> = setOf("module_hider", "module_isolation", "module_privacy", "module_network"),
+        allowedModules: Set<String> = emptySet(),
         validityDays: Int = 30
     ) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -2229,4 +2223,13 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
             }
         }
     }
+
+    fun getModuleContext(moduleId: String): com.example.isolation.sdk.HollowModuleContext {
+        return com.example.isolation.core.module.HollowModuleContextImpl(
+            context = app,
+            moduleId = moduleId,
+            manifestFlags = emptyMap()
+        )
+    }
 }
+

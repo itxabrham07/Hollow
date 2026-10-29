@@ -88,6 +88,7 @@ googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.W
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
 dependencies {
+  api(project(":hollow-sdk"))
   compileOnly(files("libs/xposed-api-82.jar"))
   implementation(platform(libs.androidx.compose.bom))
   // implementation(platform(libs.firebase.bom))
@@ -149,138 +150,8 @@ dependencies {
   // "ksp"(libs.moshi.kotlin.codegen)
 }
 
-tasks.register("compileFeatureModules") {
-  group = "hollow"
-  description = "Compiles standalone feature modules in modules-src/<module_id>/ into module.dex.bin and signs them with Ed25519."
-  dependsOn("compileDebugKotlin")
-  notCompatibleWithConfigurationCache("Compiles external modules-src directories with kotlinc and d8")
-
-  val repoRootDir = rootDir
-  val compilerCpFiles: org.gradle.api.file.FileCollection = configurations.getByName("kotlinCompilerClasspath")
-  val kotlinTaskProvider = tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileDebugKotlin")
-  val pluginCpProvider = kotlinTaskProvider.map { it.pluginClasspath }
-  val appClassesDirProvider = kotlinTaskProvider.flatMap { it.destinationDirectory }
-  val libFilesProvider = kotlinTaskProvider.map { it.libraries }
-
-  doLast {
-    val compilerCp = compilerCpFiles.files
-    val pluginCp = pluginCpProvider.get().files
-    val appClassesDir = appClassesDirProvider.get().asFile
-    val libFiles = libFilesProvider.get().files
-
-    val sdkRoot = System.getenv("ANDROID_SDK_ROOT") ?: "/opt/android/sdk"
-    val d8Bin = File(sdkRoot, "build-tools/36.0.0/d8")
-    val javaHome = System.getProperty("java.home")
-    val javaBin = File(javaHome, "bin/java")
-    val jarBin = File(javaHome, "bin/jar")
-
-    val modulesSrcRoot = File(repoRootDir, "modules-src")
-    val moduleDirs = modulesSrcRoot.listFiles()
-      ?.filter { it.isDirectory }
-      ?.sortedBy { it.name }
-      ?: emptyList()
-
-    val fullCompileClasspath = (libFiles + appClassesDir).joinToString(File.pathSeparator) { it.absolutePath }
-    val pluginArg = "-Xplugin=${pluginCp.joinToString(",") { it.absolutePath }}"
-
-    for (modDir in moduleDirs) {
-      val modId = modDir.name
-      val ktFiles = modDir.walkTopDown().filter { it.isFile && it.extension == "kt" && !it.path.contains("/build/") }.toList()
-      if (ktFiles.isEmpty()) continue
-
-      val modBuildDir = File(modDir, "build")
-      val classesDir = File(modBuildDir, "classes")
-      if (classesDir.exists()) classesDir.deleteRecursively()
-      classesDir.mkdirs()
-
-      val kotlincCmd = mutableListOf(
-        javaBin.absolutePath,
-        "-cp",
-        compilerCp.joinToString(File.pathSeparator) { f -> f.absolutePath },
-        "org.jetbrains.kotlin.cli.jvm.K2JVMCompiler",
-        "-no-stdlib",
-        "-jvm-target",
-        "11",
-        pluginArg,
-        "-cp",
-        fullCompileClasspath,
-        "-d",
-        classesDir.absolutePath
-      )
-      ktFiles.forEach { kotlincCmd.add(it.absolutePath) }
-
-      val kotlincProc = ProcessBuilder(kotlincCmd)
-        .redirectErrorStream(true)
-        .start()
-      val kotlincOut = kotlincProc.inputStream.bufferedReader().readText()
-      val kotlincExit = kotlincProc.waitFor()
-      if (kotlincExit != 0) {
-        throw GradleException("kotlinc failed for $modId (exit $kotlincExit):\n$kotlincOut")
-      }
-
-      // Package compiled module classes into module-classes.jar
-      val jarFile = File(modBuildDir, "module-classes.jar")
-      if (jarFile.exists()) jarFile.delete()
-      val jarProc = ProcessBuilder(
-        jarBin.absolutePath,
-        "cf",
-        jarFile.absolutePath,
-        "-C",
-        classesDir.absolutePath,
-        "."
-      ).redirectErrorStream(true).start()
-      val jarOut = jarProc.inputStream.bufferedReader().readText()
-      if (jarProc.waitFor() != 0) {
-        throw GradleException("jar failed for $modId:\n$jarOut")
-      }
-
-      // Convert module-classes.jar into standalone DEX (module.dex.bin) using Android SDK d8
-      val d8Cmd = mutableListOf(
-        d8Bin.absolutePath,
-        "--min-api",
-        "24",
-        "--output",
-        modBuildDir.absolutePath,
-        "--classpath",
-        appClassesDir.absolutePath
-      )
-      libFiles.filter { it.exists() && it.extension == "jar" }.forEach { jar ->
-        d8Cmd.add("--classpath")
-        d8Cmd.add(jar.absolutePath)
-      }
-      d8Cmd.add(jarFile.absolutePath)
-
-      val d8Proc = ProcessBuilder(d8Cmd)
-        .redirectErrorStream(true)
-        .start()
-      val d8Out = d8Proc.inputStream.bufferedReader().readText()
-      val d8Exit = d8Proc.waitFor()
-      if (d8Exit != 0) {
-        throw GradleException("d8 failed for $modId (exit $d8Exit):\n$d8Out")
-      }
-
-      val classesDex = File(modBuildDir, "classes.dex")
-      val outDexBin = File(modBuildDir, "module.dex.bin")
-      if (!classesDex.exists()) {
-        throw GradleException("Expected classes.dex not generated for $modId")
-      }
-      if (outDexBin.exists()) outDexBin.delete()
-      classesDex.renameTo(outDexBin)
-      println("[compileFeatureModules] Built ${outDexBin.relativeTo(repoRootDir)} (${outDexBin.length()} bytes)")
-    }
-
-    // Sign all compiled module.dex.bin files with Ed25519 and sync to /modules/<id>/
-    val signProc = ProcessBuilder("node", "${repoRootDir}/scripts/sign-modules.js")
-      .directory(repoRootDir)
-      .redirectErrorStream(true)
-      .start()
-    val signOut = signProc.inputStream.bufferedReader().readText()
-    val signExit = signProc.waitFor()
-    println(signOut)
-    if (signExit != 0) {
-      throw GradleException("sign-modules.js failed (exit $signExit)")
-    }
-  }
+tasks.named("assemble") {
+  dependsOn(rootProject.tasks.named("verifyCoreIsEmpty"))
 }
 
 

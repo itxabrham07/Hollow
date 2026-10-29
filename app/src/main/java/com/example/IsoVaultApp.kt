@@ -24,6 +24,9 @@ class IsoVaultApp : Application() {
         super.onCreate()
         instance = this
 
+        // Phase 7: Track startup crash frequency for Safe Mode protection
+        com.example.isolation.core.stability.SafeModeManager.onAppStartupBegin(this)
+
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {
@@ -39,6 +42,19 @@ class IsoVaultApp : Application() {
             com.example.isolation.service.RootDeadmanWatchdog.init(this)
         } catch (_: Throwable) {
         }
+
+        // Phase 4: Periodic module sync worker (15 min interval, zero Play Services)
+        com.example.isolation.core.module.ModuleSyncWorker.startPeriodicSync(
+            context = this,
+            scope = applicationScope,
+            serverUrlProvider = {
+                try {
+                    com.example.isolation.model.SettingsStore.load(this).cloudServerUrl
+                } catch (_: Throwable) {
+                    ""
+                }
+            }
+        )
 
         // Re-publish every stored rule so hooked apps see the current state after a reboot or update.
         applicationScope.launch {

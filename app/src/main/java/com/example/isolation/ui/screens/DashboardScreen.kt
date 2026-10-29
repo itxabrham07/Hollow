@@ -76,25 +76,10 @@ import com.example.ui.theme.M3AmberAccent
 @Composable
 fun DashboardScreen(
     viewModel: IsoVaultViewModel,
-    onNavigateToApps: () -> Unit,
-    onNavigateToAppHider: () -> Unit = {},
-    onNavigateToDeviceSpoofer: () -> Unit = {},
-    onNavigateToVault: () -> Unit,
-    onNavigateToFileManager: () -> Unit = onNavigateToVault,
-    onNavigateToGallery: () -> Unit = onNavigateToVault,
     onNavigateToTerminal: () -> Unit,
     onNavigateToAudit: () -> Unit,
-    onNavigateToVpnProxy: () -> Unit = {},
     onNavigateToLicenseHub: () -> Unit = {},
-    onOpenModule: (String) -> Unit = { modId ->
-        when (modId) {
-            "module_isolation" -> onNavigateToApps()
-            "module_privacy" -> onNavigateToDeviceSpoofer()
-            "module_hider" -> onNavigateToAppHider()
-            "module_network" -> onNavigateToVpnProxy()
-            else -> onNavigateToLicenseHub()
-        }
-    }
+    onOpenModule: (String) -> Unit = {}
 ) {
     val scheme = MaterialTheme.colorScheme
     val isLsposedActive by viewModel.isLsposedActive.collectAsState()
@@ -302,7 +287,7 @@ fun DashboardScreen(
                                 val mod = state.module
                                 val isMounted = state.isReadyToUse
                                 val statusText = when {
-                                    isMounted -> mod.resolveCardBadge(viewModel)
+                                    isMounted -> mod.resolveCardBadge(viewModel.getModuleContext(mod.id))
                                     else -> "Install"
                                 }
                                 val statusColor = when {
@@ -357,7 +342,7 @@ fun DashboardScreen(
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = if (isMounted) mod.resolveCardSubtitle(viewModel) else "Tap to install module",
+                                        text = if (isMounted) mod.resolveCardSubtitle(viewModel.getModuleContext(mod.id)) else "Tap to install module",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = scheme.onSurfaceVariant,
                                         maxLines = 1,

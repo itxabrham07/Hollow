@@ -1,0 +1,19 @@
+{
+  "moduleId": "module_isolation",
+  "name": "Storage Shield & Virtual Vault",
+  "version": 5,
+  "minCoreVersion": 1,
+  "entryClass": "com.example.isolation.module.isolation.StorageIsolationModule",
+  "features": [
+    "Per-App Virtual Storage Sandboxing",
+    "Private Encrypted Vault Volume",
+    "Zero-Trace Photo & Gallery Cloaking",
+    "System File Access Interception"
+  ],
+  "permissions": [],
+  "hookTargets": [
+    "android",
+    "*"
+  ],
+  "accentColorHex": "0xFF10B981"
+}

@@ -214,23 +214,72 @@ object RootLicenseVaultManager {
 
     /**
      * Saves a downloaded module's encrypted binary into `/data/adb/.hollow_vault/modules/<moduleId>.dex.enc`.
-     * Because it lives in `/data/adb/.hollow_vault`, clearing app data does NOT delete downloaded modules!
+     * Implements Phase 7 Atomic Install:
+     * 1. Preserves existing version as `.bak` for one-tap rollback.
+     * 2. Writes new encrypted payload to `.tmp`.
+     * 3. Atomically swaps `.tmp` into `.enc`.
      */
     fun saveDownloadedModuleToVault(context: Context, moduleId: String, modulePayloadJson: String): Boolean {
         ensureSecretVolumeProvisioned(context)
         val encrypted = encryptWithHardwareKey(context, modulePayloadJson)
         val rootPath = "$ROOT_MODULES_DIR/$moduleId.dex.enc"
+        val rootBakPath = "$ROOT_MODULES_DIR/$moduleId.dex.bak"
+        val rootTmpPath = "$ROOT_MODULES_DIR/$moduleId.dex.tmp"
+
         val relativeName = "modules/$moduleId.dex.enc"
-        writeRawFileToRootAndFallback(context, rootPath, relativeName, encrypted)
+        val relativeBak = "modules/$moduleId.dex.bak"
+        val relativeTmp = "modules/$moduleId.dex.tmp"
+
+        // 1. Backup existing version if present
+        val existing = readRawFileFromRootOrFallback(context, rootPath, relativeName)
+        if (existing.isNotBlank()) {
+            writeRawFileToRootAndFallback(context, rootBakPath, relativeBak, existing)
+        }
+
+        // 2. Write to temp
+        writeRawFileToRootAndFallback(context, rootTmpPath, relativeTmp, encrypted)
+
+        // 3. Atomic swap
+        execRootCommand("mv -f $rootTmpPath $rootPath")
+        try {
+            val fallbackDir = File(getFallbackVaultDir(context), "modules")
+            val tmpFile = File(fallbackDir, "$moduleId.dex.tmp")
+            val targetFile = File(fallbackDir, "$moduleId.dex.enc")
+            if (tmpFile.exists()) {
+                if (targetFile.exists()) targetFile.delete()
+                tmpFile.renameTo(targetFile)
+            }
+        } catch (_: Throwable) {
+        }
+
+        return true
+    }
+
+    /**
+     * One-tap rollback: Restores the previous verified `.bak` version if the newly installed module fails.
+     */
+    fun rollbackModuleToPreviousBackup(context: Context, moduleId: String): Boolean {
+        val rootPath = "$ROOT_MODULES_DIR/$moduleId.dex.enc"
+        val rootBakPath = "$ROOT_MODULES_DIR/$moduleId.dex.bak"
+        val relativeName = "modules/$moduleId.dex.enc"
+        val relativeBak = "modules/$moduleId.dex.bak"
+
+        val bak = readRawFileFromRootOrFallback(context, rootBakPath, relativeBak)
+        if (bak.isBlank()) return false
+
+        writeRawFileToRootAndFallback(context, rootPath, relativeName, bak)
+        android.util.Log.i("RootLicenseVault", "Successfully rolled back $moduleId to previous backup version.")
         return true
     }
 
     fun deleteDownloadedModuleFromVault(context: Context, moduleId: String) {
         val rootPath = "$ROOT_MODULES_DIR/$moduleId.dex.enc"
+        val rootBakPath = "$ROOT_MODULES_DIR/$moduleId.dex.bak"
         val stateRootPath = "$ROOT_MODULES_DIR/${moduleId}_state.enc"
-        execRootCommand("rm -f $rootPath $stateRootPath")
+        execRootCommand("rm -f $rootPath $rootBakPath $stateRootPath")
         try {
             File(getFallbackVaultDir(context), "modules/$moduleId.dex.enc").delete()
+            File(getFallbackVaultDir(context), "modules/$moduleId.dex.bak").delete()
             File(getFallbackVaultDir(context), "modules/${moduleId}_state.enc").delete()
         } catch (_: Throwable) {
         }

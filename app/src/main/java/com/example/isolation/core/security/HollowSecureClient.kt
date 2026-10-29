@@ -261,6 +261,60 @@ object HollowSecureClient {
         }.start()
     }
 
+    data class PendingModuleInfo(
+        val moduleId: String,
+        val version: Int,
+        val name: String,
+        val sizeKb: Int,
+        val changelog: String
+    )
+
+    fun fetchPendingModules(context: Context, serverBaseUrl: String): List<PendingModuleInfo> {
+        val hw = DeviceHardwareFingerprint.collect(context)
+        val targets = if (serverBaseUrl.isNotBlank()) listOf(serverBaseUrl) + MIRROR_CLOUD_URLS else MIRROR_CLOUD_URLS
+        val results = mutableListOf<PendingModuleInfo>()
+
+        for (base in targets.distinct()) {
+            val clean = base.trim().trimEnd('/')
+            if (clean.isBlank()) continue
+            try {
+                val url = URL("$clean/api/v1/modules/pending")
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 6000
+                    readTimeout = 6000
+                    setRequestProperty("Accept", "application/json")
+                    setRequestProperty("X-Hollow-HW", hw.fingerprintHex)
+                }
+                if (conn.responseCode in 200..299) {
+                    val rawStr = conn.inputStream.bufferedReader().use { it.readText() }
+                    var rootObj = JSONObject(rawStr)
+                    if (rootObj.has("payload_enc")) {
+                        rootObj = decryptPayloadEnvelope(rootObj) ?: rootObj
+                    }
+                    val pendingArr = rootObj.optJSONArray("pending")
+                    if (pendingArr != null) {
+                        for (i in 0 until pendingArr.length()) {
+                            val item = pendingArr.getJSONObject(i)
+                            results.add(
+                                PendingModuleInfo(
+                                    moduleId = item.optString("moduleId", ""),
+                                    version = item.optInt("version", 1),
+                                    name = item.optString("name", item.optString("moduleId", "")),
+                                    sizeKb = item.optInt("sizeKb", 256),
+                                    changelog = item.optString("changelog", "Security updates")
+                                )
+                            )
+                        }
+                        if (results.isNotEmpty()) break
+                    }
+                }
+            } catch (_: Throwable) {
+            }
+        }
+        return results
+    }
+
     /**
      * In DEBUG builds only (`BuildConfig.DEBUG`), returns the real compiled & Ed25519-signed
      * DEX module bundle from `debug_modules/<moduleId>.json` for offline emulator / Robolectric testing.

@@ -320,17 +320,16 @@ class ExampleRobolectricTest {
             MaterialTheme {
                 if (openedModuleId == "module_sensor_firewall") {
                     loadedSensorModule!!.RenderPrimaryScreen(
-                        viewModel = viewModel,
+                        context = viewModel.getModuleContext(loadedSensorModule.id),
                         onBack = { openedModuleId = null },
                         onDetailOpenChanged = {}
                     )
                 } else {
                     DashboardScreen(
                         viewModel = viewModel,
-                        onNavigateToApps = {},
-                        onNavigateToVault = {},
                         onNavigateToTerminal = {},
                         onNavigateToAudit = {},
+                        onNavigateToLicenseHub = {},
                         onOpenModule = { modId -> openedModuleId = modId }
                     )
                 }
@@ -349,29 +348,27 @@ class ExampleRobolectricTest {
         val dashboardCardDump = cardNode.printToString()
         println("=== DASHBOARD DYNAMIC CARD SEMANTIC DUMP ===\n$dashboardCardDump")
         assertTrue(dashboardCardDump.contains("Sensor Firewall"))
-        assertTrue(dashboardCardDump.contains("3 hardware hooks"))
+        assertTrue(dashboardCardDump.contains("3/3 guards active"))
 
         // Click the dynamic card on Dashboard -> opens module_sensor_firewall primary screen
         cardNode.performClick()
         composeTestRule.waitForIdle()
         assertEquals("module_sensor_firewall", openedModuleId)
 
-        // Verify SensorFirewallPayload.RenderPrimaryScreen reads live state from IsoVaultViewModel
-        val vmStateNode = composeTestRule.onNodeWithTag("sensor_firewall_vm_state")
-        vmStateNode.assertIsDisplayed()
-        vmStateNode.assertTextContains("HW=${hw.fingerprintHex}", substring = true)
-        vmStateNode.assertTextContains("Mode=RELEASE", substring = true)
-        val screenDump = composeTestRule.onNodeWithTag("screen_module_sensor_firewall").printToString()
+        // Verify SensorFirewallPayload.RenderPrimaryScreen renders via HollowModuleContext
+        val statusBannerNode = composeTestRule.onNodeWithTag("sensor_firewall_status_banner")
+        statusBannerNode.assertIsDisplayed()
+        val screenDump = composeTestRule.onNodeWithTag("sensor_firewall_screen").printToString()
         println("=== SENSOR FIREWALL PRIMARY SCREEN DUMP ===\n$screenDump")
 
-        // Flip a hardware sensor toggle -> verify it calls viewModel.appendTerminalLog(...)
-        composeTestRule.onNodeWithTag("sensor_toggle_mic_null_pcm_stream").performClick()
+        // Flip a hardware sensor toggle -> verify it updates module-scoped preferences via HollowModuleContext
+        val modCtx = viewModel.getModuleContext("module_sensor_firewall")
+        assertTrue(modCtx.preferences.getBoolean("mic_null_pcm_stream", true))
+        composeTestRule.onNodeWithTag("switch_mic_null_pcm_stream").performClick()
         composeTestRule.waitForIdle()
-        assertTrue(
-            "Toggling sensor firewall control must write to IsoVaultViewModel.terminalLogs",
-            viewModel.terminalLogs.value.any {
-                it.contains("[SensorFirewall] mic_null_pcm_stream set to false")
-            }
+        assertFalse(
+            "Toggling sensor firewall control must persist false into HollowModuleContext.preferences",
+            modCtx.preferences.getBoolean("mic_null_pcm_stream", true)
         )
     }
 }

@@ -278,74 +278,41 @@ fun SettingsScreen(
             }
         }
 
-        // ── Section 2: Security & Disguise ──────────────────────────────────
+        // ── Section 2: System Diagnostics ──────────────────────────────────
         item {
-            SettingsSectionLabel("Security & Disguise")
+            SettingsSectionLabel("System Diagnostics")
             Spacer(modifier = Modifier.height(8.dp))
             SettingsGroupCard {
-                // Hide / Disguise row
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier
-                        .clickable { showHollowStealthDialog = true }
+                        .clickable { onOpenDiagnostics() }
                         .padding(vertical = 6.dp)
-                        .testTag("card_hollow_self_stealth")
+                        .testTag("card_system_diagnostics")
                 ) {
-                    SettingsIconBox(presetIconVector(settings.hollowIconPreset))
+                    SettingsIconBox(Icons.Default.Storage)
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Hide / Disguise Hollow",
+                            text = "Root Terminal & Mounts",
                             style = typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
                             color = SettingsDarkOnyx
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = when (settings.hollowVisibilityMode) {
-                                LauncherVisibilityMode.VISIBLE ->
-                                    if (settings.systemUiTriggerEnabled) "Visible · SystemUI trigger on"
-                                    else "Visible in launcher"
-                                LauncherVisibilityMode.DISGUISED ->
-                                    "Disguised as \"${settings.hollowCustomName}\""
-                                LauncherVisibilityMode.HIDDEN ->
-                                    "Hidden · Open via clock trigger"
-                            },
+                            text = "View mount execution logs and boot scripts",
                             style = typography.bodySmall,
                             color = SettingsMuted,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = SettingsDarkOnyx,
-                        modifier = Modifier
-                            .clickable { showHollowStealthDialog = true }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Text(
-                                text = when (settings.hollowVisibilityMode) {
-                                    LauncherVisibilityMode.VISIBLE -> "Visible"
-                                    LauncherVisibilityMode.DISGUISED -> "Disguised"
-                                    LauncherVisibilityMode.HIDDEN -> "Hidden"
-                                },
-                                style = typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color.White
-                            )
-                        }
-                    }
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = SettingsMuted
+                    )
                 }
             }
         }
@@ -415,32 +382,6 @@ fun SettingsScreen(
     }
 
     // ── Dialogs ─────────────────────────────────────────────────────────────
-
-    if (showHollowStealthDialog) {
-        HollowSelfStealthDialog(
-            currentMode = settings.hollowVisibilityMode,
-            currentCustomName = settings.hollowCustomName,
-            currentIconPreset = settings.hollowIconPreset,
-            currentSystemUiTrigger = settings.systemUiTriggerEnabled,
-            currentCustomIconBase64 = settings.hollowCustomIconBase64,
-            currentCustomIconDonorPkg = settings.hollowCustomIconDonorPkg,
-            currentSpoofInSettings = settings.hollowSpoofInSettings,
-            onDecodeImageUri = { uri, cb -> viewModel.decodeImageUriToBase64(uri, cb) },
-            onDismiss = { showHollowStealthDialog = false },
-            onSave = { mode, customName, iconPreset, sysUiTrigger, customIconB64, donorPkg, spoofSettings ->
-                viewModel.updateHollowStealthConfig(
-                    visibilityMode = mode,
-                    customName = customName,
-                    iconPreset = iconPreset,
-                    systemUiTriggerEnabled = sysUiTrigger,
-                    customIconBase64 = customIconB64,
-                    customIconDonorPkg = donorPkg,
-                    spoofInSettings = spoofSettings
-                )
-                showHollowStealthDialog = false
-            }
-        )
-    }
 
     if (showSetupGuideDialog) {
         AlertDialog(

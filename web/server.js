@@ -886,6 +886,44 @@ app.get('/api/v1/modules/download/:moduleId', async (req, res) => {
   }
 });
 
+app.get('/api/v1/modules/pending', async (req, res) => {
+  try {
+    const hardwareFingerprint = req.headers['x-hollow-hw'] || req.query.hw || '';
+    if (!hardwareFingerprint) {
+      return res.status(401).json({ ok: false, error: 'Device hardware fingerprint required' });
+    }
+
+    const device = await findDevice(hardwareFingerprint);
+    if (!device || normalizeStatus(device.status) !== 'APPROVED') {
+      return res.json({ ok: true, pending: [] });
+    }
+
+    const allowed = Array.isArray(device.allowedModules) ? device.allowedModules : [];
+    const catalog = getModuleCatalogSummary();
+    const pending = [];
+
+    for (const modId of allowed) {
+      const summary = catalog.find(m => m.moduleId === modId);
+      if (summary) {
+        pending.push({
+          moduleId: summary.moduleId,
+          version: summary.version || 1,
+          name: summary.name || summary.moduleId,
+          sizeKb: summary.sizeKb || 256,
+          changelog: 'Latest security updates and performance optimizations'
+        });
+      }
+    }
+
+    return sendClientResponse(req, res, {
+      ok: true,
+      pending
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.post('/api/v1/security/incident', async (req, res) => {
   try {
     const body = decryptEnvelope(req.body);

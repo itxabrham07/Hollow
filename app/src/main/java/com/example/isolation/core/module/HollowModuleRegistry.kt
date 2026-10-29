@@ -46,6 +46,12 @@ object HollowModuleRegistry {
         context: Context,
         devFullBuild: Boolean
     ): List<DynamicModuleState> {
+        // Phase 7: Safe Mode bypasses all dynamic module mounting if startup crash threshold hit
+        if (com.example.isolation.core.stability.SafeModeManager.isSafeModeEngaged(context)) {
+            android.util.Log.e("HollowModuleRegistry", "SAFE MODE ACTIVE: 0 dynamic modules will be mounted.")
+            return emptyList()
+        }
+
         if (devFullBuild && BuildConfig.DEBUG) {
             val debugDexModules = HollowDexModuleLoader.loadDebugBundledModules(context)
             val byId = LinkedHashMap<String, HollowModule>()
@@ -88,10 +94,11 @@ object HollowModuleRegistry {
 
         // 2. Dynamically loaded DEX modules via HollowDexModuleLoader
         for (moduleId in candidateIds) {
+            val isQuarantined = com.example.isolation.core.stability.ModuleQuarantineManager.isQuarantined(context, moduleId)
             val authorized = isLicenseValid && vaultRecord.allowedModules.contains(moduleId)
             val hadVaultFile = vaultRecord.downloadedModules.contains(moduleId)
 
-            val loadedDexModule: HollowModule? = if (hadVaultFile) {
+            val loadedDexModule: HollowModule? = if (hadVaultFile && !isQuarantined) {
                 // Verifies SHA-256 + Ed25519 signature and loads entryClass via DexClassLoader.
                 // If tampered or invalid signature, HollowDexModuleLoader deletes the vault payload
                 // and returns null.
@@ -143,65 +150,28 @@ object HollowModuleRegistry {
 private class UnmountedModuleDescriptor(
     override val id: String
 ) : HollowModule {
-    override val displayName: String = when (id) {
-        "module_isolation" -> "Storage Shield & Virtual Vault"
-        "module_privacy" -> "Hardware Spoofer & Privacy Profiles"
-        "module_hider" -> "App Hider & SystemUI Stealth"
-        "module_network" -> "Proxy & V2Ray Suite"
-        "module_sensor_firewall" -> "Sensor & Mic Hardware Firewall"
-        else -> id.removePrefix("module_").split("_").joinToString(" ") {
-            it.replaceFirstChar { c -> c.uppercase() }
-        }
-    }
-    override val cardTitle: String = when (id) {
-        "module_isolation" -> "Storage Isolate"
-        "module_privacy" -> "Privacy & ID"
-        "module_hider" -> "Hide App"
-        "module_network" -> "Proxy & V2Ray"
-        "module_sensor_firewall" -> "Sensor Firewall"
-        else -> displayName.take(18)
-    }
-    override val summary: String = when (id) {
-        "module_isolation" -> "Redirects file and media queries into encrypted per-app workspaces so personal photos and files stay protected."
-        "module_privacy" -> "Provides isolated per-application hardware profiles for Android ID, serial numbers, and sensor streams."
-        "module_hider" -> "Hides sensitive apps from system package queries, app launchers, and recent tasks."
-        "module_network" -> "Routes selected application traffic through dedicated encrypted proxies with kill switch protection."
-        "module_sensor_firewall" -> "Monitors and intercepts unauthorized microphone, camera, and sensor access."
-        else -> "System privacy module for app sandboxing and device protection."
-    }
+    override val displayName: String = id.split("_")
+        .filter { it.isNotBlank() && it.lowercase() != "module" }
+        .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+        .ifBlank { id }
+
+    override val cardTitle: String = displayName.take(18)
+    override val summary: String = "Dynamic security and privacy extension module for Hollow platform."
     override val version: Int = 1
     override val requiredMinCoreVersion: Int = 1
-    override val icon: ImageVector = when (id) {
-        "module_isolation" -> Icons.Default.Apps
-        "module_privacy" -> Icons.Default.Fingerprint
-        "module_hider" -> Icons.Default.VisibilityOff
-        "module_network" -> Icons.Default.Public
-        "module_sensor_firewall" -> Icons.Default.Sensors
-        else -> Icons.Default.Extension
-    }
-    override val primaryRoute: String = when (id) {
-        "module_isolation" -> "APPS"
-        "module_privacy" -> "DEVICE_SPOOFER"
-        "module_hider" -> "APP_HIDER"
-        "module_network" -> "VPN_PROXY"
-        else -> "DYNAMIC_${id.uppercase()}"
-    }
-    override val contributesBottomNavTab: Boolean = id == "module_isolation" || id == "module_privacy"
+    override val icon: ImageVector = Icons.Default.Extension
+    override val primaryRoute: String = "DYNAMIC_${id.uppercase()}"
+    override val contributesBottomNavTab: Boolean = false
     override val sizeKb: Int = 512
-    override val cardTestTag: String = when (id) {
-        "module_isolation" -> "stat_isolated_apps"
-        "module_privacy" -> "card_device_identity_spoofer"
-        "module_hider" -> "card_hide_disguise_apps"
-        "module_network" -> "dashboard_vpn_card"
-        else -> "module_card_$id"
-    }
+    override val cardTestTag: String = "module_card_$id"
 
     @Composable
     override fun RenderPrimaryScreen(
-        viewModel: IsoVaultViewModel,
+        context: com.example.isolation.sdk.HollowModuleContext,
         onBack: () -> Unit,
         onDetailOpenChanged: (Boolean) -> Unit
     ) {
         // Never invoked while unmounted (isReadyToUse == false)
     }
 }
+

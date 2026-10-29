@@ -298,6 +298,18 @@ object HollowDexModuleLoader {
                             )
                             return null
                         }
+                        try {
+                            val modContext = HollowModuleContextImpl(context, moduleId)
+                            loaded.onMount(modContext)
+                        } catch (t: Throwable) {
+                            Log.e(TAG, "Module $moduleId onMount failed safely: ${t.message}", t)
+                            com.example.isolation.core.stability.ModuleQuarantineManager.recordModuleFailure(
+                                context = context,
+                                moduleId = moduleId,
+                                throwable = t,
+                                serverBaseUrl = serverBaseUrl
+                            )
+                        }
                         loadedModuleCache[cacheKey] = loaded
                     }
                     loaded
