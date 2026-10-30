@@ -68,32 +68,40 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
     }
 
     private val app = application as IsoVaultApp
-    private val dao = app.database.isolationDao()
-    private val pkgRepo = app.packageRepository
+    private val container = app.appContainer
+    private val dao = container.isolationDao
+    private val pkgRepo = container.packageRepository
+    private val isolationRepo = container.isolationRepository
+    private val vaultRepo = container.vaultRepository
+    private val auditLogRepo = container.auditLogRepository
+    private val deviceSpoofRepo = container.deviceSpoofRepository
+    private val settingsRepo = container.settingsRepository
+    private val mountRepo = container.mountRepository
+    private val vpnProxyRepo = container.vpnProxyRepository
 
     /** Locker entries belong to the manager itself; per-app volumes are managed separately. */
     private val lockerPackage = app.packageName
-    private val lockerDir: File get() = File(app.filesDir, "locker").apply { mkdirs() }
+    private val lockerDir: File get() = vaultRepo.lockerDir
 
-    val configs: StateFlow<List<AppIsolationConfig>> = dao.getAllConfigs()
+    val configs: StateFlow<List<AppIsolationConfig>> = isolationRepo.getAllConfigs()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val recentAuditLogs: StateFlow<List<AccessAuditLog>> = dao.getRecentAuditLogs(100)
+    val recentAuditLogs: StateFlow<List<AccessAuditLog>> = auditLogRepo.getRecentAuditLogs(100)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val vaultFiles: StateFlow<List<VaultFileItem>> = dao.getAllVaultFiles()
+    val vaultFiles: StateFlow<List<VaultFileItem>> = vaultRepo.getAllVaultFiles()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val isolatedCount: StateFlow<Int> = dao.getIsolatedAppsCount()
+    val isolatedCount: StateFlow<Int> = isolationRepo.getIsolatedAppsCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val hiddenOrDisguisedCount: StateFlow<Int> = dao.getHiddenOrDisguisedAppsCount()
+    val hiddenOrDisguisedCount: StateFlow<Int> = isolationRepo.getHiddenOrDisguisedAppsCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val identitySpoofedCount: StateFlow<Int> = dao.getIdentitySpoofedAppsCount()
+    val identitySpoofedCount: StateFlow<Int> = isolationRepo.getIdentitySpoofedAppsCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val totalEncryptedBytes: StateFlow<Long> = dao.getTotalEncryptedBytes()
+    val totalEncryptedBytes: StateFlow<Long> = vaultRepo.getTotalEncryptedBytes()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
 
     private val _rawInstalledApps = MutableStateFlow<List<InstalledAppInfo>>(emptyList())
@@ -306,7 +314,9 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 com.example.isolation.provider.IsoVaultConfigProvider.CONTENT_URI,
                 null
             )
-        } catch (_: Throwable) {}
+        } catch (t: Throwable) {
+            android.util.Log.e("IsoVaultViewModel", "Failed to notify config change", t)
+        }
     }
 
     private fun syncStealthRulesToHooks() {
@@ -424,7 +434,8 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                         IsolationRuleManager.bitmapToBase64Png(rawBmp, 144)
                     } else null
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                android.util.Log.e("IsoVaultViewModel", "Failed to decode image URI", e)
                 null
             }
             withContext(Dispatchers.Main) {
@@ -481,7 +492,8 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                             try {
                                 val d = app.packageManager.getApplicationIcon(customIconDonorPkg)
                                 IsolationRuleManager.drawableToBase64Png(d, 144)
-                            } catch (_: Throwable) {
+                            } catch (t: Throwable) {
+                                android.util.Log.e("IsoVaultViewModel", "Failed to get donor icon", t)
                                 customIconBase64
                             }
                         } else customIconBase64
@@ -814,7 +826,9 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                 )
                 try {
                     Runtime.getRuntime().exec(arrayOf("su", "-c", "am force-stop ${appInfo.packageName}")).waitFor()
-                } catch (_: Throwable) {}
+                } catch (t: Throwable) {
+                    android.util.Log.e("IsoVaultViewModel", "Failed to force-stop ${appInfo.packageName}", t)
+                }
             }
             loadInstalledApps()
 
@@ -1157,7 +1171,8 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                         try {
                             val d = app.packageManager.getApplicationIcon(customIconDonorPkg)
                             IsolationRuleManager.drawableToBase64Png(d, 144)
-                        } catch (_: Throwable) {
+                        } catch (t: Throwable) {
+                            android.util.Log.e("IsoVaultViewModel", "Failed to get donor icon for Hollow", t)
                             customIconBase64
                         }
                     } else customIconBase64
@@ -1270,7 +1285,9 @@ class IsoVaultViewModel(application: Application) : AndroidViewModel(application
                     }
                 }
             }
-        } catch (_: Throwable) {}
+        } catch (t: Throwable) {
+            android.util.Log.e("IsoVaultViewModel", "Failed to apply native Hollow alias", t)
+        }
     }
 
     /**

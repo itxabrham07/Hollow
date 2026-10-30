@@ -93,7 +93,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            val viewModel: IsoVaultViewModel = viewModel()
+            val viewModel: IsoVaultViewModel = viewModel(factory = com.example.isolation.core.di.AppViewModelProvider.Factory)
             val settings by viewModel.settings.collectAsState()
             IsoVaultTheme(
                 darkTheme = settings.darkTheme,
@@ -107,7 +107,7 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel()) {
+fun MainAppContainer(viewModel: IsoVaultViewModel = viewModel(factory = com.example.isolation.core.di.AppViewModelProvider.Factory)) {
     val scheme = MaterialTheme.colorScheme
     var currentScreen by remember { mutableStateOf(NavDestination.DASHBOARD) }
     var filesInitialTab by remember { mutableIntStateOf(0) }

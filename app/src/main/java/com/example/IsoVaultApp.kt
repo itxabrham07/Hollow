@@ -15,12 +15,16 @@ class IsoVaultApp : Application() {
 
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    val database by lazy { IsoVaultDatabase.getDatabase(this) }
-    val packageRepository by lazy { AppPackageRepository(this) }
+    lateinit var appContainer: com.example.isolation.core.di.AppContainer
+        private set
+
+    val database by lazy { appContainer.database }
+    val packageRepository by lazy { appContainer.packageRepository }
 
     override fun onCreate() {
         super.onCreate()
         instance = this
+        appContainer = com.example.isolation.core.di.DefaultAppContainer(this)
 
         com.example.isolation.service.RootDeadmanWatchdog.init(this)
 
